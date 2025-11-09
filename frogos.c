@@ -56,6 +56,7 @@ static retro_input_state_t input_state_cb = NULL;
 
 // Input state
 static int prev_input[16] = {0};
+static bool game_queued = false;  // Flag to indicate game is queued, waiting for MENU
 
 // Colors (RGB565) - MinUI Exact Style from screenshot
 #define COLOR_BG        0x0000  // Black background
@@ -282,26 +283,17 @@ static void scan_directory(const char *path) {
     closedir(dir);
 }
 
-// Write boot file for launching a game
-static void write_boot_file(const char *core, const char *rom_path) {
-    // Extract just the filename from the full path
-    const char *filename = strrchr(rom_path, '/');
-    if (filename) {
-        filename++;  // Skip the slash
-    } else {
-        filename = rom_path;  // Use as-is if no slash found
-    }
-
-    FILE *f = fopen(BOOT_FILE, "w");
-    if (f) {
-        fprintf(f, "%s;%s", core, filename);
-        fclose(f);
-    }
-}
-
 // Render the menu - MinUI exact style
 static void render_menu() {
     clear_screen(COLOR_BG);
+
+    // If game is queued, show exit instructions
+    if (game_queued) {
+        draw_text(30, SCREEN_HEIGHT / 2 - 30, "Game queued!", 0xFFFF);
+        draw_text(30, SCREEN_HEIGHT / 2, "Press SEL+START", 0x07E0);
+        draw_text(50, SCREEN_HEIGHT / 2 + 20, "then EXIT", 0x07E0);
+        return;
+    }
 
     // Use MinUI layout constants
     int visible_entries = VISIBLE_ENTRIES;
@@ -369,6 +361,12 @@ static void handle_input() {
 
     input_poll_cb();
 
+    // If game is queued, just show message - user must exit manually
+    if (game_queued) {
+        // Don't process any input, just wait for user to exit with physical MENU button
+        return;
+    }
+
     // Get current input state
     int up = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP);
     int down = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
@@ -414,10 +412,48 @@ static void handle_input() {
             // File selected - try to launch it
             // Extract core name from parent directory
             const char *core_name = get_basename(current_path);
-            write_boot_file(core_name, entry->path);
 
-            // Request shutdown to trigger reboot with new game
-            environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+            // DEBUG: Log selection
+            extern void xlog(const char *fmt, ...);
+            xlog("[FrogOS] ROM Selection:\n");
+            xlog("[FrogOS]   Current path: %s\n", current_path);
+            xlog("[FrogOS]   Selected: %s\n", entry->name);
+            xlog("[FrogOS]   Full path: %s\n", entry->path);
+            xlog("[FrogOS]   Core: %s\n", core_name);
+
+            // Build game path for loader
+            char game_path[512];
+            const char *filename = strrchr(entry->path, '/');
+            if (filename) {
+                filename++;  // Skip slash
+            } else {
+                filename = entry->name;
+            }
+
+            // Strip .GBA extension from stub filename to get actual ROM name
+            char rom_name[256];
+            strncpy(rom_name, filename, sizeof(rom_name) - 1);
+            rom_name[sizeof(rom_name) - 1] = '\0';
+
+            char *gba_ext = strstr(rom_name, ".GBA");
+            if (!gba_ext) {
+                gba_ext = strstr(rom_name, ".gba");
+            }
+            if (gba_ext) {
+                *gba_ext = '\0';  // Remove .GBA extension
+            }
+
+            snprintf(game_path, sizeof(game_path), "/mnt/sda1/ROMS/%s;%s", core_name, rom_name);
+
+            xlog("[FrogOS] Loading game: %s\n", game_path);
+
+            // Call custom environment command to queue game
+            if (environ_cb(0x10000, game_path)) {
+                xlog("[FrogOS] Game queued! Exit to launch: SEL+START -> QUIT\n");
+                game_queued = true;
+            } else {
+                xlog("[FrogOS] ERROR: Failed to queue game\n");
+            }
         }
     }
 
@@ -517,6 +553,20 @@ void retro_reset(void) {
 }
 
 void retro_run(void) {
+    if (game_queued) {
+        // Show message to exit manually
+        memset(framebuffer, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
+
+        draw_text(80, 100, "Game queued!", 0xFFFF);
+        draw_text(40, 120, "Exit to launch game:", 0xFFFF);
+        draw_text(50, 140, "SEL+START -> QUIT", 0xF800); // Red color
+
+        if (video_cb) {
+            video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
+        }
+        return;
+    }
+
     handle_input();
     render_menu();
 
