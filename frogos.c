@@ -10,6 +10,10 @@
 #include <sys/stat.h>
 
 #ifdef SF2000
+
+void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x800016d0;
+#include "../../stockfw.h"
+
 // For SF2000, use the custom dirent implementation
 #include "../../dirent.h"
 #else
@@ -23,7 +27,6 @@
 #define MAX_ENTRIES 256
 #define MAX_PATH_LEN 512
 #define ROMS_PATH "/mnt/sda1/ROMS"
-#define BOOT_FILE "/mnt/sda1/frogos_boot.txt"
 
 // MinUI Layout Constants
 #define HEADER_HEIGHT 30
@@ -56,7 +59,7 @@ static retro_input_state_t input_state_cb = NULL;
 
 // Input state
 static int prev_input[16] = {0};
-static bool game_queued = false;  // Flag to indicate game is queued, waiting for MENU
+static bool game_queued = false;  // Flag to indicate game is queued
 
 // Colors (RGB565) - MinUI Exact Style from screenshot
 #define COLOR_BG        0x0000  // Black background
@@ -213,11 +216,17 @@ static inline int is_directory_fast(const char *path, unsigned char d_type) {
     return 0;
 }
 
+// Comparison function to sort entries alphabetically by name
+int compare_entries(const void *a, const void *b) {
+    const MenuEntry *entry_a = (const MenuEntry *)a;
+    const MenuEntry *entry_b = (const MenuEntry *)b;
+    return strcmp(entry_a->name, entry_b->name);  // Compare by name
+}
+
 // Scan directory and populate entries
 static void scan_directory(const char *path) {
     DIR *dir;
     struct dirent *ent;
-    int dir_start_index;
 
     entry_count = 0;
     selected_index = 0;
@@ -236,9 +245,6 @@ static void scan_directory(const char *path) {
         return;
     }
 
-    // Remember where directories start
-    dir_start_index = entry_count;
-
     // Collect all entries in a single pass - optimized
     while ((ent = readdir(dir)) != NULL && entry_count < MAX_ENTRIES) {
         if (ent->d_name[0] == '.') continue;  // Skip hidden files
@@ -256,23 +262,13 @@ static void scan_directory(const char *path) {
 
         // Add directories first, then files
         if (is_dir) {
-            // Insert directory in order with other directories
-            int insert_pos = dir_start_index;
-            while (insert_pos < entry_count && entries[insert_pos].is_dir) {
-                insert_pos++;
-            }
-            // Make room if needed
-            if (insert_pos < entry_count) {
-                for (int i = entry_count; i > insert_pos; i--) {
-                    entries[i] = entries[i - 1];
-                }
-            }
-            strncpy(entries[insert_pos].name, ent->d_name, sizeof(entries[insert_pos].name) - 1);
-            strncpy(entries[insert_pos].path, full_path, sizeof(entries[insert_pos].path) - 1);
-            entries[insert_pos].is_dir = 1;
+            // Add directory entry
+            strncpy(entries[entry_count].name, ent->d_name, sizeof(entries[entry_count].name) - 1);
+            strncpy(entries[entry_count].path, full_path, sizeof(entries[entry_count].path) - 1);
+            entries[entry_count].is_dir = 1;
             entry_count++;
         } else {
-            // Files go at the end
+            // Add file entry
             strncpy(entries[entry_count].name, ent->d_name, sizeof(entries[entry_count].name) - 1);
             strncpy(entries[entry_count].path, full_path, sizeof(entries[entry_count].path) - 1);
             entries[entry_count].is_dir = 0;
@@ -280,18 +276,20 @@ static void scan_directory(const char *path) {
         }
     }
 
+    // Close the directory after reading
     closedir(dir);
+
+    // Sort all entries alphabetically by name
+    qsort(entries, entry_count, sizeof(MenuEntry), compare_entries);
 }
 
 // Render the menu - MinUI exact style
 static void render_menu() {
     clear_screen(COLOR_BG);
 
-    // If game is queued, show exit instructions
+    // If game is queued, just show loading screen
     if (game_queued) {
-        draw_text(30, SCREEN_HEIGHT / 2 - 30, "Game queued!", 0xFFFF);
-        draw_text(30, SCREEN_HEIGHT / 2, "Press SEL+START", 0x07E0);
-        draw_text(50, SCREEN_HEIGHT / 2 + 20, "then EXIT", 0x07E0);
+        draw_text(30, SCREEN_HEIGHT / 2, "Loading...", 0xFFFF);
         return;
     }
 
@@ -307,6 +305,13 @@ static void render_menu() {
         display_path = get_basename(current_path);
     }
     draw_text(PADDING, 8, display_path, COLOR_HEADER);
+
+    // Adjust the scroll_offset if necessary to keep the selected item visible
+    if (selected_index < scroll_offset) {
+        scroll_offset = selected_index;  // Scroll up to make the item visible
+    } else if (selected_index >= scroll_offset + visible_entries) {
+        scroll_offset = selected_index - visible_entries + 1;  // Scroll down to make the item visible
+    }
 
     // Draw menu entries with MinUI styling
     for (int i = scroll_offset; i < entry_count && i < scroll_offset + visible_entries; i++) {
@@ -325,11 +330,12 @@ static void render_menu() {
             draw_rounded_rect(sel_x, sel_y, sel_w, sel_h, radius, COLOR_SELECT_BG);
             text_color = COLOR_SELECT_TEXT;
         } else {
-            text_color = entries[i].is_dir ? COLOR_FOLDER : COLOR_TEXT;
+            text_color = COLOR_TEXT;  // Default color for text
         }
 
         // Draw entry text (no brackets, MinUI is clean)
         draw_text(PADDING + 4, y + 4, entries[i].name, text_color);
+
     }
 
     // Optional: Draw scroll indicator if there are more items
@@ -361,9 +367,9 @@ static void handle_input() {
 
     input_poll_cb();
 
-    // If game is queued, just show message - user must exit manually
+    // If game is queued, just show loading screen
     if (game_queued) {
-        // Don't process any input, just wait for user to exit with physical MENU button
+        // Don't process any input
         return;
     }
 
@@ -372,14 +378,20 @@ static void handle_input() {
     int down = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
     int a = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A);
     int b = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B);
+    int l = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
+    int r = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
 
     // Handle up (on button release)
     if (prev_input[0] && !up) {
         if (selected_index > 0) {
             selected_index--;
-            if (selected_index < scroll_offset) {
-                scroll_offset = selected_index;
-            }
+        } else {
+            // Loop to the last entry when at the top
+            selected_index = entry_count - 1;
+        }
+        // Adjust scroll_offset if necessary
+        if (selected_index < scroll_offset) {
+            scroll_offset = selected_index;
         }
     }
 
@@ -387,9 +399,41 @@ static void handle_input() {
     if (prev_input[1] && !down) {
         if (selected_index < entry_count - 1) {
             selected_index++;
-            if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
-                scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
-            }
+        } else {
+            // Loop to the first entry when at the bottom
+            selected_index = 0;
+        }
+        // Adjust scroll_offset if necessary
+        if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+            scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+        }
+    }
+
+    // Handle L button (move up by 10 entries)
+    if (prev_input[4] && !l) {
+        if (selected_index >= 10) {
+            selected_index -= 10;
+        } else {
+            // Loop to the bottom when reaching the top
+            selected_index = entry_count - (10 - selected_index);
+        }
+        // Adjust scroll_offset if necessary
+        if (selected_index < scroll_offset) {
+            scroll_offset = selected_index;
+        }
+    }
+
+    // Handle R button (move down by 10 entries)
+    if (prev_input[5] && !r) {
+        if (selected_index < entry_count - 10) {
+            selected_index += 10;
+        } else {
+            // Loop to the top when reaching the bottom
+            selected_index = (selected_index + 10) % entry_count;  // Wrap around to the top
+        }
+        // Adjust scroll_offset if necessary
+        if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+            scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
         }
     }
 
@@ -422,7 +466,6 @@ static void handle_input() {
             xlog("[FrogOS]   Core: %s\n", core_name);
 
             // Build game path for loader
-            char game_path[512];
             const char *filename = strrchr(entry->path, '/');
             if (filename) {
                 filename++;  // Skip slash
@@ -430,30 +473,17 @@ static void handle_input() {
                 filename = entry->name;
             }
 
-            // Strip .GBA extension from stub filename to get actual ROM name
-            char rom_name[256];
-            strncpy(rom_name, filename, sizeof(rom_name) - 1);
-            rom_name[sizeof(rom_name) - 1] = '\0';
+            sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename); // Workaround for loading a core from within a core, loader corrects
+            sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS"); // Expects "/mnt/sda1/ROMS" format
+            sprintf((char *)ptr_gs_run_game_name, "%s;%s", core_name, filename); // Expects the filename without any extension 
 
-            char *gba_ext = strstr(rom_name, ".GBA");
-            if (!gba_ext) {
-                gba_ext = strstr(rom_name, ".gba");
-            }
-            if (gba_ext) {
-                *gba_ext = '\0';  // Remove .GBA extension
+            // Remove extension from ptr_gs_run_game_name
+            char *dot_position = strrchr(ptr_gs_run_game_name, '.');
+            if (dot_position != NULL) {
+                *dot_position = '\0'; 
             }
 
-            snprintf(game_path, sizeof(game_path), "/mnt/sda1/ROMS/%s;%s", core_name, rom_name);
-
-            xlog("[FrogOS] Loading game: %s\n", game_path);
-
-            // Call custom environment command to queue game
-            if (environ_cb(0x10000, game_path)) {
-                xlog("[FrogOS] Game queued! Exit to launch: SEL+START -> QUIT\n");
-                game_queued = true;
-            } else {
-                xlog("[FrogOS] ERROR: Failed to queue game\n");
-            }
+            game_queued = true; // Pass to retro_run, can only load the core from there
         }
     }
 
@@ -473,6 +503,8 @@ static void handle_input() {
     prev_input[1] = down;
     prev_input[2] = a;
     prev_input[3] = b;
+    prev_input[4] = l;
+    prev_input[5] = r;
 }
 
 // Libretro API implementation
@@ -553,25 +585,15 @@ void retro_reset(void) {
 }
 
 void retro_run(void) {
-    if (game_queued) {
-        // Show message to exit manually
-        memset(framebuffer, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
-
-        draw_text(80, 100, "Game queued!", 0xFFFF);
-        draw_text(40, 120, "Exit to launch game:", 0xFFFF);
-        draw_text(50, 140, "SEL+START -> QUIT", 0xF800); // Red color
-
-        if (video_cb) {
-            video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
-        }
-        return;
-    }
-
     handle_input();
     render_menu();
-
     if (video_cb) {
         video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
+    }
+    if (game_queued) { // Can only load the game from here without crashing
+        retro_deinit();
+        load_and_run_core(ptr_gs_run_game_file, 0);
+        return;
     }
 }
 
