@@ -233,15 +233,21 @@ int compare_entries(const void *a, const void *b) {
 
 // Show recent games list
 static void show_recent_games(void) {
+    extern void xlog(const char *fmt, ...);
+    xlog("[FrogOS] === ENTERING RECENT GAMES ===\n");
+    
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
     
     // Clear thumbnail cache when switching to recent games mode
     thumbnail_cache_valid = 0;
+    xlog("[FrogOS] Cleared thumbnail cache, setting selected_index=0\n");
 
     const RecentGame* recent_list = recent_games_get_list();
     int recent_count = recent_games_get_count();
+    
+    xlog("[FrogOS] Recent games count: %d\n", recent_count);
 
     if (recent_count == 0) {
         // Only show back entry if no recent games
@@ -266,8 +272,10 @@ static void show_recent_games(void) {
         entry_count++;
     }
     
+    xlog("[FrogOS] Calling load_current_thumbnail() for initial selection (index=%d)\n", selected_index);
     // Load thumbnail for initially selected item
     load_current_thumbnail();
+    xlog("[FrogOS] === FINISHED ENTERING RECENT GAMES ===\n");
 }
 
 // Scan directory and populate entries
@@ -447,6 +455,9 @@ static void render_menu() {
     // Load and display thumbnail for selected item FIRST (background layer)
     // Only reload if selection changed
     if (last_selected_index != selected_index) {
+        extern void xlog(const char *fmt, ...);
+        xlog("[FrogOS Render] Selection changed: %d -> %d, loading thumbnail\n", 
+             last_selected_index, selected_index);
         load_current_thumbnail();
         last_selected_index = selected_index;
         // Reset scrolling state for new selection
@@ -523,12 +534,19 @@ static void handle_input() {
 
     // Handle up (on button release)
     if (prev_input[0] && !up) {
+        extern void xlog(const char *fmt, ...);
+        int old_index = selected_index;
+        
         if (selected_index > 0) {
             selected_index--;
         } else {
             // Loop to the last entry when at the top
             selected_index = entry_count - 1;
         }
+        
+        xlog("[FrogOS Navigation] UP: selected_index changed from %d to %d (entry_count=%d)\n", 
+             old_index, selected_index, entry_count);
+        
         // Adjust scroll_offset if necessary
         if (selected_index < scroll_offset) {
             scroll_offset = selected_index;
@@ -537,12 +555,19 @@ static void handle_input() {
 
     // Handle down (on button release)
     if (prev_input[1] && !down) {
+        extern void xlog(const char *fmt, ...);
+        int old_index = selected_index;
+        
         if (selected_index < entry_count - 1) {
             selected_index++;
         } else {
             // Loop to the first entry when at the bottom
             selected_index = 0;
         }
+        
+        xlog("[FrogOS Navigation] DOWN: selected_index changed from %d to %d (entry_count=%d)\n", 
+             old_index, selected_index, entry_count);
+        
         // Adjust scroll_offset if necessary
         if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
             scroll_offset = selected_index - VISIBLE_ENTRIES + 1;

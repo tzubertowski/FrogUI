@@ -13,11 +13,11 @@
 #define COLOR_TEXT      0xFFFF  // White text
 #define COLOR_SELECT_BG 0xFFFF  // White selection background (pill)
 #define COLOR_SELECT_TEXT 0x0000  // Black text when selected
-#define COLOR_HEADER    0x7BEF  // Darker grey for headers/titles (MinUI style)
+#define COLOR_HEADER    0x8410  // Better grey for headers/titles (more like MinUI)
 #define COLOR_FOLDER    0xFFFF  // White for folders (same as text)
 #define COLOR_LEGEND    0xFFFF  // White text for legends (readable on dark bg)
-#define COLOR_LEGEND_BG 0x2945  // Dark grey background for legend pills
-#define COLOR_DISABLED  0x7BEF  // Darker grey for unselectable options
+#define COLOR_LEGEND_BG 0x2104  // Better dark grey background for legend pills
+#define COLOR_DISABLED  0x8410  // Better grey for unselectable options
 
 // MinUI Layout Constants
 #define HEADER_HEIGHT 30
