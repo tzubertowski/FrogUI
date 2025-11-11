@@ -200,16 +200,19 @@ static const char *get_basename(const char *path) {
 // Get scrolling display text for selected item
 static void get_scrolling_text(const char *full_name, int is_selected, char *display_name, size_t display_size) {
     if (!full_name || !display_name) return;
-    
+
     int name_len = strlen(full_name);
-    
-    // If short enough or not selected, just copy/truncate normally  
-    if (name_len <= MAX_FILENAME_DISPLAY_LEN || !is_selected) {
-        if (name_len <= MAX_FILENAME_DISPLAY_LEN) {
+
+    // Use different max lengths for selected vs unselected items
+    int max_len = is_selected ? MAX_FILENAME_DISPLAY_LEN : MAX_UNSELECTED_DISPLAY_LEN;
+
+    // If short enough or not selected, just copy/truncate normally
+    if (name_len <= max_len || !is_selected) {
+        if (name_len <= max_len) {
             strcpy(display_name, full_name);
         } else {
-            strncpy(display_name, full_name, MAX_FILENAME_DISPLAY_LEN);
-            display_name[MAX_FILENAME_DISPLAY_LEN] = '\0';
+            strncpy(display_name, full_name, max_len);
+            display_name[max_len] = '\0';
             strcat(display_name, "...");
         }
         return;

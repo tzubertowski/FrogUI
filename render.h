@@ -35,7 +35,8 @@
 #define THUMBNAIL_MAX_HEIGHT 200 // Support up to 200px height as requested
 
 // Text scrolling for filenames
-#define MAX_FILENAME_DISPLAY_LEN 20 // Limit filename length to prevent overlap
+#define MAX_FILENAME_DISPLAY_LEN 20 // Max length for selected item (with scrolling)
+#define MAX_UNSELECTED_DISPLAY_LEN 10 // Max length for unselected items (to avoid thumbnail overlap)
 #define SCROLL_DELAY_FRAMES 60      // Delay before scrolling starts (1 second at 60fps)
 #define SCROLL_SPEED_FRAMES 8       // Frames between scroll steps (slower = easier to read)
 
