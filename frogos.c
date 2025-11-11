@@ -27,6 +27,8 @@ void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x80
 #define MAX_ENTRIES 256
 #define MAX_PATH_LEN 512
 #define ROMS_PATH "/mnt/sda1/ROMS"
+#define HISTORY_FILE "/mnt/sda1/game_history.txt"
+#define MAX_RECENT_GAMES 10
 
 // MinUI Layout Constants
 #define HEADER_HEIGHT 30
@@ -42,12 +44,23 @@ typedef struct {
     int is_dir;
 } MenuEntry;
 
+// Recent games structure
+typedef struct {
+    char core_name[256];
+    char game_name[256];
+    char display_name[256];
+} RecentGame;
+
 static MenuEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static int selected_index = 0;
 static int scroll_offset = 0;
 static char current_path[MAX_PATH_LEN];
 static uint16_t *framebuffer = NULL;
+
+// Recent games state
+static RecentGame recent_games[MAX_RECENT_GAMES];
+static int recent_count = 0;
 
 // Libretro callbacks
 static retro_video_refresh_t video_cb = NULL;
@@ -70,17 +83,17 @@ static bool game_queued = false;  // Flag to indicate game is queued
 #define COLOR_FOLDER    0xFFFF  // White for folders (same as text)
 
 // Include font bitmap data
-#include "font_chillround.h"
+#include "font_gamepocket.h"
 
-// Draw a character using ChillRound 16x16 bitmap font - inlined for speed
+// Draw a character using GamePocket 16x16 bitmap font - inlined for speed
 static inline void draw_char(int x, int y, char c, uint16_t color) {
     if (c < 32 || c > 127) c = ' ';  // Replace non-printable with space
 
-    const uint8_t *glyph = font_chillround_16x16[c - 32];
+    const uint8_t *glyph = font_gamepocket_16x16[c - 32];
 
     // 16x16 font, 2 bytes per row (16 bits)
     for (int row = 0; row < 16; row++) {
-        // Each row is 2 bytes (16 bits)
+        // Each row is 2 bytes (16 bits) - read as big endian
         uint16_t row_bits = (glyph[row * 2] << 8) | glyph[row * 2 + 1];
 
         for (int col = 0; col < 16; col++) {
@@ -102,8 +115,13 @@ static void draw_text(int x, int y, const char *text, uint16_t color) {
             y += 20;  // Double spacing for 2x font
             x = start_x;
         } else {
-            draw_char(x, y, *text, color);
-            x += 16;  // 16 pixels per character (8x8 scaled 2x)
+            // Convert to uppercase
+            char c = *text;
+            if (c >= 'a' && c <= 'z') {
+                c = c - 'a' + 'A';
+            }
+            draw_char(x, y, c, color);
+            x += 10;  // 10 pixels spacing for GamePocket font (tighter for wide letters)
         }
         text++;
     }
@@ -223,6 +241,121 @@ int compare_entries(const void *a, const void *b) {
     return strcmp(entry_a->name, entry_b->name);  // Compare by name
 }
 
+// Load recent games from history file
+static void load_recent_games(void) {
+    FILE *fp = fopen(HISTORY_FILE, "r");
+    if (!fp) {
+        recent_count = 0;
+        return;
+    }
+    
+    recent_count = 0;
+    char line[MAX_PATH_LEN * 2];
+    
+    while (fgets(line, sizeof(line), fp) && recent_count < MAX_RECENT_GAMES) {
+        // Remove newline
+        line[strcspn(line, "\r\n")] = 0;
+        
+        // Parse line: "core_name|game_name"
+        char *separator = strchr(line, '|');
+        if (separator) {
+            *separator = '\0';
+            strncpy(recent_games[recent_count].core_name, line, sizeof(recent_games[recent_count].core_name) - 1);
+            strncpy(recent_games[recent_count].game_name, separator + 1, sizeof(recent_games[recent_count].game_name) - 1);
+            
+            // Create display name
+            snprintf(recent_games[recent_count].display_name, sizeof(recent_games[recent_count].display_name),
+                    "%s (%s)", recent_games[recent_count].game_name, recent_games[recent_count].core_name);
+            
+            recent_count++;
+        }
+    }
+    
+    fclose(fp);
+}
+
+// Save recent games to history file
+static void save_recent_games(void) {
+    FILE *fp = fopen(HISTORY_FILE, "w");
+    if (!fp) return;
+    
+    for (int i = 0; i < recent_count; i++) {
+        fprintf(fp, "%s|%s\n", recent_games[i].core_name, recent_games[i].game_name);
+    }
+    
+    fclose(fp);
+}
+
+// Add game to recent history (moves to top if already exists)
+static void add_to_recent_games(const char *core_name, const char *game_name) {
+    // Check if game already exists
+    int existing_index = -1;
+    for (int i = 0; i < recent_count; i++) {
+        if (strcmp(recent_games[i].core_name, core_name) == 0 && 
+            strcmp(recent_games[i].game_name, game_name) == 0) {
+            existing_index = i;
+            break;
+        }
+    }
+    
+    // If exists, move to top
+    if (existing_index >= 0) {
+        RecentGame temp = recent_games[existing_index];
+        for (int i = existing_index; i > 0; i--) {
+            recent_games[i] = recent_games[i - 1];
+        }
+        recent_games[0] = temp;
+    } else {
+        // Add new game at top
+        if (recent_count < MAX_RECENT_GAMES) {
+            recent_count++;
+        }
+        
+        // Shift all games down
+        for (int i = recent_count - 1; i > 0; i--) {
+            recent_games[i] = recent_games[i - 1];
+        }
+        
+        // Add new game at top
+        strncpy(recent_games[0].core_name, core_name, sizeof(recent_games[0].core_name) - 1);
+        strncpy(recent_games[0].game_name, game_name, sizeof(recent_games[0].game_name) - 1);
+        snprintf(recent_games[0].display_name, sizeof(recent_games[0].display_name),
+                "%s (%s)", game_name, core_name);
+    }
+    
+    save_recent_games();
+}
+
+// Show recent games list
+static void show_recent_games(void) {
+    entry_count = 0;
+    selected_index = 0;
+    scroll_offset = 0;
+
+    if (recent_count == 0) {
+        // Only show back entry if no recent games
+        strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
+        strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
+        entries[entry_count].is_dir = 1;
+        entry_count++;
+    } else {
+        // Add recent games first
+        for (int i = 0; i < recent_count && entry_count < MAX_ENTRIES; i++) {
+            strncpy(entries[entry_count].name, recent_games[i].display_name, sizeof(entries[entry_count].name) - 1);
+            snprintf(entries[entry_count].path, sizeof(entries[entry_count].path), 
+                    "%s;%s", recent_games[i].core_name, recent_games[i].game_name);
+            entries[entry_count].is_dir = 0;
+            entry_count++;
+        }
+        
+        // Add back entry after recent games
+        strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
+        strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
+        entries[entry_count].is_dir = 1;
+        entry_count++;
+    }
+}
+
 // Scan directory and populate entries
 static void scan_directory(const char *path) {
     DIR *dir;
@@ -232,8 +365,11 @@ static void scan_directory(const char *path) {
     selected_index = 0;
     scroll_offset = 0;
 
+    // Store whether we're at root for recent games insertion later
+    int is_root = (strcmp(path, ROMS_PATH) == 0);
+
     // Add parent directory entry if not at root
-    if (strcmp(path, ROMS_PATH) != 0) {
+    if (!is_root) {
         strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, path, sizeof(entries[entry_count].path) - 1);
         entries[entry_count].is_dir = 1;
@@ -248,6 +384,11 @@ static void scan_directory(const char *path) {
     // Collect all entries in a single pass - optimized
     while ((ent = readdir(dir)) != NULL && entry_count < MAX_ENTRIES) {
         if (ent->d_name[0] == '.') continue;  // Skip hidden files
+
+        // Skip frogos and saves folders
+        if (strcasecmp(ent->d_name, "frogos") == 0 || strcasecmp(ent->d_name, "saves") == 0) {
+            continue;
+        }
 
         char full_path[MAX_PATH_LEN];
         snprintf(full_path, sizeof(full_path), "%s/%s", path, ent->d_name);
@@ -281,6 +422,20 @@ static void scan_directory(const char *path) {
 
     // Sort all entries alphabetically by name
     qsort(entries, entry_count, sizeof(MenuEntry), compare_entries);
+    
+    // Add Recent games at the very top if in root directory
+    if (is_root) {
+        // Shift all entries down by 1 to make room for Recent games at index 0
+        for (int i = entry_count; i > 0; i--) {
+            entries[i] = entries[i - 1];
+        }
+        
+        // Insert Recent games at the top
+        strncpy(entries[0].name, "Recent games", sizeof(entries[0].name) - 1);
+        strncpy(entries[0].path, "RECENT_GAMES", sizeof(entries[0].path) - 1);
+        entries[0].is_dir = 1;
+        entry_count++;
+    }
 }
 
 // Render the menu - MinUI exact style
@@ -350,7 +505,7 @@ static void render_menu() {
 
     // Draw legend at bottom right (MinUI style pill)
     int legend_y = SCREEN_HEIGHT - 24;
-    const char *legend = " A/B - NAV ";
+    const char *legend = " SEL - SETTINGS ";
 
     // Calculate width (approximate - 16px per char)
     int legend_width = strlen(legend) * 16;
@@ -450,12 +605,42 @@ static void handle_input() {
             }
         } else if (entry->is_dir) {
             // Enter directory
-            strncpy(current_path, entry->path, sizeof(current_path) - 1);
-            scan_directory(current_path);
+            if (strcmp(entry->path, "RECENT_GAMES") == 0) {
+                // Show recent games list
+                show_recent_games();
+                strncpy(current_path, "RECENT_GAMES", sizeof(current_path) - 1);
+            } else {
+                strncpy(current_path, entry->path, sizeof(current_path) - 1);
+                scan_directory(current_path);
+            }
         } else {
             // File selected - try to launch it
-            // Extract core name from parent directory
-            const char *core_name = get_basename(current_path);
+            const char *core_name;
+            const char *filename;
+            
+            // Check if we're in Recent games
+            if (strcmp(current_path, "RECENT_GAMES") == 0) {
+                // Parse core_name;game_name from entry->path
+                char *separator = strchr(entry->path, ';');
+                if (separator) {
+                    *separator = '\0';
+                    core_name = entry->path;
+                    filename = separator + 1;
+                    
+                    // Add to recent history (moves to top)
+                    add_to_recent_games(core_name, filename);
+                } else {
+                    return; // Invalid format
+                }
+            } else {
+                // Extract core name from parent directory
+                core_name = get_basename(current_path);
+                const char *filename_path = strrchr(entry->path, '/');
+                filename = filename_path ? filename_path + 1 : entry->name;
+                
+                // Add to recent history
+                add_to_recent_games(core_name, filename);
+            }
 
             // DEBUG: Log selection
             extern void xlog(const char *fmt, ...);
@@ -464,14 +649,7 @@ static void handle_input() {
             xlog("[FrogOS]   Selected: %s\n", entry->name);
             xlog("[FrogOS]   Full path: %s\n", entry->path);
             xlog("[FrogOS]   Core: %s\n", core_name);
-
-            // Build game path for loader
-            const char *filename = strrchr(entry->path, '/');
-            if (filename) {
-                filename++;  // Skip slash
-            } else {
-                filename = entry->name;
-            }
+            xlog("[FrogOS]   Filename: %s\n", filename);
 
             sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename); // Workaround for loading a core from within a core, loader corrects
             sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS"); // Expects "/mnt/sda1/ROMS" format
@@ -489,7 +667,11 @@ static void handle_input() {
 
     // Handle B button (back) - on button release
     if (prev_input[3] && !b) {
-        if (strcmp(current_path, ROMS_PATH) != 0) {
+        if (strcmp(current_path, "RECENT_GAMES") == 0) {
+            // Go back from Recent games to main ROMS directory
+            strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+            scan_directory(current_path);
+        } else if (strcmp(current_path, ROMS_PATH) != 0) {
             char *last_slash = strrchr(current_path, '/');
             if (last_slash && last_slash != current_path) {
                 *last_slash = '\0';
@@ -510,6 +692,7 @@ static void handle_input() {
 // Libretro API implementation
 void retro_init(void) {
     framebuffer = (uint16_t*)malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
+    load_recent_games();
     strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
     scan_directory(current_path);
 }

@@ -27,8 +27,8 @@ def generate_font_bitmap(ttf_path, font_size, output_path):
 
     # Generate C array
     c_array = []
-    c_array.append("// ChillRound font - 16x16 bitmap (96 characters, ASCII 32-127)")
-    c_array.append("static const uint8_t font_chillround_16x16[96][32] = {")
+    c_array.append("// GamePocket font - 16x16 bitmap (96 characters, ASCII 32-127)")
+    c_array.append("static const uint8_t font_gamepocket_16x16[96][32] = {")
 
     # Position baseline lower to give room for ascenders at the top
     # baseline_y at 75% of large_size gives room for tall letters
@@ -81,8 +81,8 @@ def generate_font_bitmap(ttf_path, font_size, output_path):
     print(f"Array size: {len(chars)} x 32 bytes = {len(chars) * 32} bytes")
 
 if __name__ == "__main__":
-    ttf_path = "/app/cores/FrogOS/ZenMaruGothic-Bold.ttf"  # True bold font!
-    output_path = "/app/cores/FrogOS/font_chillround.h"
-    font_size = 16  # TTF point size (will be rendered at 4x then downscaled) - larger for readability
+    ttf_path = "/app/cores/FrogOS/GamePocket-Regular-ZeroKern.ttf"  # Gaming font!
+    output_path = "/app/cores/FrogOS/font_gamepocket.h"
+    font_size = 14  # TTF point size (will be rendered at 4x then downscaled) - smaller for GamePocket
 
     generate_font_bitmap(ttf_path, font_size, output_path)

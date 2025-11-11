@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""
+Convert GamePocket-Regular-ZeroKern.ttf to bitmap C array with added serif effects
+"""
+
+from PIL import Image, ImageDraw, ImageFont
+import sys
+import numpy as np
+
+def add_serif_effect(bitmap_array, char_width=16, char_height=16):
+    """Add simple serif effects to bitmap characters"""
+    
+    # Create a copy to modify
+    serif_bitmap = bitmap_array.copy()
+    
+    # Add small horizontal serifs at the bottom of vertical strokes
+    for row in range(char_height - 3, char_height - 1):  # Bottom area
+        for col in range(1, char_width - 1):
+            # If there's a vertical stroke (pixel above and below are set)
+            if (bitmap_array[row - 1][col] and 
+                bitmap_array[row + 1][col] if row + 1 < char_height else False):
+                # Add horizontal serif
+                if col > 0:
+                    serif_bitmap[row][col - 1] = True
+                if col < char_width - 1:
+                    serif_bitmap[row][col + 1] = True
+    
+    # Add small vertical serifs at the sides of horizontal strokes
+    for row in range(1, char_height - 1):
+        for col in range(char_width):
+            # If there's a horizontal stroke
+            if (col > 0 and col < char_width - 1 and
+                bitmap_array[row][col - 1] and bitmap_array[row][col + 1]):
+                # Add vertical serif
+                if row > 0:
+                    serif_bitmap[row - 1][col] = True
+                if row < char_height - 1:
+                    serif_bitmap[row + 1][col] = True
+    
+    return serif_bitmap
+
+def generate_serif_font_bitmap(ttf_path, font_size, output_path):
+    """Generate serif bitmap font from TTF file"""
+
+    # Load the font at 4x size for better quality
+    try:
+        font_large = ImageFont.truetype(ttf_path, font_size * 4)
+    except Exception as e:
+        print(f"Error loading font: {e}")
+        sys.exit(1)
+
+    # ASCII characters 32-127 (96 characters)
+    chars = [chr(i) for i in range(32, 128)]
+
+    # Character dimensions
+    char_width = 16
+    char_height = 16
+    large_size = 64  # 4x larger
+
+    # Generate C array
+    c_array = []
+    c_array.append("// GamePocket Serif font - 16x16 bitmap (96 characters, ASCII 32-127)")
+    c_array.append("static const uint8_t font_gamepocket_serif_16x16[96][32] = {")
+
+    # Position baseline lower to give room for ascenders at the top
+    baseline_y = int(large_size * 0.75)
+
+    for idx, char in enumerate(chars):
+        # Create image for this character
+        img_large = Image.new('L', (large_size, large_size), color=0)
+        draw = ImageDraw.Draw(img_large)
+
+        # Draw character at the SAME baseline position
+        draw.text((large_size//2, baseline_y), char, font=font_large, anchor='ls', fill=255)
+
+        # Scale down to 16x16 with LANCZOS for smooth antialiasing
+        img = img_large.resize((char_width, char_height), Image.Resampling.LANCZOS)
+
+        # Convert to bitmap
+        pixels = img.load()
+        
+        # Create bitmap array
+        bitmap_array = []
+        for row in range(char_height):
+            row_pixels = []
+            for col in range(char_width):
+                row_pixels.append(pixels[col, row] > 50)
+            bitmap_array.append(row_pixels)
+
+        # Add serif effects (except for space character)
+        if char != ' ':
+            bitmap_array = add_serif_effect(bitmap_array, char_width, char_height)
+
+        # Convert back to bytes
+        bytes_data = []
+        for row in range(char_height):
+            row_bits = 0
+            for col in range(char_width):
+                if bitmap_array[row][col]:
+                    row_bits |= (1 << (15 - col))
+
+            # Split into 2 bytes (big-endian)
+            byte1 = (row_bits >> 8) & 0xFF
+            byte2 = row_bits & 0xFF
+            bytes_data.append(byte1)
+            bytes_data.append(byte2)
+
+        # Format as C array
+        char_repr = repr(char) if char != '\\' else "'\\\\'"
+        hex_values = ','.join([f'0x{b:02x}' for b in bytes_data])
+        c_array.append(f"    {{{hex_values}}}, // {char_repr} (ASCII {ord(char)})")
+
+    c_array.append("};")
+
+    # Write to file
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(c_array))
+
+    print(f"Serif font bitmap generated: {output_path}")
+    print(f"Characters: {len(chars)}")
+    print(f"Size: 16x16 pixels per character")
+    print(f"Array size: {len(chars)} x 32 bytes = {len(chars) * 32} bytes")
+
+if __name__ == "__main__":
+    ttf_path = "/app/cores/FrogOS/GamePocket-Regular-ZeroKern.ttf"
+    output_path = "/app/cores/FrogOS/font_gamepocket_serif.h"
+    font_size = 14
+
+    generate_serif_font_bitmap(ttf_path, font_size, output_path)
