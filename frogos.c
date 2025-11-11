@@ -273,8 +273,9 @@ static void show_recent_games(void) {
     }
     
     xlog("[FrogOS] Calling load_current_thumbnail() for initial selection (index=%d)\n", selected_index);
-    // Load thumbnail for initially selected item
+    // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
+    last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
     xlog("[FrogOS] === FINISHED ENTERING RECENT GAMES ===\n");
 }
 
@@ -359,8 +360,9 @@ static void scan_directory(const char *path) {
         entry_count++;
     }
     
-    // Load thumbnail for initially selected item
+    // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
+    last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
 }
 
 // Render settings menu
