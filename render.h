@@ -16,10 +16,10 @@
 #define COLOR_FOLDER    0xFFFF  // White for folders (same as text)
 
 // MinUI Layout Constants
-#define HEADER_HEIGHT 0
+#define HEADER_HEIGHT 30
 #define ITEM_HEIGHT 24
 #define PADDING 16
-#define START_Y 10
+#define START_Y 40
 #define VISIBLE_ENTRIES 8
 
 // Initialize rendering system

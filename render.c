@@ -80,8 +80,8 @@ void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width, int hei
 void render_header(uint16_t *framebuffer, const char *title) {
     if (!framebuffer || !title) return;
     
-    // Draw header background only - no text
-    render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT, COLOR_BG);
+    // Draw folder/section name in header area
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, title, COLOR_HEADER);
 }
 
 void render_legend(uint16_t *framebuffer) {

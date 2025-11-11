@@ -24,6 +24,7 @@ void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x80
 #include "font.h"
 #include "render.h"
 #include "recent_games.h"
+#include "settings.h"
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
@@ -212,6 +213,62 @@ static void scan_directory(const char *path) {
     }
 }
 
+// Render settings menu
+static void render_settings_menu() {
+    // Draw title
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, "SETTINGS", COLOR_HEADER);
+    
+    int settings_count = settings_get_count();
+    int start_y = 40;
+    int selected_index = settings_get_selected_index();
+    int scroll_offset = settings_get_scroll_offset();
+    
+    // Show settings options (two lines per option)
+    // Reserve space for legend at bottom - ensure no overlap
+    int max_visible = 3; // Reduced from 4 to ensure no overlap with legend
+    for (int i = 0; i < max_visible && (scroll_offset + i) < settings_count; i++) {
+        int option_index = scroll_offset + i;
+        const SettingsOption *option = settings_get_option(option_index);
+        if (!option) continue;
+        
+        int y_name = start_y + (i * ITEM_HEIGHT * 2);
+        int y_value = y_name + ITEM_HEIGHT;
+        
+        // Check if this option is selected
+        int is_selected = (option_index == selected_index);
+        
+        // Draw setting name (always white)
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y_name, option->name, COLOR_TEXT);
+        
+        // Draw setting value with selection background and arrows
+        if (is_selected) {
+            // Format value with arrows: "< current_value >"
+            char value_text[256];
+            snprintf(value_text, sizeof(value_text), "< %s >", option->current_value);
+            
+            int text_width = strlen(value_text) * FONT_CHAR_SPACING;
+            render_rounded_rect(framebuffer, PADDING - 4, y_value - 2, 
+                            text_width + 12, ITEM_HEIGHT - 4, 8, COLOR_SELECT_BG);
+            
+            font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y_value, value_text, COLOR_SELECT_TEXT);
+        } else {
+            font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y_value, option->current_value, COLOR_TEXT);
+        }
+    }
+    
+    // Draw legend with pillbox highlighting
+    const char *legend = " A - SAVE   B - EXIT ";
+    int legend_y = SCREEN_HEIGHT - 24;
+    
+    // Calculate width and position (right-aligned)
+    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
+    int legend_x = SCREEN_WIDTH - legend_width - 12;
+    
+    // Draw legend pill with rounded corners
+    render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_SELECT_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, legend_x, legend_y, legend, COLOR_SELECT_TEXT);
+}
+
 // Render the menu using modular render system
 static void render_menu() {
     render_clear_screen(framebuffer);
@@ -219,6 +276,12 @@ static void render_menu() {
     // If game is queued, just show loading screen
     if (game_queued) {
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, 30, SCREEN_HEIGHT / 2, "LOADING...", 0xFFFF);
+        return;
+    }
+
+    // If settings are active, render settings menu
+    if (settings_is_active()) {
+        render_settings_menu();
         return;
     }
 
@@ -268,6 +331,34 @@ static void handle_input() {
     int b = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B);
     int l = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
     int r = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
+    int select = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
+
+    int left = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
+    int right = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+
+    // Check if settings menu should handle input
+    if (settings_handle_input(prev_input[0] && !up, prev_input[1] && !down, 
+                            prev_input[7] && !left, prev_input[8] && !right,
+                            prev_input[3] && !b, prev_input[6] && !select)) {
+        // Settings consumed the input, update prev_input and return
+        prev_input[0] = up;
+        prev_input[1] = down;
+        prev_input[2] = a;
+        prev_input[3] = b;
+        prev_input[4] = l;
+        prev_input[5] = r;
+        prev_input[6] = select;
+        prev_input[7] = left;
+        prev_input[8] = right;
+        return;
+    }
+
+    // Handle SELECT button to open settings (on button release)
+    if (prev_input[6] && !select && strcmp(current_path, ROMS_PATH) == 0) {
+        settings_show_menu();
+        prev_input[6] = select;
+        return;
+    }
 
     // Handle up (on button release)
     if (prev_input[0] && !up) {
@@ -420,6 +511,9 @@ static void handle_input() {
     prev_input[3] = b;
     prev_input[4] = l;
     prev_input[5] = r;
+    prev_input[6] = select;
+    prev_input[7] = left;
+    prev_input[8] = right;
 }
 
 // Libretro API implementation
@@ -430,8 +524,10 @@ void retro_init(void) {
     render_init(framebuffer);
     font_init();
     recent_games_init();
+    settings_init();
     
     recent_games_load();
+    settings_load();
     strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
     scan_directory(current_path);
 }
