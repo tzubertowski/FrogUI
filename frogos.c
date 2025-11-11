@@ -161,17 +161,26 @@ static void load_current_thumbnail() {
         const RecentGame* recent_list = recent_games_get_list();
         int recent_count = recent_games_get_count();
         
+        extern void xlog(const char *fmt, ...);
+        xlog("[FrogOS Thumbnail] In recent games mode, selected_index=%d, recent_count=%d\n", selected_index, recent_count);
+        
         if (selected_index < recent_count) {
             const RecentGame *recent_game = &recent_list[selected_index];
+            xlog("[FrogOS Thumbnail] Recent game: core=%s, game=%s, full_path='%s'\n", 
+                 recent_game->core_name, recent_game->game_name, recent_game->full_path);
+            
             if (recent_game->full_path[0] != '\0') {
                 get_thumbnail_path(recent_game->full_path, thumb_path, sizeof(thumb_path));
+                xlog("[FrogOS Thumbnail] Generated thumb_path: %s\n", thumb_path);
             } else {
                 // No full path available, skip thumbnail
+                xlog("[FrogOS Thumbnail] No full path available for recent game\n");
                 thumbnail_cache_valid = 0;
                 return;
             }
         } else {
             // This is the ".." entry, no thumbnail
+            xlog("[FrogOS Thumbnail] Selected '..' entry, no thumbnail\n");
             thumbnail_cache_valid = 0;
             return;
         }
@@ -601,8 +610,21 @@ static void handle_input() {
                     core_name = entry->path;
                     filename = separator + 1;
                     
-                    // Add to recent history (moves to top) - use entry name as full path for recent games
-                    recent_games_add(core_name, filename, entry->name);
+                    // For recent games, get the full_path from the RecentGame structure
+                    const RecentGame* recent_list = recent_games_get_list();
+                    int recent_count = recent_games_get_count();
+                    const char* full_path = "";
+                    
+                    for (int i = 0; i < recent_count; i++) {
+                        if (strcmp(recent_list[i].core_name, core_name) == 0 && 
+                            strcmp(recent_list[i].game_name, filename) == 0) {
+                            full_path = recent_list[i].full_path;
+                            break;
+                        }
+                    }
+                    
+                    // Add to recent history (moves to top) - use actual full path
+                    recent_games_add(core_name, filename, full_path);
                 } else {
                     return; // Invalid format
                 }
