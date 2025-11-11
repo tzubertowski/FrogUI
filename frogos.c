@@ -203,8 +203,17 @@ static void get_scrolling_text(const char *full_name, int is_selected, char *dis
 
     int name_len = strlen(full_name);
 
-    // Use different max lengths for selected vs unselected items
-    int max_len = is_selected ? MAX_FILENAME_DISPLAY_LEN : MAX_UNSELECTED_DISPLAY_LEN;
+    // Check if we're in main menu or special views (no thumbnails)
+    int in_main_menu = (strcmp(current_path, ROMS_PATH) == 0 ||
+                        strcmp(current_path, "RECENT_GAMES") == 0 ||
+                        strcmp(current_path, "TOOLS") == 0 ||
+                        strcmp(current_path, "UTILS") == 0 ||
+                        strcmp(current_path, "SHORTCUTS") == 0 ||
+                        strcmp(current_path, "CREDITS") == 0);
+
+    // Use different max lengths: shorter for unselected items only in ROM lists (with thumbnails)
+    int max_len = is_selected ? MAX_FILENAME_DISPLAY_LEN :
+                  (in_main_menu ? MAX_FILENAME_DISPLAY_LEN : MAX_UNSELECTED_DISPLAY_LEN);
 
     // If short enough or not selected, just copy/truncate normally
     if (name_len <= max_len || !is_selected) {
