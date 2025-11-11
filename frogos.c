@@ -135,7 +135,7 @@ static void get_scrolling_text(const char *full_name, int is_selected, char *dis
 
 // Load thumbnail for currently selected item
 static void load_current_thumbnail() {
-    if (selected_index < 0 || selected_index >= entry_count) {
+    if (selected_index < 0 || selected_index >= entry_count || entry_count == 0) {
         thumbnail_cache_valid = 0;
         return;
     }

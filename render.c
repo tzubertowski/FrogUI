@@ -138,7 +138,10 @@ void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is
 // Thumbnail implementation
 
 void get_thumbnail_path(const char *game_path, char *thumb_path, size_t thumb_path_size) {
-    if (!game_path || !thumb_path) return;
+    if (!game_path || !thumb_path || game_path[0] == '\0') {
+        thumb_path[0] = '\0';
+        return;
+    }
     
     // Find the last slash to get directory
     const char *last_slash = strrchr(game_path, '/');
