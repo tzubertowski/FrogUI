@@ -233,9 +233,6 @@ int compare_entries(const void *a, const void *b) {
 
 // Show recent games list
 static void show_recent_games(void) {
-    extern void xlog(const char *fmt, ...);
-    xlog("[FrogOS] === ENTERING RECENT GAMES ===\n");
-    
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
@@ -246,12 +243,9 @@ static void show_recent_games(void) {
     
     // Clear thumbnail cache when switching to recent games mode
     thumbnail_cache_valid = 0;
-    xlog("[FrogOS] Cleared thumbnail cache, setting selected_index=0\n");
 
     const RecentGame* recent_list = recent_games_get_list();
     int recent_count = recent_games_get_count();
-    
-    xlog("[FrogOS] Recent games count: %d\n", recent_count);
 
     if (recent_count == 0) {
         // Only show back entry if no recent games
@@ -276,18 +270,13 @@ static void show_recent_games(void) {
         entry_count++;
     }
     
-    xlog("[FrogOS] Calling load_current_thumbnail() for initial selection (index=%d)\n", selected_index);
     // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
     last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
-    xlog("[FrogOS] === FINISHED ENTERING RECENT GAMES ===\n");
 }
 
 // Show tools menu
 static void show_tools_menu(void) {
-    extern void xlog(const char *fmt, ...);
-    xlog("[FrogOS] === ENTERING TOOLS MENU ===\n");
-    
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
@@ -298,7 +287,6 @@ static void show_tools_menu(void) {
     
     // Clear thumbnail cache when switching to tools mode
     thumbnail_cache_valid = 0;
-    xlog("[FrogOS] Cleared thumbnail cache, setting selected_index=0\n");
     
     // Add Shortcuts entry
     strncpy(entries[entry_count].name, "Shortcuts", sizeof(entries[entry_count].name) - 1);
@@ -318,19 +306,13 @@ static void show_tools_menu(void) {
     entries[entry_count].is_dir = 1;
     entry_count++;
     
-    xlog("[FrogOS] Tools menu created with %d entries\n", entry_count);
-    
     // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
     last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
-    xlog("[FrogOS] === FINISHED ENTERING TOOLS MENU ===\n");
 }
 
 // Show shortcuts screen
 static void show_shortcuts_screen(void) {
-    extern void xlog(const char *fmt, ...);
-    xlog("[FrogOS] === ENTERING SHORTCUTS SCREEN ===\n");
-    
     // Set current_path for shortcuts mode
     strncpy(current_path, "SHORTCUTS", sizeof(current_path) - 1);
     current_path[sizeof(current_path) - 1] = '\0';
@@ -340,15 +322,10 @@ static void show_shortcuts_screen(void) {
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
-    
-    xlog("[FrogOS] === FINISHED ENTERING SHORTCUTS SCREEN ===\n");
 }
 
 // Show credits screen
 static void show_credits_screen(void) {
-    extern void xlog(const char *fmt, ...);
-    xlog("[FrogOS] === ENTERING CREDITS SCREEN ===\n");
-    
     // Set current_path for credits mode
     strncpy(current_path, "CREDITS", sizeof(current_path) - 1);
     current_path[sizeof(current_path) - 1] = '\0';
@@ -358,8 +335,6 @@ static void show_credits_screen(void) {
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
-    
-    xlog("[FrogOS] === FINISHED ENTERING CREDITS SCREEN ===\n");
 }
 
 // Scan directory and populate entries
@@ -545,8 +520,8 @@ static void render_credits_screen() {
     int line_height = 24;
     
     // Credits text
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y, "FrogUI idea & dev foundation: Prosty", COLOR_TEXT);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height, "OS integration: Desoxyn", COLOR_TEXT);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y, "FrogUI Dev & Idea", COLOR_TEXT);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height, "Prosty & Desoxyn", COLOR_TEXT);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height * 2, "Design: Q_ta", COLOR_TEXT);
     
     // Draw legend
@@ -590,7 +565,7 @@ static void render_menu() {
     // Draw header with current folder name
     const char *display_path = current_path;
     if (strcmp(current_path, ROMS_PATH) == 0) {
-        display_path = "SYSTEMS";  // Simplified root name
+        display_path = "FROGUI: SYSTEMS";  // Marketing branding
     } else {
         // Show just the folder name, not full path
         display_path = get_basename(current_path);
@@ -607,9 +582,6 @@ static void render_menu() {
     // Load and display thumbnail for selected item FIRST (background layer)
     // Only reload if selection changed
     if (last_selected_index != selected_index) {
-        extern void xlog(const char *fmt, ...);
-        xlog("[FrogOS Render] Selection changed: %d -> %d, loading thumbnail\n", 
-             last_selected_index, selected_index);
         load_current_thumbnail();
         last_selected_index = selected_index;
         // Reset scrolling state for new selection
@@ -686,18 +658,12 @@ static void handle_input() {
 
     // Handle up (on button release)
     if (prev_input[0] && !up) {
-        extern void xlog(const char *fmt, ...);
-        int old_index = selected_index;
-        
         if (selected_index > 0) {
             selected_index--;
         } else {
             // Loop to the last entry when at the top
             selected_index = entry_count - 1;
         }
-        
-        xlog("[FrogOS Navigation] UP: selected_index changed from %d to %d (entry_count=%d)\n", 
-             old_index, selected_index, entry_count);
         
         // Adjust scroll_offset if necessary
         if (selected_index < scroll_offset) {
@@ -707,18 +673,12 @@ static void handle_input() {
 
     // Handle down (on button release)
     if (prev_input[1] && !down) {
-        extern void xlog(const char *fmt, ...);
-        int old_index = selected_index;
-        
         if (selected_index < entry_count - 1) {
             selected_index++;
         } else {
             // Loop to the first entry when at the bottom
             selected_index = 0;
         }
-        
-        xlog("[FrogOS Navigation] DOWN: selected_index changed from %d to %d (entry_count=%d)\n", 
-             old_index, selected_index, entry_count);
         
         // Adjust scroll_offset if necessary
         if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
