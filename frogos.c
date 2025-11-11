@@ -339,7 +339,7 @@ static void handle_input() {
     // Check if settings menu should handle input
     if (settings_handle_input(prev_input[0] && !up, prev_input[1] && !down, 
                             prev_input[7] && !left, prev_input[8] && !right,
-                            prev_input[3] && !b, prev_input[6] && !select)) {
+                            prev_input[2] && !a, prev_input[3] && !b, prev_input[6] && !select)) {
         // Settings consumed the input, update prev_input and return
         prev_input[0] = up;
         prev_input[1] = down;

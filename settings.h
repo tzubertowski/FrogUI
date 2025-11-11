@@ -39,7 +39,7 @@ void settings_cycle_option(int index);
 void settings_show_menu(void);
 
 // Handle settings menu input  
-int settings_handle_input(int up, int down, int left, int right, int b, int select);
+int settings_handle_input(int up, int down, int left, int right, int a, int b, int select);
 
 // Check if we're in settings mode
 int settings_is_active(void);

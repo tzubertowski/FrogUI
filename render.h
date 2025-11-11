@@ -20,7 +20,7 @@
 #define ITEM_HEIGHT 24
 #define PADDING 16
 #define START_Y 40
-#define VISIBLE_ENTRIES 8
+#define VISIBLE_ENTRIES 7
 
 // Initialize rendering system
 void render_init(uint16_t *framebuffer);

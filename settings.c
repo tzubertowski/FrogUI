@@ -84,12 +84,21 @@ static int parse_option_line(const char *line, SettingsOption *option) {
 }
 
 int settings_load(void) {
-    FILE *fp = fopen("/mnt/sda1/configs/multicore.opt", "r");
+    // For testing on dev machine, use sdcard path if it exists  
+    const char *config_path = "/mnt/sda1/configs/multicore.opt";
+    FILE *test = fopen("/app/sdcard/configs/multicore.opt", "r");
+    if (test) {
+        fclose(test);
+        config_path = "/app/sdcard/configs/multicore.opt";
+    }
+    
+    FILE *fp = fopen(config_path, "r");
     if (!fp) return 0;
     
     char line[512];
     settings_count = 0;
     
+    // First pass: parse comment lines to get options
     while (fgets(line, sizeof(line), fp) && settings_count < MAX_SETTINGS) {
         // Remove newline
         line[strcspn(line, "\r\n")] = 0;
@@ -100,21 +109,97 @@ int settings_load(void) {
         }
     }
     
+    // Second pass: read actual current values from setting lines
+    rewind(fp);
+    while (fgets(line, sizeof(line), fp)) {
+        // Remove newline
+        line[strcspn(line, "\r\n")] = 0;
+        
+        // Skip comment lines
+        if (strncmp(line, "###", 3) == 0) continue;
+        
+        // Parse setting lines (option_name = "value")
+        char *equals = strchr(line, '=');
+        if (equals) {
+            *equals = '\0';
+            char *option_name = line;
+            char *value_start = equals + 1;
+            
+            // Trim whitespace from option name
+            while (*option_name == ' ' || *option_name == '\t') option_name++;
+            char *end = option_name + strlen(option_name) - 1;
+            while (end > option_name && (*end == ' ' || *end == '\t')) end--;
+            *(end + 1) = '\0';
+            
+            // Trim whitespace and quotes from value
+            while (*value_start == ' ' || *value_start == '\t' || *value_start == '"') value_start++;
+            end = value_start + strlen(value_start) - 1;
+            while (end > value_start && (*end == ' ' || *end == '\t' || *end == '"')) end--;
+            *(end + 1) = '\0';
+            
+            // Find matching option and update its current value
+            for (int i = 0; i < settings_count; i++) {
+                if (strcmp(settings[i].name, option_name) == 0) {
+                    strncpy(settings[i].current_value, value_start, MAX_OPTION_VALUE_LEN - 1);
+                    settings[i].current_value[MAX_OPTION_VALUE_LEN - 1] = '\0';
+                    
+                    // Update current_index to match the new value
+                    for (int j = 0; j < settings[i].value_count; j++) {
+                        if (strcmp(settings[i].possible_values[j], value_start) == 0) {
+                            settings[i].current_index = j;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
     fclose(fp);
     return settings_count;
 }
 
 int settings_save(void) {
+    extern void xlog(const char *fmt, ...);
+    xlog("[FrogOS Settings] === settings_save() started ===\n");
+    
     // Read current file to preserve structure
-    FILE *fp_read = fopen("/mnt/sda1/configs/multicore.opt", "r");
-    if (!fp_read) return 0;
+    // For testing on dev machine, use sdcard path if it exists
+    const char *config_path = "/mnt/sda1/configs/multicore.opt";
+    const char *temp_path = "/mnt/sda1/configs/multicore.opt.tmp";
+    FILE *test = fopen("/app/sdcard/configs/multicore.opt", "r");
+    if (test) {
+        fclose(test);
+        config_path = "/app/sdcard/configs/multicore.opt";
+        temp_path = "/app/sdcard/configs/multicore.opt.tmp";
+        xlog("[FrogOS Settings] Using dev path: %s\n", config_path);
+    } else {
+        xlog("[FrogOS Settings] Using device path: %s\n", config_path);
+    }
+    
+    FILE *fp_read = fopen(config_path, "r");
+    if (!fp_read) {
+        // Try without configs subdirectory for testing
+        config_path = "/mnt/sda1/multicore.opt";
+        temp_path = "/mnt/sda1/multicore.opt.tmp";
+        fp_read = fopen(config_path, "r");
+        if (!fp_read) {
+            xlog("[FrogOS Settings] ERROR: Could not open config file\n");
+            return 0;
+        }
+        xlog("[FrogOS Settings] Using fallback path: %s\n", config_path);
+    }
     
     // Create temporary file
-    FILE *fp_write = fopen("/mnt/sda1/configs/multicore.opt.tmp", "w");
+    FILE *fp_write = fopen(temp_path, "w");
     if (!fp_write) {
+        xlog("[FrogOS Settings] ERROR: Could not create temp file: %s\n", temp_path);
         fclose(fp_read);
         return 0;
     }
+    
+    xlog("[FrogOS Settings] Opened files successfully, processing...\n");
     
     char line[512];
     while (fgets(line, sizeof(line), fp_read)) {
@@ -139,6 +224,9 @@ int settings_save(void) {
                 int found = 0;
                 for (int i = 0; i < settings_count; i++) {
                     if (strcmp(settings[i].name, option_name) == 0) {
+                        xlog("[FrogOS Settings] Updating %s from '%s' to '%s'\n", 
+                             option_name, settings[i].current_value,
+                             settings[i].possible_values[settings[i].current_index]);
                         fprintf(fp_write, "%s = \"%s\"\n", option_name, 
                                settings[i].possible_values[settings[i].current_index]);
                         found = 1;
@@ -150,9 +238,17 @@ int settings_save(void) {
                     // Restore original line
                     *equals = '=';
                     fputs(line, fp_write);
+                    // Make sure line has newline
+                    if (!strchr(line, '\n')) {
+                        fputc('\n', fp_write);
+                    }
                 }
             } else {
                 fputs(line, fp_write);
+                // Make sure line has newline
+                if (!strchr(line, '\n')) {
+                    fputc('\n', fp_write);
+                }
             }
         }
     }
@@ -160,8 +256,28 @@ int settings_save(void) {
     fclose(fp_read);
     fclose(fp_write);
     
-    // Replace original file
-    rename("/mnt/sda1/configs/multicore.opt.tmp", "/mnt/sda1/configs/multicore.opt");
+    // Replace original file using copy approach (more reliable on embedded systems)
+    FILE *src = fopen(temp_path, "r");
+    FILE *dst = fopen(config_path, "w");
+    
+    if (src && dst) {
+        char buffer[1024];
+        size_t bytes;
+        while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+            fwrite(buffer, 1, bytes, dst);
+        }
+        fclose(src);
+        fclose(dst);
+        remove(temp_path);  // Delete temp file
+        xlog("[FrogOS Settings] File save successful\n");
+    } else {
+        if (src) fclose(src);
+        if (dst) fclose(dst);
+        xlog("[FrogOS Settings] ERROR: Could not copy temp file to config\n");
+        return 0;
+    }
+    
+    xlog("[FrogOS Settings] === settings_save() completed ===\n");
     
     return 1;
 }
@@ -178,11 +294,17 @@ const SettingsOption* settings_get_option(int index) {
 void settings_cycle_option(int index) {
     if (index < 0 || index >= settings_count) return;
     
+    extern void xlog(const char *fmt, ...);
+    xlog("[FrogOS Settings] Cycling option %d (%s) from index %d to ", 
+         index, settings[index].name, settings[index].current_index);
+    
     settings[index].current_index = (settings[index].current_index + 1) % settings[index].value_count;
     strncpy(settings[index].current_value, 
            settings[index].possible_values[settings[index].current_index], 
            MAX_OPTION_VALUE_LEN - 1);
     settings[index].current_value[MAX_OPTION_VALUE_LEN - 1] = '\0';
+    
+    xlog("%d (%s)\n", settings[index].current_index, settings[index].current_value);
 }
 
 void settings_show_menu(void) {
@@ -191,7 +313,7 @@ void settings_show_menu(void) {
     settings_scroll_offset = 0;
 }
 
-int settings_handle_input(int up, int down, int left, int right, int b, int select) {
+int settings_handle_input(int up, int down, int left, int right, int a, int b, int select) {
     if (!settings_active) return 0;
     
     int max_visible = 3; // Reduced to ensure no overlap with legend
@@ -245,9 +367,18 @@ int settings_handle_input(int up, int down, int left, int right, int b, int sele
         return 1;
     }
     
-    if (b || select) {
+    if (a) {
         // Save settings and exit
-        settings_save();
+        extern void xlog(const char *fmt, ...);
+        xlog("[FrogOS Settings] A button pressed, calling settings_save()\n");
+        int save_result = settings_save();
+        xlog("[FrogOS Settings] settings_save() returned: %d\n", save_result);
+        settings_active = 0;
+        return 1;
+    }
+    
+    if (b) {
+        // Exit without saving
         settings_active = 0;
         return 1;
     }
