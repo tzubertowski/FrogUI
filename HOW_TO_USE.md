@@ -63,9 +63,32 @@ Place thumbnail files alongside your ROMs with `.rgb565` extension:
 
 ### Converting Thumbnails
 
-Use image conversion tools to create RGB565 files:
-1. Resize image to 160×160 pixels
-2. Convert to RGB565 format
+FrogUI includes automatic conversion scripts in the `scripts/` folder:
+
+**Windows Users:**
+```batch
+scripts\convert_thumbnails_simple.bat D:\roms
+```
+
+**Linux/Mac Users:**
+```bash
+./scripts/convert_thumbnails_simple.sh /path/to/roms
+```
+
+The scripts will:
+1. Find all PNG images in `.res` subdirectories
+2. Automatically resize them (200×200 for square images, 250×200 for wide)
+3. Convert to RGB565 raw format
+4. Save with `.rgb565` extension
+
+**Requirements:**
+- Python 3 with Pillow (PIL) library
+- PNG source images in `.res` folders alongside your ROMs
+
+**Manual Conversion:**
+If you prefer manual conversion:
+1. Resize image to 160×160 pixels (or 200×200/250×200)
+2. Convert to RGB565 raw format (5 bits R, 6 bits G, 5 bits B)
 3. Save as raw binary file with `.rgb565` extension
 
 ## Settings and Configuration

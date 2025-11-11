@@ -30,7 +30,8 @@ FrogOS is a libretro-based file browser core for SF2000/GB300 handheld devices. 
 - Format: Raw RGB565 files (.rgb565 extension)
 - Location: `.res` subdirectories alongside ROMs
 - Supported dimensions: 64x64, 128x128, 160x160, 200x200, 250x200, 200x250
-- Conversion: Use `convert_thumbnails_simple.bat` with ImageMagick
+- Conversion: Use `convert_thumbnails_simple.bat` (Windows) or `convert_thumbnails_simple.sh` (Linux/Mac)
+- Requirements: Python 3 with Pillow (PIL) library
 
 ### Git Commit Guidelines
 - All commit messages must be single line only
