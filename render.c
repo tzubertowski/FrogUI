@@ -42,10 +42,7 @@ void render_header(uint16_t *framebuffer, const char *title) {
 void render_legend(uint16_t *framebuffer) {
     if (!framebuffer) return;
     
-    // Draw legend at bottom
-    const char *legend = "A: Open  B: Back  L+R: Menu";
-    int legend_y = SCREEN_HEIGHT - 20;
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, legend_y, legend, COLOR_HEADER);
+    // No legend - clean interface
 }
 
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir, 

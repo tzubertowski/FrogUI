@@ -21,6 +21,9 @@ void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x80
 #endif
 
 #include "libretro.h"
+#include "font.h"
+#include "render.h"
+#include "recent_games.h"
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
@@ -44,23 +47,12 @@ typedef struct {
     int is_dir;
 } MenuEntry;
 
-// Recent games structure
-typedef struct {
-    char core_name[256];
-    char game_name[256];
-    char display_name[256];
-} RecentGame;
-
 static MenuEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static int selected_index = 0;
 static int scroll_offset = 0;
 static char current_path[MAX_PATH_LEN];
 static uint16_t *framebuffer = NULL;
-
-// Recent games state
-static RecentGame recent_games[MAX_RECENT_GAMES];
-static int recent_count = 0;
 
 // Libretro callbacks
 static retro_video_refresh_t video_cb = NULL;
@@ -81,137 +73,6 @@ static bool game_queued = false;  // Flag to indicate game is queued
 #define COLOR_SELECT_TEXT 0x0000  // Black text when selected
 #define COLOR_HEADER    0xCE59  // Light gray for header
 #define COLOR_FOLDER    0xFFFF  // White for folders (same as text)
-
-// Include font bitmap data
-#include "font_gamepocket.h"
-
-// Draw a character using GamePocket 16x16 bitmap font - inlined for speed
-static inline void draw_char(int x, int y, char c, uint16_t color) {
-    if (c < 32 || c > 127) c = ' ';  // Replace non-printable with space
-
-    const uint8_t *glyph = font_gamepocket_16x16[c - 32];
-
-    // 16x16 font, 2 bytes per row (16 bits)
-    for (int row = 0; row < 16; row++) {
-        // Each row is 2 bytes (16 bits) - read as big endian
-        uint16_t row_bits = (glyph[row * 2] << 8) | glyph[row * 2 + 1];
-
-        for (int col = 0; col < 16; col++) {
-            if (row_bits & (1 << (15 - col))) {  // Check bit from left to right
-                int px = x + col;
-                int py = y + row;
-                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
-                    framebuffer[py * SCREEN_WIDTH + px] = color;
-                }
-            }
-        }
-    }
-}
-
-static void draw_text(int x, int y, const char *text, uint16_t color) {
-    int start_x = x;
-    while (*text) {
-        if (*text == '\n') {
-            y += 20;  // Double spacing for 2x font
-            x = start_x;
-        } else {
-            // Convert to uppercase
-            char c = *text;
-            if (c >= 'a' && c <= 'z') {
-                c = c - 'a' + 'A';
-            }
-            draw_char(x, y, c, color);
-            x += 11;  // 11 pixels spacing for smaller GamePocket font (12pt)
-        }
-        text++;
-    }
-}
-
-// Inline for speed - called frequently
-static inline void draw_filled_rect(int x, int y, int w, int h, uint16_t color) {
-    // Clip to screen bounds once
-    if (x < 0) { w += x; x = 0; }
-    if (y < 0) { h += y; y = 0; }
-    if (x + w > SCREEN_WIDTH) w = SCREEN_WIDTH - x;
-    if (y + h > SCREEN_HEIGHT) h = SCREEN_HEIGHT - y;
-    if (w <= 0 || h <= 0) return;
-
-    // Fast fill - direct framebuffer access
-    uint16_t *fb = framebuffer + (y * SCREEN_WIDTH + x);
-    for (int dy = 0; dy < h; dy++) {
-        for (int dx = 0; dx < w; dx++) {
-            fb[dx] = color;
-        }
-        fb += SCREEN_WIDTH;
-    }
-}
-
-// Draw a rounded rectangle (pill-shaped) - MinUI style
-static void draw_rounded_rect(int x, int y, int w, int h, int radius, uint16_t color) {
-    // Draw main body (excluding corners)
-    draw_filled_rect(x + radius, y, w - 2 * radius, h, color);
-    draw_filled_rect(x, y + radius, w, h - 2 * radius, color);
-
-    // Draw rounded corners using circle approximation
-    for (int corner_y = 0; corner_y < radius; corner_y++) {
-        for (int corner_x = 0; corner_x < radius; corner_x++) {
-            int dx = radius - corner_x;
-            int dy = radius - corner_y;
-            int dist_sq = dx * dx + dy * dy;
-            int radius_sq = radius * radius;
-
-            if (dist_sq <= radius_sq) {
-                // Top-left corner
-                int px = x + corner_x;
-                int py = y + corner_y;
-                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
-                    framebuffer[py * SCREEN_WIDTH + px] = color;
-                }
-
-                // Top-right corner
-                px = x + w - 1 - corner_x;
-                py = y + corner_y;
-                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
-                    framebuffer[py * SCREEN_WIDTH + px] = color;
-                }
-
-                // Bottom-left corner
-                px = x + corner_x;
-                py = y + h - 1 - corner_y;
-                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
-                    framebuffer[py * SCREEN_WIDTH + px] = color;
-                }
-
-                // Bottom-right corner
-                px = x + w - 1 - corner_x;
-                py = y + h - 1 - corner_y;
-                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
-                    framebuffer[py * SCREEN_WIDTH + px] = color;
-                }
-            }
-        }
-    }
-}
-
-// Fast screen clear using direct memory operations
-static inline void clear_screen(uint16_t color) {
-    // Use word-sized operations for speed
-    uint16_t *fb = framebuffer;
-    int count = SCREEN_WIDTH * SCREEN_HEIGHT;
-
-    // Unroll loop for speed
-    while (count >= 4) {
-        fb[0] = color;
-        fb[1] = color;
-        fb[2] = color;
-        fb[3] = color;
-        fb += 4;
-        count -= 4;
-    }
-    while (count--) {
-        *fb++ = color;
-    }
-}
 
 // Get the base name from a path
 static const char *get_basename(const char *path) {
@@ -241,96 +102,14 @@ int compare_entries(const void *a, const void *b) {
     return strcmp(entry_a->name, entry_b->name);  // Compare by name
 }
 
-// Load recent games from history file
-static void load_recent_games(void) {
-    FILE *fp = fopen(HISTORY_FILE, "r");
-    if (!fp) {
-        recent_count = 0;
-        return;
-    }
-    
-    recent_count = 0;
-    char line[MAX_PATH_LEN * 2];
-    
-    while (fgets(line, sizeof(line), fp) && recent_count < MAX_RECENT_GAMES) {
-        // Remove newline
-        line[strcspn(line, "\r\n")] = 0;
-        
-        // Parse line: "core_name|game_name"
-        char *separator = strchr(line, '|');
-        if (separator) {
-            *separator = '\0';
-            strncpy(recent_games[recent_count].core_name, line, sizeof(recent_games[recent_count].core_name) - 1);
-            strncpy(recent_games[recent_count].game_name, separator + 1, sizeof(recent_games[recent_count].game_name) - 1);
-            
-            // Create display name
-            snprintf(recent_games[recent_count].display_name, sizeof(recent_games[recent_count].display_name),
-                    "%s (%s)", recent_games[recent_count].game_name, recent_games[recent_count].core_name);
-            
-            recent_count++;
-        }
-    }
-    
-    fclose(fp);
-}
-
-// Save recent games to history file
-static void save_recent_games(void) {
-    FILE *fp = fopen(HISTORY_FILE, "w");
-    if (!fp) return;
-    
-    for (int i = 0; i < recent_count; i++) {
-        fprintf(fp, "%s|%s\n", recent_games[i].core_name, recent_games[i].game_name);
-    }
-    
-    fclose(fp);
-}
-
-// Add game to recent history (moves to top if already exists)
-static void add_to_recent_games(const char *core_name, const char *game_name) {
-    // Check if game already exists
-    int existing_index = -1;
-    for (int i = 0; i < recent_count; i++) {
-        if (strcmp(recent_games[i].core_name, core_name) == 0 && 
-            strcmp(recent_games[i].game_name, game_name) == 0) {
-            existing_index = i;
-            break;
-        }
-    }
-    
-    // If exists, move to top
-    if (existing_index >= 0) {
-        RecentGame temp = recent_games[existing_index];
-        for (int i = existing_index; i > 0; i--) {
-            recent_games[i] = recent_games[i - 1];
-        }
-        recent_games[0] = temp;
-    } else {
-        // Add new game at top
-        if (recent_count < MAX_RECENT_GAMES) {
-            recent_count++;
-        }
-        
-        // Shift all games down
-        for (int i = recent_count - 1; i > 0; i--) {
-            recent_games[i] = recent_games[i - 1];
-        }
-        
-        // Add new game at top
-        strncpy(recent_games[0].core_name, core_name, sizeof(recent_games[0].core_name) - 1);
-        strncpy(recent_games[0].game_name, game_name, sizeof(recent_games[0].game_name) - 1);
-        snprintf(recent_games[0].display_name, sizeof(recent_games[0].display_name),
-                "%s (%s)", game_name, core_name);
-    }
-    
-    save_recent_games();
-}
-
 // Show recent games list
 static void show_recent_games(void) {
     entry_count = 0;
     selected_index = 0;
     scroll_offset = 0;
+
+    const RecentGame* recent_list = recent_games_get_list();
+    int recent_count = recent_games_get_count();
 
     if (recent_count == 0) {
         // Only show back entry if no recent games
@@ -341,9 +120,9 @@ static void show_recent_games(void) {
     } else {
         // Add recent games first
         for (int i = 0; i < recent_count && entry_count < MAX_ENTRIES; i++) {
-            strncpy(entries[entry_count].name, recent_games[i].display_name, sizeof(entries[entry_count].name) - 1);
+            strncpy(entries[entry_count].name, recent_list[i].display_name, sizeof(entries[entry_count].name) - 1);
             snprintf(entries[entry_count].path, sizeof(entries[entry_count].path), 
-                    "%s;%s", recent_games[i].core_name, recent_games[i].game_name);
+                    "%s;%s", recent_list[i].core_name, recent_list[i].game_name);
             entries[entry_count].is_dir = 0;
             entry_count++;
         }
@@ -438,82 +217,41 @@ static void scan_directory(const char *path) {
     }
 }
 
-// Render the menu - MinUI exact style
+// Render the menu using modular render system
 static void render_menu() {
-    clear_screen(COLOR_BG);
+    render_clear_screen(framebuffer);
 
     // If game is queued, just show loading screen
     if (game_queued) {
-        draw_text(30, SCREEN_HEIGHT / 2, "Loading...", 0xFFFF);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, 30, SCREEN_HEIGHT / 2, "LOADING...", 0xFFFF);
         return;
     }
 
-    // Use MinUI layout constants
-    int visible_entries = VISIBLE_ENTRIES;
-
-    // Draw simple header with path (MinUI style - minimal)
+    // Draw header with current folder name
     const char *display_path = current_path;
     if (strcmp(current_path, ROMS_PATH) == 0) {
-        display_path = "Systems";  // Simplified root name
+        display_path = "SYSTEMS";  // Simplified root name
     } else {
         // Show just the folder name, not full path
         display_path = get_basename(current_path);
     }
-    draw_text(PADDING, 8, display_path, COLOR_HEADER);
+    render_header(framebuffer, display_path);
 
     // Adjust the scroll_offset if necessary to keep the selected item visible
     if (selected_index < scroll_offset) {
         scroll_offset = selected_index;  // Scroll up to make the item visible
-    } else if (selected_index >= scroll_offset + visible_entries) {
-        scroll_offset = selected_index - visible_entries + 1;  // Scroll down to make the item visible
+    } else if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+        scroll_offset = selected_index - VISIBLE_ENTRIES + 1;  // Scroll down to make the item visible
     }
 
-    // Draw menu entries with MinUI styling
-    for (int i = scroll_offset; i < entry_count && i < scroll_offset + visible_entries; i++) {
-        int y = START_Y + ((i - scroll_offset) * ITEM_HEIGHT);
-
-        // Determine colors based on selection
-        uint16_t text_color;
-        if (i == selected_index) {
-            // Draw VERY rounded pill-shaped selection background (MinUI style)
-            int sel_x = 12;
-            int sel_y = y - 2;
-            int sel_w = SCREEN_WIDTH - 24;
-            int sel_h = ITEM_HEIGHT - 4;
-            int radius = 10;  // Very rounded pill like MinUI (max is sel_h/2 = 10)
-
-            draw_rounded_rect(sel_x, sel_y, sel_w, sel_h, radius, COLOR_SELECT_BG);
-            text_color = COLOR_SELECT_TEXT;
-        } else {
-            text_color = COLOR_TEXT;  // Default color for text
-        }
-
-        // Draw entry text (no brackets, MinUI is clean)
-        draw_text(PADDING + 4, y + 4, entries[i].name, text_color);
-
+    // Draw menu entries
+    for (int i = scroll_offset; i < entry_count && i < scroll_offset + VISIBLE_ENTRIES; i++) {
+        render_menu_item(framebuffer, i, entries[i].name, entries[i].is_dir, 
+                        (i == selected_index), scroll_offset);
     }
 
-    // Optional: Draw scroll indicator if there are more items
-    if (entry_count > visible_entries) {
-        int indicator_x = SCREEN_WIDTH - 6;
-        int indicator_h = SCREEN_HEIGHT - START_Y - 10;
-        int thumb_h = (indicator_h * visible_entries) / entry_count;
-        int thumb_y = START_Y + (indicator_h * scroll_offset) / entry_count;
-
-        draw_filled_rect(indicator_x, thumb_y, 2, thumb_h, COLOR_HEADER);
-    }
-
-    // Draw legend at bottom right (MinUI style pill)
-    int legend_y = SCREEN_HEIGHT - 24;
-    const char *legend = " SEL - SETTINGS ";
-
-    // Calculate width (approximate - 16px per char)
-    int legend_width = strlen(legend) * 16;
-
-    // Draw legend pill (right-aligned)
-    int legend_x = SCREEN_WIDTH - legend_width - 12;
-    draw_rounded_rect(legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_SELECT_BG);
-    draw_text(legend_x, legend_y, legend, COLOR_SELECT_TEXT);
+    // Draw legend
+    render_legend(framebuffer);
 }
 
 // Handle input
@@ -628,7 +366,7 @@ static void handle_input() {
                     filename = separator + 1;
                     
                     // Add to recent history (moves to top)
-                    add_to_recent_games(core_name, filename);
+                    recent_games_add(core_name, filename);
                 } else {
                     return; // Invalid format
                 }
@@ -639,7 +377,7 @@ static void handle_input() {
                 filename = filename_path ? filename_path + 1 : entry->name;
                 
                 // Add to recent history
-                add_to_recent_games(core_name, filename);
+                recent_games_add(core_name, filename);
             }
 
             // DEBUG: Log selection
@@ -692,7 +430,13 @@ static void handle_input() {
 // Libretro API implementation
 void retro_init(void) {
     framebuffer = (uint16_t*)malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
-    load_recent_games();
+    
+    // Initialize modular systems
+    render_init(framebuffer);
+    font_init();
+    recent_games_init();
+    
+    recent_games_load();
     strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
     scan_directory(current_path);
 }
