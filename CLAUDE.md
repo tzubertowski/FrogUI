@@ -38,8 +38,10 @@ FrogOS is a libretro-based file browser core for SF2000/GB300 handheld devices. 
 - Use present tense, imperative mood (e.g., "Add feature", "Fix bug")
 - Keep messages concise and descriptive
 
-### Testing
+### Testing and Debugging
 - Test on actual SF2000 hardware when possible
-- Check LOG.TXT for debugging information
+- Debug logs written to `/app/log.txt` during development
+- Use `tail -f /app/log.txt` to monitor real-time FrogOS logging
+- Check LOG.TXT on device for runtime debugging information
 - Verify memory usage (avoid malloc/free in critical paths)
 - Test with various ROM collections and filename lengths
