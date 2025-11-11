@@ -269,6 +269,9 @@ static void show_recent_games(void) {
         entries[entry_count].is_dir = 1;
         entry_count++;
     }
+    
+    // Load thumbnail for initially selected item
+    load_current_thumbnail();
 }
 
 // Scan directory and populate entries
@@ -351,6 +354,9 @@ static void scan_directory(const char *path) {
         entries[0].is_dir = 1;
         entry_count++;
     }
+    
+    // Load thumbnail for initially selected item
+    load_current_thumbnail();
 }
 
 // Render settings menu
