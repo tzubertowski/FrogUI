@@ -16,10 +16,10 @@
 #define COLOR_FOLDER    0xFFFF  // White for folders (same as text)
 
 // MinUI Layout Constants
-#define HEADER_HEIGHT 30
+#define HEADER_HEIGHT 0
 #define ITEM_HEIGHT 24
 #define PADDING 16
-#define START_Y (HEADER_HEIGHT + 6)
+#define START_Y 10
 #define VISIBLE_ENTRIES 6
 
 // Initialize rendering system
@@ -30,6 +30,9 @@ void render_clear_screen(uint16_t *framebuffer);
 
 // Draw a filled rectangle
 void render_fill_rect(uint16_t *framebuffer, int x, int y, int width, int height, uint16_t color);
+
+// Draw a rounded rectangle (pill shape)
+void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width, int height, int radius, uint16_t color);
 
 // Draw menu header with title
 void render_header(uint16_t *framebuffer, const char *title);

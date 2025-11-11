@@ -33,12 +33,7 @@ void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x80
 #define HISTORY_FILE "/mnt/sda1/game_history.txt"
 #define MAX_RECENT_GAMES 10
 
-// MinUI Layout Constants
-#define HEADER_HEIGHT 30
-#define ITEM_HEIGHT 24
-#define PADDING 16
-#define START_Y (HEADER_HEIGHT + 6)
-#define VISIBLE_ENTRIES 6  // Reduced to 6 to make room for legend at bottom
+// Layout constants are now in render.h
 
 // Menu state
 typedef struct {

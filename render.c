@@ -29,20 +29,75 @@ void render_fill_rect(uint16_t *framebuffer, int x, int y, int width, int height
     }
 }
 
+void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width, int height, int radius, uint16_t color) {
+    if (!framebuffer) return;
+    
+    // Draw main body (excluding corners)
+    render_fill_rect(framebuffer, x + radius, y, width - 2 * radius, height, color);
+    render_fill_rect(framebuffer, x, y + radius, width, height - 2 * radius, color);
+    
+    // Draw rounded corners using circle approximation
+    for (int corner_y = 0; corner_y < radius; corner_y++) {
+        for (int corner_x = 0; corner_x < radius; corner_x++) {
+            int dx = radius - corner_x;
+            int dy = radius - corner_y;
+            int dist_sq = dx * dx + dy * dy;
+            int radius_sq = radius * radius;
+            
+            if (dist_sq <= radius_sq) {
+                // Top-left corner
+                int px = x + corner_x;
+                int py = y + corner_y;
+                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
+                    framebuffer[py * SCREEN_WIDTH + px] = color;
+                }
+                
+                // Top-right corner
+                px = x + width - 1 - corner_x;
+                py = y + corner_y;
+                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
+                    framebuffer[py * SCREEN_WIDTH + px] = color;
+                }
+                
+                // Bottom-left corner
+                px = x + corner_x;
+                py = y + height - 1 - corner_y;
+                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
+                    framebuffer[py * SCREEN_WIDTH + px] = color;
+                }
+                
+                // Bottom-right corner
+                px = x + width - 1 - corner_x;
+                py = y + height - 1 - corner_y;
+                if (px >= 0 && px < SCREEN_WIDTH && py >= 0 && py < SCREEN_HEIGHT) {
+                    framebuffer[py * SCREEN_WIDTH + px] = color;
+                }
+            }
+        }
+    }
+}
+
 void render_header(uint16_t *framebuffer, const char *title) {
     if (!framebuffer || !title) return;
     
-    // Draw header background
+    // Draw header background only - no text
     render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT, COLOR_BG);
-    
-    // Draw header text
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 8, title, COLOR_HEADER);
 }
 
 void render_legend(uint16_t *framebuffer) {
     if (!framebuffer) return;
     
-    // No legend - clean interface
+    // Draw "SEL - SETTINGS" legend in bottom right with highlight
+    const char *legend = " SEL - SETTINGS ";
+    int legend_y = SCREEN_HEIGHT - 24;
+    
+    // Calculate width (approximate)
+    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
+    
+    // Draw legend pill (right-aligned) with rounded corners
+    int legend_x = SCREEN_WIDTH - legend_width - 12;
+    render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_SELECT_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, legend_x, legend_y, legend, COLOR_SELECT_TEXT);
 }
 
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir, 
@@ -58,9 +113,9 @@ void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is
         // Calculate text width for dynamic pillbox
         int text_width = strlen(name) * FONT_CHAR_SPACING;
         
-        // Draw selection background (pill shape) sized to text
-        render_fill_rect(framebuffer, PADDING - 4, y - 2, 
-                        text_width + 8, ITEM_HEIGHT - 4, COLOR_SELECT_BG);
+        // Draw selection background (rounded pill shape) sized to text
+        render_rounded_rect(framebuffer, PADDING - 4, y - 2, 
+                        text_width + 12, ITEM_HEIGHT - 4, 8, COLOR_SELECT_BG);
         
         // Draw text in selection color
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, name, COLOR_SELECT_TEXT);
