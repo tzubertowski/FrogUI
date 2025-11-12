@@ -218,6 +218,18 @@ const Theme themes[] = {
         .legend = RGB565(0, 255, 65),
         .legend_bg = RGB565(0, 51, 12),
         .disabled = RGB565(0, 128, 32)
+    },
+    {
+        .name = "Sajnaps Green",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(0, 255, 0),
+        .select_bg = RGB565(0, 255, 0),
+        .select_text = RGB565(0, 0, 0),
+        .header = RGB565(0, 216, 86),
+        .folder = RGB565(0, 255, 0),
+        .legend = RGB565(0, 255, 0),
+        .legend_bg = RGB565(0, 40, 0),
+        .disabled = RGB565(0, 120, 0)
     }
 };
 
