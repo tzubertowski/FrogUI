@@ -817,6 +817,18 @@ static void render_menu() {
 
     // Draw legend
     render_legend(framebuffer);
+
+    // Add entry number out of total entries at top-right corner (without words)
+    char entry_number_label[10]; // To hold the label text, e.g. "5/20"
+    snprintf(entry_number_label, sizeof(entry_number_label), "%d/%d", selected_index + 1, entry_count);
+
+    int label_width = strlen(entry_number_label) * 11;
+    int label_x = SCREEN_WIDTH - label_width - 12;  // Right-aligned with some padding
+    int label_y = 8;  // Position near the top
+
+    // Draw the label in top-right corner with a background pillbox
+    render_rounded_rect(framebuffer, label_x - 4, label_y - 2, label_width + 8, 20, 10, COLOR_LEGEND_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, label_x, label_y, entry_number_label, COLOR_LEGEND);
 }
 
 // Handle input
