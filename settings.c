@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "theme.h"
+#include "font.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,7 @@ static char current_config_path[512] = "/mnt/sda1/configs/multicore.opt";
 // Forward declarations
 static int settings_load_file(const char *config_path);
 static void apply_theme_from_settings(void);
+static void apply_font_from_settings(void);
 
 void settings_init(void) {
     settings_count = 0;
@@ -191,10 +193,11 @@ static int settings_load_file(const char *config_path) {
     }
     
     fclose(fp);
-    
-    // Apply theme changes after loading settings
+
+    // Apply theme and font changes after loading settings
     apply_theme_from_settings();
-    
+    apply_font_from_settings();
+
     return settings_count;
 }
 
@@ -286,10 +289,11 @@ int settings_save(void) {
         if (dst) fclose(dst);
         return 0;
     }
-    
-    // Apply theme changes after saving settings
+
+    // Apply theme and font changes after saving settings
     apply_theme_from_settings();
-    
+    apply_font_from_settings();
+
     return 1;
 }
 
@@ -407,6 +411,17 @@ static void apply_theme_from_settings(void) {
     for (int i = 0; i < settings_count; i++) {
         if (strcmp(settings[i].name, "frogui_theme") == 0) {
             theme_load_from_settings(settings[i].current_value);
+            break;
+        }
+    }
+}
+
+// Apply font changes from loaded settings
+static void apply_font_from_settings(void) {
+    // Look for the frogui_font setting
+    for (int i = 0; i < settings_count; i++) {
+        if (strcmp(settings[i].name, "frogui_font") == 0) {
+            font_load_from_settings(settings[i].current_value);
             break;
         }
     }

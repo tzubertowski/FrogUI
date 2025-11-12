@@ -1,6 +1,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 #include "font.h"
+#include "settings.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,24 +13,29 @@ static int font_loaded = 0;
 
 #define FONT_SIZE 16.0f
 
-void font_init(void) {
-    // Try to load GamePocket font (smallest and cleanest)
-    const char *font_paths[] = {
-        "/mnt/sda1/frogui/fonts/GamePocket-Regular-ZeroKern.ttf",
-        "/app/sdcard/frogui/fonts/GamePocket-Regular-ZeroKern.ttf",
-        "fonts/GamePocket-Regular-ZeroKern.ttf",
-        NULL
-    };
+// Internal function to load a font file
+static int load_font_file(const char *font_filename) {
+    // Free previous font if loaded
+    if (font_buffer) {
+        free(font_buffer);
+        font_buffer = NULL;
+        font_loaded = 0;
+    }
+
+    // Build search paths for the font
+    char font_paths[3][256];
+    snprintf(font_paths[0], sizeof(font_paths[0]), "/mnt/sda1/frogui/fonts/%s", font_filename);
+    snprintf(font_paths[1], sizeof(font_paths[1]), "/app/sdcard/frogui/fonts/%s", font_filename);
+    snprintf(font_paths[2], sizeof(font_paths[2]), "fonts/%s", font_filename);
 
     FILE *fp = NULL;
-    for (int i = 0; font_paths[i] != NULL; i++) {
+    for (int i = 0; i < 3; i++) {
         fp = fopen(font_paths[i], "rb");
         if (fp) break;
     }
 
     if (!fp) {
-        font_loaded = 0;
-        return;
+        return 0;
     }
 
     // Get file size
@@ -41,8 +47,7 @@ void font_init(void) {
     font_buffer = (unsigned char*)malloc(font_size);
     if (!font_buffer) {
         fclose(fp);
-        font_loaded = 0;
-        return;
+        return 0;
     }
 
     fread(font_buffer, 1, font_size, fp);
@@ -52,13 +57,36 @@ void font_init(void) {
     if (!stbtt_InitFont(&font_info, font_buffer, stbtt_GetFontOffsetForIndex(font_buffer, 0))) {
         free(font_buffer);
         font_buffer = NULL;
-        font_loaded = 0;
-        return;
+        return 0;
     }
 
     // Calculate scale for desired pixel height
     font_scale = stbtt_ScaleForPixelHeight(&font_info, FONT_SIZE);
     font_loaded = 1;
+    return 1;
+}
+
+void font_load_from_settings(const char *font_name) {
+    const char *font_filename = NULL;
+
+    // Map font names to font files
+    if (strcmp(font_name, "GamePocket") == 0) {
+        font_filename = "GamePocket-Regular-ZeroKern.ttf";
+    } else if (strcmp(font_name, "ChillRound") == 0) {
+        font_filename = "ChillRoundM.ttf";
+    } else if (strcmp(font_name, "ZenMaru") == 0) {
+        font_filename = "ZenMaruGothic-Bold.ttf";
+    } else {
+        // Default to GamePocket
+        font_filename = "GamePocket-Regular-ZeroKern.ttf";
+    }
+
+    load_font_file(font_filename);
+}
+
+void font_init(void) {
+    // Load default font initially
+    font_load_from_settings("GamePocket");
 }
 
 void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height,

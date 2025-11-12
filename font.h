@@ -6,6 +6,9 @@
 // Initialize font system
 void font_init(void);
 
+// Load font from settings (call when font setting changes)
+void font_load_from_settings(const char *font_name);
+
 // Draw a single character at position (x, y) with given color
 void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height, 
                    int x, int y, char c, uint16_t color);
