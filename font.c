@@ -6,6 +6,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Simple logging function
+static void font_log(const char *msg) {
+    FILE *fp = fopen("/app/log.txt", "a");
+    if (fp) {
+        fprintf(fp, "[FONT] %s\n", msg);
+        fclose(fp);
+    }
+}
+
 static stbtt_fontinfo font_info;
 static unsigned char *font_buffer = NULL;
 static float font_scale;
@@ -15,6 +24,10 @@ static int font_loaded = 0;
 
 // Internal function to load a font file
 static int load_font_file(const char *font_filename) {
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), "Loading font: %s", font_filename);
+    font_log(log_msg);
+
     // Free previous font if loaded
     if (font_buffer) {
         free(font_buffer);
@@ -29,14 +42,22 @@ static int load_font_file(const char *font_filename) {
     snprintf(font_paths[2], sizeof(font_paths[2]), "fonts/%s", font_filename);
 
     FILE *fp = NULL;
+    int found_path = -1;
     for (int i = 0; i < 3; i++) {
         fp = fopen(font_paths[i], "rb");
-        if (fp) break;
+        if (fp) {
+            found_path = i;
+            break;
+        }
     }
 
     if (!fp) {
+        font_log("Failed to open font file");
         return 0;
     }
+
+    snprintf(log_msg, sizeof(log_msg), "Found font at path %d: %s", found_path, font_paths[found_path]);
+    font_log(log_msg);
 
     // Get file size
     fseek(fp, 0, SEEK_END);
@@ -55,6 +76,7 @@ static int load_font_file(const char *font_filename) {
 
     // Initialize font
     if (!stbtt_InitFont(&font_info, font_buffer, stbtt_GetFontOffsetForIndex(font_buffer, 0))) {
+        font_log("Failed to initialize font");
         free(font_buffer);
         font_buffer = NULL;
         return 0;
@@ -63,10 +85,15 @@ static int load_font_file(const char *font_filename) {
     // Calculate scale for desired pixel height
     font_scale = stbtt_ScaleForPixelHeight(&font_info, FONT_SIZE);
     font_loaded = 1;
+    font_log("Font loaded successfully");
     return 1;
 }
 
 void font_load_from_settings(const char *font_name) {
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), "font_load_from_settings called with: %s", font_name ? font_name : "NULL");
+    font_log(log_msg);
+
     const char *font_filename = NULL;
 
     // Map font names to font files
@@ -78,6 +105,8 @@ void font_load_from_settings(const char *font_name) {
         font_filename = "ZenMaruGothic-Bold.ttf";
     } else {
         // Default to GamePocket
+        snprintf(log_msg, sizeof(log_msg), "Unknown font name '%s', using GamePocket", font_name);
+        font_log(log_msg);
         font_filename = "GamePocket-Regular-ZeroKern.ttf";
     }
 

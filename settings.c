@@ -421,6 +421,12 @@ static void apply_font_from_settings(void) {
     // Look for the frogui_font setting
     for (int i = 0; i < settings_count; i++) {
         if (strcmp(settings[i].name, "frogui_font") == 0) {
+            // Debug logging
+            FILE *log = fopen("/app/log.txt", "a");
+            if (log) {
+                fprintf(log, "[SETTINGS] Applying font: %s\n", settings[i].current_value);
+                fclose(log);
+            }
             font_load_from_settings(settings[i].current_value);
             break;
         }
