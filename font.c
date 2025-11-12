@@ -1,55 +1,161 @@
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #include "font.h"
-#include "font_gamepocket.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+static stbtt_fontinfo font_info;
+static unsigned char *font_buffer = NULL;
+static float font_scale;
+static int font_loaded = 0;
+
+#define FONT_SIZE 16.0f
+
 void font_init(void) {
-    // Font initialization if needed
+    // Try to load GamePocket font (smallest and cleanest)
+    const char *font_paths[] = {
+        "/mnt/sda1/frogui/fonts/GamePocket-Regular-ZeroKern.ttf",
+        "/app/sdcard/frogui/fonts/GamePocket-Regular-ZeroKern.ttf",
+        "fonts/GamePocket-Regular-ZeroKern.ttf",
+        NULL
+    };
+
+    FILE *fp = NULL;
+    for (int i = 0; font_paths[i] != NULL; i++) {
+        fp = fopen(font_paths[i], "rb");
+        if (fp) break;
+    }
+
+    if (!fp) {
+        font_loaded = 0;
+        return;
+    }
+
+    // Get file size
+    fseek(fp, 0, SEEK_END);
+    long font_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    // Allocate buffer and read font
+    font_buffer = (unsigned char*)malloc(font_size);
+    if (!font_buffer) {
+        fclose(fp);
+        font_loaded = 0;
+        return;
+    }
+
+    fread(font_buffer, 1, font_size, fp);
+    fclose(fp);
+
+    // Initialize font
+    if (!stbtt_InitFont(&font_info, font_buffer, stbtt_GetFontOffsetForIndex(font_buffer, 0))) {
+        free(font_buffer);
+        font_buffer = NULL;
+        font_loaded = 0;
+        return;
+    }
+
+    // Calculate scale for desired pixel height
+    font_scale = stbtt_ScaleForPixelHeight(&font_info, FONT_SIZE);
+    font_loaded = 1;
 }
 
-// Draw a character using ChillRound 16x16 bitmap font
-void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height, 
+void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height,
                    int x, int y, char c, uint16_t color) {
-    if (!framebuffer) return;
-    if (c < 32 || c > 127) c = ' ';  // Replace non-printable with space
+    if (!font_loaded || !framebuffer) return;
 
-    const uint8_t *glyph = font_gamepocket_18x16[c - 32];
+    // Convert to uppercase
+    if (c >= 'a' && c <= 'z') {
+        c = c - 'a' + 'A';
+    }
 
-    // 18x16 font, 3 bytes per row (18 bits)
-    for (int row = 0; row < 16; row++) {
-        // Each row is 3 bytes (18 bits) - read as big endian
-        uint32_t row_bits = (glyph[row * 3] << 16) | (glyph[row * 3 + 1] << 8) | glyph[row * 3 + 2];
+    // Get glyph index
+    int glyph_index = stbtt_FindGlyphIndex(&font_info, c);
+    if (glyph_index == 0) return; // Glyph not found
 
-        for (int col = 0; col < 18; col++) {
-            if (row_bits & (1 << (17 - col))) {  // Check bit from left to right
-                int px = x + col;
-                int py = y + row;
+    // Get glyph bitmap
+    int width, height, xoff, yoff;
+    unsigned char *bitmap = stbtt_GetGlyphBitmap(&font_info, 0, font_scale,
+                                                  glyph_index, &width, &height, &xoff, &yoff);
+
+    if (!bitmap) return;
+
+    // Get vertical metrics for proper baseline alignment
+    int ascent, descent, line_gap;
+    stbtt_GetFontVMetrics(&font_info, &ascent, &descent, &line_gap);
+    int baseline = (int)(ascent * font_scale);
+
+    // Draw the glyph
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            unsigned char alpha = bitmap[row * width + col];
+            if (alpha > 0) {
+                int px = x + xoff + col;
+                int py = y + baseline + yoff + row;
+
                 if (px >= 0 && px < screen_width && py >= 0 && py < screen_height) {
-                    framebuffer[py * screen_width + px] = color;
+                    // Simple alpha blending
+                    if (alpha > 127) {
+                        framebuffer[py * screen_width + px] = color;
+                    }
                 }
             }
         }
     }
+
+    stbtt_FreeBitmap(bitmap, NULL);
 }
 
-// Draw text string with automatic character spacing
 void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
                    int x, int y, const char *text, uint16_t color) {
-    if (!framebuffer || !text) return;
-    
+    if (!font_loaded || !framebuffer || !text) return;
+
     int start_x = x;
+    int prev_codepoint = 0;
+
     while (*text) {
         if (*text == '\n') {
-            y += 20;  // Line spacing
+            y += FONT_SIZE + 4;  // Line spacing
             x = start_x;
-        } else {
-            // Convert to uppercase
-            char c = *text;
-            if (c >= 'a' && c <= 'z') {
-                c = c - 'a' + 'A';
-            }
-            font_draw_char(framebuffer, screen_width, screen_height, x, y, c, color);
-            x += FONT_CHAR_SPACING;  // GamePocket character spacing
+            text++;
+            prev_codepoint = 0;
+            continue;
         }
+
+        char c = *text;
+
+        // Convert to uppercase
+        if (c >= 'a' && c <= 'z') {
+            c = c - 'a' + 'A';
+        }
+
+        // Get glyph index
+        int glyph_index = stbtt_FindGlyphIndex(&font_info, c);
+
+        if (glyph_index != 0) {
+            // Get advance width and left side bearing
+            int advance_width, left_side_bearing;
+            stbtt_GetGlyphHMetrics(&font_info, glyph_index, &advance_width, &left_side_bearing);
+
+            // Apply kerning if we have a previous character
+            if (prev_codepoint != 0) {
+                int kern = stbtt_GetGlyphKernAdvance(&font_info, prev_codepoint, glyph_index);
+                x += (int)(kern * font_scale);
+            }
+
+            // Draw the character
+            font_draw_char(framebuffer, screen_width, screen_height, x, y, c, color);
+
+            // Advance cursor
+            x += (int)(advance_width * font_scale);
+            prev_codepoint = glyph_index;
+        } else {
+            // Space or unknown character
+            x += FONT_CHAR_SPACING;
+            prev_codepoint = 0;
+        }
+
         text++;
     }
 }
