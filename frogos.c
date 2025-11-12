@@ -243,7 +243,7 @@ static void get_scrolling_text(const char *full_name, int is_selected, char *dis
                         strcmp(current_path, "RECENT_GAMES") == 0 ||
                         strcmp(current_path, "TOOLS") == 0 ||
                         strcmp(current_path, "UTILS") == 0 ||
-                        strcmp(current_path, "SHORTCUTS") == 0 ||
+                        strcmp(current_path, "HOTKEYS") == 0 ||
                         strcmp(current_path, "CREDITS") == 0);
 
     // Use different max lengths: shorter for unselected items only in ROM lists (with thumbnails)
@@ -432,9 +432,9 @@ static void show_tools_menu(void) {
     // Clear thumbnail cache when switching to tools mode
     thumbnail_cache_valid = 0;
     
-    // Add Shortcuts entry
-    strncpy(entries[entry_count].name, "Shortcuts", sizeof(entries[entry_count].name) - 1);
-    strncpy(entries[entry_count].path, "SHORTCUTS", sizeof(entries[entry_count].path) - 1);
+    // Add Hotkeys entry
+    strncpy(entries[entry_count].name, "Hotkeys", sizeof(entries[entry_count].name) - 1);
+    strncpy(entries[entry_count].path, "HOTKEYS", sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
     entry_count++;
     
@@ -508,13 +508,13 @@ static void show_utils_menu(void) {
     last_selected_index = selected_index;
 }
 
-// Show shortcuts screen
-static void show_shortcuts_screen(void) {
-    // Set current_path for shortcuts mode
-    strncpy(current_path, "SHORTCUTS", sizeof(current_path) - 1);
+// Show hotkeys screen
+static void show_hotkeys_screen(void) {
+    // Set current_path for hotkeys mode
+    strncpy(current_path, "HOTKEYS", sizeof(current_path) - 1);
     current_path[sizeof(current_path) - 1] = '\0';
-    
-    // Clear thumbnail cache and entries for shortcuts mode
+
+    // Clear thumbnail cache and entries for hotkeys mode
     thumbnail_cache_valid = 0;
     entry_count = 0;
     reset_navigation_state();
@@ -677,16 +677,16 @@ static void render_settings_menu() {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, legend_x, legend_y, legend, COLOR_LEGEND);
 }
 
-// Render shortcuts screen
-static void render_shortcuts_screen() {
+// Render hotkeys screen
+static void render_hotkeys_screen() {
     // Draw title
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, "SHORTCUTS", COLOR_HEADER);
-    
-    // Draw shortcut information
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, "HOTKEYS", COLOR_HEADER);
+
+    // Draw hotkey information
     int start_y = 50;
     int line_height = 24;
-    
-    // Shortcuts text
+
+    // Hotkeys text
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y, "SAVE STATE: L + R + X", COLOR_TEXT);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height, "LOAD STATE: L + R + Y", COLOR_TEXT);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height * 2, "NEXT SLOT: L + R + >", COLOR_TEXT);
@@ -761,9 +761,9 @@ static void render_menu() {
         return;
     }
     
-    // If in shortcuts mode, render shortcuts screen
-    if (strcmp(current_path, "SHORTCUTS") == 0) {
-        render_shortcuts_screen();
+    // If in hotkeys mode, render hotkeys screen
+    if (strcmp(current_path, "HOTKEYS") == 0) {
+        render_hotkeys_screen();
         return;
     }
     
@@ -991,10 +991,10 @@ static void handle_input() {
                 // Show tools menu
                 show_tools_menu();
                 strncpy(current_path, "TOOLS", sizeof(current_path) - 1);
-            } else if (strcmp(entry->path, "SHORTCUTS") == 0) {
-                // Show shortcuts screen
-                show_shortcuts_screen();
-                strncpy(current_path, "SHORTCUTS", sizeof(current_path) - 1);
+            } else if (strcmp(entry->path, "HOTKEYS") == 0) {
+                // Show hotkeys screen
+                show_hotkeys_screen();
+                strncpy(current_path, "HOTKEYS", sizeof(current_path) - 1);
             } else if (strcmp(entry->path, "CREDITS") == 0) {
                 // Show credits screen
                 show_credits_screen();
@@ -1094,8 +1094,8 @@ static void handle_input() {
             // Go back from Tools to main ROMS directory
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
-        } else if (strcmp(current_path, "SHORTCUTS") == 0) {
-            // Go back from Shortcuts to Tools
+        } else if (strcmp(current_path, "HOTKEYS") == 0) {
+            // Go back from Hotkeys to Tools
             show_tools_menu();
             strncpy(current_path, "TOOLS", sizeof(current_path) - 1);
         } else if (strcmp(current_path, "CREDITS") == 0) {
