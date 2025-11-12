@@ -942,13 +942,13 @@ static void handle_input() {
         }
     }
 
-    // Handle L button (move up by 10 entries)
+    // Handle L button (move up by 7 entries)
     if (prev_input[4] && !l) {
-        if (selected_index >= 10) {
-            selected_index -= 10;
+        if (selected_index >= 7) {
+            selected_index -= 7;
         } else {
             // Loop to the bottom when reaching the top
-            selected_index = entry_count - (10 - selected_index);
+            selected_index = entry_count - (7 - selected_index);
         }
         // Adjust scroll_offset if necessary
         if (selected_index < scroll_offset) {
@@ -956,13 +956,13 @@ static void handle_input() {
         }
     }
 
-    // Handle R button (move down by 10 entries)
+    // Handle R button (move down by 7 entries)
     if (prev_input[5] && !r) {
-        if (selected_index < entry_count - 10) {
-            selected_index += 10;
+        if (selected_index < entry_count - 7) {
+            selected_index += 7;
         } else {
             // Loop to the top when reaching the bottom
-            selected_index = (selected_index + 10) % entry_count;  // Wrap around to the top
+            selected_index = (selected_index + 7) % entry_count;  // Wrap around to the top
         }
         // Adjust scroll_offset if necessary
         if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
