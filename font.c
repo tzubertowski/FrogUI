@@ -8,9 +8,13 @@
 
 // Simple logging function
 static void font_log(const char *msg) {
-    FILE *fp = fopen("/app/log.txt", "a");
+    FILE *fp = fopen("/mnt/sda1/frogui/font_debug.txt", "a");
+    if (!fp) {
+        fp = fopen("/app/sdcard/font_debug.txt", "a");
+    }
     if (fp) {
         fprintf(fp, "[FONT] %s\n", msg);
+        fflush(fp);
         fclose(fp);
     }
 }
