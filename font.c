@@ -24,7 +24,7 @@ static unsigned char *font_buffer = NULL;
 static float font_scale;
 static int font_loaded = 0;
 
-#define FONT_SIZE 20.0f
+#define FONT_SIZE 24.0f
 
 // Internal function to load a font file
 static int load_font_file(const char *font_filename) {
