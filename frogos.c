@@ -658,7 +658,7 @@ static void render_settings_menu() {
             snprintf(value_text, sizeof(value_text), "< %s >", option->current_value);
             
             // Use unified pillbox rendering
-            render_text_pillbox(framebuffer, PADDING, y_value, value_text, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 12);
+            render_text_pillbox(framebuffer, PADDING, y_value, value_text, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 6);
         } else {
             font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y_value, option->current_value, COLOR_TEXT);
         }
@@ -751,7 +751,7 @@ static void render_menu() {
         int y = (SCREEN_HEIGHT - FONT_CHAR_HEIGHT) / 2;
         
         // Use unified pillbox rendering
-        render_text_pillbox(framebuffer, x, y, loading_text, theme_header(), theme_bg(), 12);
+        render_text_pillbox(framebuffer, x, y, loading_text, theme_header(), theme_bg(), 6);
         return;
     }
 

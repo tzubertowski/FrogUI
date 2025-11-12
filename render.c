@@ -143,7 +143,7 @@ void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is
     
     if (is_selected) {
         // Use unified pillbox rendering
-        render_text_pillbox(framebuffer, PADDING, y, name, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 14);
+        render_text_pillbox(framebuffer, PADDING, y, name, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
     } else {
         // Draw normal text
         uint16_t text_color = is_dir ? COLOR_FOLDER : COLOR_TEXT;
