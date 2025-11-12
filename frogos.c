@@ -561,7 +561,7 @@ static void scan_directory(const char *path) {
         if (ent->d_name[0] == '.') continue;  // Skip hidden files
 
         // Skip frogui, js2000, and saves folders
-        if (strcasecmp(ent->d_name, "frogui") == 0 || strcasecmp(ent->d_name, "js2000") == 0 || strcasecmp(ent->d_name, "saves") == 0) {
+        if (strcasecmp(ent->d_name, "frogui") == 0 || strcasecmp(ent->d_name, "js2000") == 0 || strcasecmp(ent->d_name, "saves") == 0 || strcasecmp(ent->d_name, "save") == 0) {
             continue;
         }
 
