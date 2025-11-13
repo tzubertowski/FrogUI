@@ -944,8 +944,12 @@ static void render_menu() {
 
     // Draw A-Z picker overlay if active
     if (az_picker_active) {
-        // Semi-transparent dark overlay (not really transparent on RGB565, just dark)
-        render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x2104);
+        // Draw centered background box
+        int box_width = 280;
+        int box_height = 180;
+        int box_x = (SCREEN_WIDTH - box_width) / 2;
+        int box_y = (SCREEN_HEIGHT - box_height) / 2;
+        render_fill_rect(framebuffer, box_x, box_y, box_width, box_height, 0x2104);
 
         // Draw title
         const char *title = "QUICK JUMP";
