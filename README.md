@@ -1,3 +1,5 @@
+![FrogUI Logo](res/logo.jpg)
+
 # FrogUI - Minimalistic Launcher for SF2000/GB300 consoles
 
 FrogUI is a libretro-based launcher that provides a simple, clean interface for browsing and launching games on SF2000/GB300 handhelds.
