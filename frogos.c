@@ -173,6 +173,10 @@ static uint16_t *framebuffer = NULL;
 static int boundary_delay_timer = 0;
 static int at_boundary = 0; // 1 = at top, 2 = at bottom
 
+// A-Z picker state
+static int az_picker_active = 0;
+static int az_selected_index = 0; // 0-25 for A-Z, 26 for 0-9, 27 for #
+
 // Reset navigation state when entering new folder
 static void reset_navigation_state(void) {
     selected_index = 0;
@@ -937,6 +941,44 @@ static void render_menu() {
     int label_x = SCREEN_WIDTH - label_width - 12;  // Right-aligned, just above the legend
     int label_y = 8;  // Position it slightly below the top edge
     render_text_pillbox(framebuffer, label_x, label_y, entry_label, COLOR_LEGEND_BG, COLOR_LEGEND, 6);
+
+    // Draw A-Z picker overlay if active
+    if (az_picker_active) {
+        // Semi-transparent dark overlay (not really transparent on RGB565, just dark)
+        render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0x2104);
+
+        // Draw title
+        const char *title = "QUICK JUMP";
+        int title_width = font_measure_text(title);
+        int title_x = (SCREEN_WIDTH - title_width) / 2;
+        render_text_pillbox(framebuffer, title_x, 30, title, COLOR_HEADER, COLOR_BG, 6);
+
+        // Draw A-Z grid (7 columns x 4 rows = 28 slots)
+        const char *labels[] = {
+            "A", "B", "C", "D", "E", "F", "G",
+            "H", "I", "J", "K", "L", "M", "N",
+            "O", "P", "Q", "R", "S", "T", "U",
+            "V", "W", "X", "Y", "Z", "0-9", "#"
+        };
+
+        int grid_start_x = 40;
+        int grid_start_y = 70;
+        int col_width = 38;
+        int row_height = 30;
+
+        for (int i = 0; i < 28; i++) {
+            int col = i % 7;
+            int row = i / 7;
+            int x = grid_start_x + col * col_width;
+            int y = grid_start_y + row * row_height;
+
+            if (i == az_selected_index) {
+                render_text_pillbox(framebuffer, x, y, labels[i], COLOR_SELECT_BG, COLOR_SELECT_TEXT, 6);
+            } else {
+                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, labels[i], COLOR_TEXT);
+            }
+        }
+    }
 }
 
 // Pick and launch a random game by randomly navigating the menu
@@ -1088,7 +1130,7 @@ static void handle_input() {
     int right = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
 
     // Check if settings menu should handle input
-    if (settings_handle_input(prev_input[0] && !up, prev_input[1] && !down, 
+    if (settings_handle_input(prev_input[0] && !up, prev_input[1] && !down,
                             prev_input[7] && !left, prev_input[8] && !right,
                             prev_input[2] && !a, prev_input[3] && !b, prev_input[6] && !select)) {
         // Settings consumed the input, update prev_input and return
@@ -1102,6 +1144,92 @@ static void handle_input() {
         prev_input[7] = left;
         prev_input[8] = right;
         return;
+    }
+
+    // Handle A-Z picker input
+    if (az_picker_active) {
+        // Navigate the A-Z grid
+        if (prev_input[0] && !up) { // UP
+            if (az_selected_index >= 7) az_selected_index -= 7;
+        }
+        if (prev_input[1] && !down) { // DOWN
+            if (az_selected_index < 21) az_selected_index += 7;
+        }
+        if (prev_input[7] && !left) { // LEFT
+            if (az_selected_index > 0) az_selected_index--;
+        }
+        if (prev_input[8] && !right) { // RIGHT
+            if (az_selected_index < 27) az_selected_index++;
+        }
+
+        // A button - select letter and jump
+        if (prev_input[2] && !a) {
+            const char *search_chars[] = {
+                "A", "B", "C", "D", "E", "F", "G",
+                "H", "I", "J", "K", "L", "M", "N",
+                "O", "P", "Q", "R", "S", "T", "U",
+                "V", "W", "X", "Y", "Z", "0", ""
+            };
+
+            char first_char = search_chars[az_selected_index][0];
+
+            // Find first entry starting with this letter (case insensitive)
+            for (int i = 0; i < entry_count; i++) {
+                char entry_first = entries[i].name[0];
+                if (entry_first >= 'a' && entry_first <= 'z') {
+                    entry_first = entry_first - 'a' + 'A'; // Convert to uppercase
+                }
+
+                // Handle 0-9 category
+                if (az_selected_index == 26 && entry_first >= '0' && entry_first <= '9') {
+                    selected_index = i;
+                    break;
+                }
+                // Handle # category (special characters)
+                else if (az_selected_index == 27 &&
+                         !((entry_first >= 'A' && entry_first <= 'Z') ||
+                           (entry_first >= '0' && entry_first <= '9'))) {
+                    selected_index = i;
+                    break;
+                }
+                // Handle A-Z
+                else if (az_selected_index < 26 && entry_first == first_char) {
+                    selected_index = i;
+                    break;
+                }
+            }
+
+            az_picker_active = 0;
+        }
+
+        // B button - cancel
+        if (prev_input[3] && !b) {
+            az_picker_active = 0;
+        }
+
+        // Update prev_input and return (picker consumed input)
+        prev_input[0] = up;
+        prev_input[1] = down;
+        prev_input[2] = a;
+        prev_input[3] = b;
+        prev_input[7] = left;
+        prev_input[8] = right;
+        return;
+    }
+
+    // Handle RIGHT button to open A-Z picker (on button release)
+    if (prev_input[8] && !right) {
+        // Don't activate in special menus
+        if (strcmp(current_path, "RECENT_GAMES") != 0 &&
+            strcmp(current_path, "FAVORITES") != 0 &&
+            strcmp(current_path, "TOOLS") != 0 &&
+            strcmp(current_path, "UTILS") != 0 &&
+            strcmp(current_path, "HOTKEYS") != 0 &&
+            strcmp(current_path, "CREDITS") != 0 &&
+            entry_count > 0) {
+            az_picker_active = 1;
+            az_selected_index = 0;
+        }
     }
 
     // Handle SELECT button to open settings (on button release)
