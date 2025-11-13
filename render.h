@@ -63,8 +63,8 @@ void render_header(uint16_t *framebuffer, const char *title);
 void render_legend(uint16_t *framebuffer);
 
 // Draw a menu item (file or folder)
-void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir, 
-                     int is_selected, int scroll_offset);
+void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,
+                     int is_selected, int scroll_offset, int is_favorited);
 
 // Thumbnail functions
 typedef struct {

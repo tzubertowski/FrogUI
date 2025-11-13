@@ -25,6 +25,7 @@ void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x80
 #include "render.h"
 #include "theme.h"
 #include "recent_games.h"
+#include "favorites.h"
 #include "settings.h"
 
 // Console to core name mapping (from buildcoresworking.sh)
@@ -242,6 +243,7 @@ static void get_scrolling_text(const char *full_name, int is_selected, char *dis
     // Check if we're in main menu or special views (no thumbnails)
     int in_main_menu = (strcmp(current_path, ROMS_PATH) == 0 ||
                         strcmp(current_path, "RECENT_GAMES") == 0 ||
+                        strcmp(current_path, "FAVORITES") == 0 ||
                         strcmp(current_path, "TOOLS") == 0 ||
                         strcmp(current_path, "UTILS") == 0 ||
                         strcmp(current_path, "HOTKEYS") == 0 ||
@@ -314,12 +316,32 @@ static void load_current_thumbnail() {
         // For recent games, we need to use the full_path from the RecentGame structure
         const RecentGame* recent_list = recent_games_get_list();
         int recent_count = recent_games_get_count();
-        
+
         if (selected_index < recent_count) {
             const RecentGame *recent_game = &recent_list[selected_index];
-                
+
             if (recent_game->full_path[0] != '\0') {
                 get_thumbnail_path(recent_game->full_path, thumb_path, sizeof(thumb_path));
+            } else {
+                // No full path available, skip thumbnail
+                thumbnail_cache_valid = 0;
+                return;
+            }
+        } else {
+            // This is the ".." entry, no thumbnail
+            thumbnail_cache_valid = 0;
+            return;
+        }
+    } else if (strcmp(current_path, "FAVORITES") == 0) {
+        // For favorites, we need to use the full_path from the FavoriteGame structure
+        const FavoriteGame* favorites_list = favorites_get_list();
+        int favorites_count = favorites_get_count();
+
+        if (selected_index < favorites_count) {
+            const FavoriteGame *favorite_game = &favorites_list[selected_index];
+
+            if (favorite_game->full_path[0] != '\0') {
+                get_thumbnail_path(favorite_game->full_path, thumb_path, sizeof(thumb_path));
             } else {
                 // No full path available, skip thumbnail
                 thumbnail_cache_valid = 0;
@@ -416,6 +438,49 @@ static void show_recent_games(void) {
         entry_count++;
     }
     
+    // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
+    load_current_thumbnail();
+    last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
+}
+
+// Show favorites
+static void show_favorites(void) {
+    entry_count = 0;
+    reset_navigation_state();
+
+    // Set current_path so thumbnail loading knows we're in favorites mode
+    strncpy(current_path, "FAVORITES", sizeof(current_path) - 1);
+    current_path[sizeof(current_path) - 1] = '\0';
+
+    // Clear thumbnail cache when switching to favorites mode
+    thumbnail_cache_valid = 0;
+
+    const FavoriteGame* favorites_list = favorites_get_list();
+    int favorites_count = favorites_get_count();
+
+    if (favorites_count == 0) {
+        // Only show back entry if no favorites
+        strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
+        strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
+        entries[entry_count].is_dir = 1;
+        entry_count++;
+    } else {
+        // Add favorites first
+        for (int i = 0; i < favorites_count && entry_count < MAX_ENTRIES; i++) {
+            strncpy(entries[entry_count].name, favorites_list[i].display_name, sizeof(entries[entry_count].name) - 1);
+            snprintf(entries[entry_count].path, sizeof(entries[entry_count].path),
+                    "%s;%s", favorites_list[i].core_name, favorites_list[i].game_name);
+            entries[entry_count].is_dir = 0;
+            entry_count++;
+        }
+
+        // Add back entry after favorites
+        strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
+        strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
+        entries[entry_count].is_dir = 1;
+        entry_count++;
+    }
+
     // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
     last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
@@ -611,7 +676,18 @@ static void scan_directory(const char *path) {
         strncpy(entries[0].path, "RECENT_GAMES", sizeof(entries[0].path) - 1);
         entries[0].is_dir = 1;
         entry_count++;
-        
+
+        // Shift entries down by 1 more to make room for Favorites
+        for (int i = entry_count; i > 1; i--) {
+            entries[i] = entries[i - 1];
+        }
+
+        // Insert Favorites at position 1 (right after Recent games)
+        strncpy(entries[1].name, "Favorites", sizeof(entries[1].name) - 1);
+        strncpy(entries[1].path, "FAVORITES", sizeof(entries[1].path) - 1);
+        entries[1].is_dir = 1;
+        entry_count++;
+
         // Add Tools at the bottom
         strncpy(entries[entry_count].name, "Tools", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, "TOOLS", sizeof(entries[entry_count].path) - 1);
@@ -811,9 +887,25 @@ static void render_menu() {
         // Get display name (with scrolling for selected item)
         char display_name[MAX_FILENAME_DISPLAY_LEN + 4];
         get_scrolling_text(entries[i].name, (i == selected_index), display_name, sizeof(display_name));
-        
-        render_menu_item(framebuffer, i, display_name, entries[i].is_dir, 
-                        (i == selected_index), scroll_offset);
+
+        // Check if this item is favorited
+        int is_favorited = 0;
+        if (!entries[i].is_dir &&
+            strcmp(current_path, ROMS_PATH) != 0 &&
+            strcmp(current_path, "RECENT_GAMES") != 0 &&
+            strcmp(current_path, "FAVORITES") != 0 &&
+            strcmp(current_path, "TOOLS") != 0 &&
+            strcmp(current_path, "UTILS") != 0 &&
+            strcmp(current_path, "HOTKEYS") != 0 &&
+            strcmp(current_path, "CREDITS") != 0) {
+            const char *core_name = get_basename(current_path);
+            const char *filename_path = strrchr(entries[i].path, '/');
+            const char *filename = filename_path ? filename_path + 1 : entries[i].name;
+            is_favorited = favorites_is_favorited(core_name, filename);
+        }
+
+        render_menu_item(framebuffer, i, display_name, entries[i].is_dir,
+                        (i == selected_index), scroll_offset, is_favorited);
     }
 
     // Draw legend
@@ -845,6 +937,7 @@ static void handle_input() {
     int down = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
     int a = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A);
     int b = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B);
+    int x = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X);
     int l = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
     int r = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
     int select = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
@@ -949,6 +1042,30 @@ static void handle_input() {
         }
     }
 
+    // Handle X button (toggle favorite) - on button release
+    if (prev_input[9] && !x && entry_count > 0) {
+        MenuEntry *entry = &entries[selected_index];
+
+        // Only allow favoriting in ROM directories (not in special menus)
+        if (!entry->is_dir &&
+            strcmp(current_path, "RECENT_GAMES") != 0 &&
+            strcmp(current_path, "FAVORITES") != 0 &&
+            strcmp(current_path, "TOOLS") != 0 &&
+            strcmp(current_path, "UTILS") != 0 &&
+            strcmp(current_path, "HOTKEYS") != 0 &&
+            strcmp(current_path, "CREDITS") != 0 &&
+            strcmp(current_path, ROMS_PATH) != 0) {
+
+            // Get core name and filename
+            const char *core_name = get_basename(current_path);
+            const char *filename_path = strrchr(entry->path, '/');
+            const char *filename = filename_path ? filename_path + 1 : entry->name;
+
+            // Toggle favorite
+            favorites_toggle(core_name, filename, entry->path);
+        }
+    }
+
     // Handle A button (select) - on button release
     if (prev_input[2] && !a && entry_count > 0) {
         MenuEntry *entry = &entries[selected_index];
@@ -966,6 +1083,10 @@ static void handle_input() {
                 // Show recent games list
                 show_recent_games();
                 strncpy(current_path, "RECENT_GAMES", sizeof(current_path) - 1);
+            } else if (strcmp(entry->path, "FAVORITES") == 0) {
+                // Show favorites list
+                show_favorites();
+                strncpy(current_path, "FAVORITES", sizeof(current_path) - 1);
             } else if (strcmp(entry->path, "TOOLS") == 0) {
                 // Show tools menu
                 show_tools_menu();
@@ -1016,21 +1137,47 @@ static void handle_input() {
                     *separator = '\0';
                     core_name = entry->path;
                     filename = separator + 1;
-                    
+
                     // For recent games, get the full_path from the RecentGame structure
                     const RecentGame* recent_list = recent_games_get_list();
                     int recent_count = recent_games_get_count();
                     const char* full_path = "";
-                    
+
                     for (int i = 0; i < recent_count; i++) {
-                        if (strcmp(recent_list[i].core_name, core_name) == 0 && 
+                        if (strcmp(recent_list[i].core_name, core_name) == 0 &&
                             strcmp(recent_list[i].game_name, filename) == 0) {
                             full_path = recent_list[i].full_path;
                             break;
                         }
                     }
-                    
+
                     // Add to recent history (moves to top) - use actual full path
+                    recent_games_add(core_name, filename, full_path);
+                } else {
+                    return; // Invalid format
+                }
+            } else if (strcmp(current_path, "FAVORITES") == 0) {
+                // Parse core_name;game_name from entry->path
+                char *separator = strchr(entry->path, ';');
+                if (separator) {
+                    *separator = '\0';
+                    core_name = entry->path;
+                    filename = separator + 1;
+
+                    // For favorites, get the full_path from the FavoriteGame structure
+                    const FavoriteGame* favorites_list = favorites_get_list();
+                    int favorites_count = favorites_get_count();
+                    const char* full_path = "";
+
+                    for (int i = 0; i < favorites_count; i++) {
+                        if (strcmp(favorites_list[i].core_name, core_name) == 0 &&
+                            strcmp(favorites_list[i].game_name, filename) == 0) {
+                            full_path = favorites_list[i].full_path;
+                            break;
+                        }
+                    }
+
+                    // Add to recent history when launching from favorites
                     recent_games_add(core_name, filename, full_path);
                 } else {
                     return; // Invalid format
@@ -1063,6 +1210,10 @@ static void handle_input() {
     if (prev_input[3] && !b) {
         if (strcmp(current_path, "RECENT_GAMES") == 0) {
             // Go back from Recent games to main ROMS directory
+            strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+            scan_directory(current_path);
+        } else if (strcmp(current_path, "FAVORITES") == 0) {
+            // Go back from Favorites to main ROMS directory
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
         } else if (strcmp(current_path, "TOOLS") == 0) {
@@ -1100,6 +1251,7 @@ static void handle_input() {
     prev_input[6] = select;
     prev_input[7] = left;
     prev_input[8] = right;
+    prev_input[9] = x;
 }
 
 // Libretro API implementation
@@ -1111,9 +1263,11 @@ void retro_init(void) {
     font_init();
     theme_init();
     recent_games_init();
+    favorites_init();
     settings_init();
-    
+
     recent_games_load();
+    favorites_load();
     settings_load();
 
     // Auto-launch most recent game if resume on boot is enabled

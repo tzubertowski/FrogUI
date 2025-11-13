@@ -119,35 +119,48 @@ void render_header(uint16_t *framebuffer, const char *title) {
 void render_legend(uint16_t *framebuffer) {
     if (!framebuffer) return;
 
-    // Draw "SEL - SETTINGS" legend in bottom right with highlight
-    const char *legend = " SEL - SETTINGS ";
     int legend_y = SCREEN_HEIGHT - 24;
+    int spacing = 8; // Space between legend items
 
-    // Calculate actual text width
-    int legend_width = font_measure_text(legend);
+    // Draw "SEL - SETTINGS" legend in bottom right with highlight
+    const char *settings_legend = " SEL - SETTINGS ";
+    int settings_width = font_measure_text(settings_legend);
+    int settings_x = SCREEN_WIDTH - settings_width - 12;
+    render_rounded_rect(framebuffer, settings_x - 4, legend_y - 2, settings_width + 8, 20, 10, COLOR_LEGEND_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, settings_x, legend_y, settings_legend, COLOR_LEGEND);
 
-    // Draw legend pill (right-aligned) with rounded corners
-    int legend_x = SCREEN_WIDTH - legend_width - 12;
-    render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, legend_x, legend_y, legend, COLOR_LEGEND);
+    // Draw "X - FAVOURITE" legend to the left of settings
+    const char *favorite_legend = " X - FAVOURITE ";
+    int favorite_width = font_measure_text(favorite_legend);
+    int favorite_x = settings_x - favorite_width - spacing - 12;
+    render_rounded_rect(framebuffer, favorite_x - 4, legend_y - 2, favorite_width + 8, 20, 10, COLOR_LEGEND_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, favorite_x, legend_y, favorite_legend, COLOR_LEGEND);
 }
 
-void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir, 
-                     int is_selected, int scroll_offset) {
+void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,
+                     int is_selected, int scroll_offset, int is_favorited) {
     if (!framebuffer || !name) return;
-    
+
     int visible_index = index - scroll_offset;
     if (visible_index < 0 || visible_index >= VISIBLE_ENTRIES) return;
-    
+
     int y = START_Y + (visible_index * ITEM_HEIGHT);
-    
+
+    // Draw favorite star if favorited
+    int text_x = PADDING;
+    if (is_favorited) {
+        const char *star = "*"; // Asterisk as favorite marker
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, star, COLOR_HEADER);
+        text_x = PADDING + 15; // Offset text to the right of the star
+    }
+
     if (is_selected) {
         // Use unified pillbox rendering
-        render_text_pillbox(framebuffer, PADDING, y, name, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+        render_text_pillbox(framebuffer, text_x, y, name, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
     } else {
         // Draw normal text
         uint16_t text_color = is_dir ? COLOR_FOLDER : COLOR_TEXT;
-        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, name, text_color);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name, text_color);
     }
 }
 
