@@ -60,7 +60,7 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
 void render_header(uint16_t *framebuffer, const char *title);
 
 // Draw menu legend at bottom
-void render_legend(uint16_t *framebuffer);
+void render_legend(uint16_t *framebuffer, int show_favorite_button);
 
 // Draw a menu item (file or folder)
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,

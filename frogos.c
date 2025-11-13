@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #ifdef SF2000
 
@@ -688,6 +689,17 @@ static void scan_directory(const char *path) {
         entries[1].is_dir = 1;
         entry_count++;
 
+        // Shift entries down by 1 more to make room for Random Game
+        for (int i = entry_count; i > 2; i--) {
+            entries[i] = entries[i - 1];
+        }
+
+        // Insert Random Game at position 2 (right after Favorites)
+        strncpy(entries[2].name, "Random game", sizeof(entries[2].name) - 1);
+        strncpy(entries[2].path, "RANDOM_GAME", sizeof(entries[2].path) - 1);
+        entries[2].is_dir = 1;
+        entry_count++;
+
         // Add Tools at the bottom
         strncpy(entries[entry_count].name, "Tools", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, "TOOLS", sizeof(entries[entry_count].path) - 1);
@@ -908,8 +920,15 @@ static void render_menu() {
                         (i == selected_index), scroll_offset, is_favorited);
     }
 
-    // Draw legend
-    render_legend(framebuffer);
+    // Draw legend - show favorite button only in ROM directories
+    int in_rom_dir = (strcmp(current_path, ROMS_PATH) != 0 &&
+                      strcmp(current_path, "RECENT_GAMES") != 0 &&
+                      strcmp(current_path, "FAVORITES") != 0 &&
+                      strcmp(current_path, "TOOLS") != 0 &&
+                      strcmp(current_path, "UTILS") != 0 &&
+                      strcmp(current_path, "HOTKEYS") != 0 &&
+                      strcmp(current_path, "CREDITS") != 0);
+    render_legend(framebuffer, in_rom_dir);
 
     // Draw the "current entry/total entries" label in top-right, above the legend
     char entry_label[20];
@@ -918,6 +937,129 @@ static void render_menu() {
     int label_x = SCREEN_WIDTH - label_width - 12;  // Right-aligned, just above the legend
     int label_y = 8;  // Position it slightly below the top edge
     render_text_pillbox(framebuffer, label_x, label_y, entry_label, COLOR_LEGEND_BG, COLOR_LEGEND, 6);
+}
+
+// Pick and launch a random game by randomly navigating the menu
+static void pick_random_game(void) {
+    printf("Random game: Starting selection...\n");
+
+    int max_attempts = 100; // Prevent infinite loop
+    int attempts = 0;
+
+    // Keep trying random selections until we find a file
+    while (attempts < max_attempts) {
+        attempts++;
+        printf("Random game: Attempt %d/%d\n", attempts, max_attempts);
+
+        // First, pick a random console directory from root
+        strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+        scan_directory(current_path);
+        printf("Random game: Scanned root, found %d entries\n", entry_count);
+
+        // Filter out non-console entries (Recent games, Favorites, Random game, Tools)
+        int valid_console_count = 0;
+        for (int i = 0; i < entry_count; i++) {
+            if (entries[i].is_dir &&
+                strcmp(entries[i].path, "RECENT_GAMES") != 0 &&
+                strcmp(entries[i].path, "FAVORITES") != 0 &&
+                strcmp(entries[i].path, "RANDOM_GAME") != 0 &&
+                strcmp(entries[i].path, "TOOLS") != 0) {
+                valid_console_count++;
+            }
+        }
+
+        printf("Random game: Found %d valid console directories\n", valid_console_count);
+        if (valid_console_count == 0) {
+            printf("Random game: No console directories found!\n");
+            strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+            scan_directory(current_path);
+            return;
+        }
+
+        // Pick a random console directory
+        int random_console = rand() % valid_console_count;
+        printf("Random game: Selecting console index %d\n", random_console);
+
+        int console_idx = 0;
+        for (int i = 0; i < entry_count; i++) {
+            if (entries[i].is_dir &&
+                strcmp(entries[i].path, "RECENT_GAMES") != 0 &&
+                strcmp(entries[i].path, "FAVORITES") != 0 &&
+                strcmp(entries[i].path, "RANDOM_GAME") != 0 &&
+                strcmp(entries[i].path, "TOOLS") != 0) {
+                if (console_idx == random_console) {
+                    strncpy(current_path, entries[i].path, sizeof(current_path) - 1);
+                    printf("Random game: Selected console directory: %s\n", entries[i].name);
+                    break;
+                }
+                console_idx++;
+            }
+        }
+
+        // Scan the console directory
+        scan_directory(current_path);
+        printf("Random game: Scanned console dir, found %d entries\n", entry_count);
+
+        // Count files (not directories, not ..)
+        int file_count = 0;
+        for (int i = 0; i < entry_count; i++) {
+            if (!entries[i].is_dir && strcmp(entries[i].name, "..") != 0) {
+                file_count++;
+            }
+        }
+
+        printf("Random game: Found %d game files in this directory\n", file_count);
+        if (file_count == 0) {
+            printf("Random game: No files found, trying another console...\n");
+            continue; // No files in this directory, try again
+        }
+
+        // Pick a random file
+        int random_file = rand() % file_count;
+        printf("Random game: Selecting file index %d\n", random_file);
+
+        int file_idx = 0;
+        for (int i = 0; i < entry_count; i++) {
+            if (!entries[i].is_dir && strcmp(entries[i].name, "..") != 0) {
+                if (file_idx == random_file) {
+                    // Found our random game! Launch it
+                    const char *core_name = get_basename(current_path);
+                    const char *filename_path = strrchr(entries[i].path, '/');
+                    const char *filename = filename_path ? filename_path + 1 : entries[i].name;
+
+                    printf("Random game: Selected game: %s (core: %s)\n", filename, core_name);
+                    printf("Random game: Full path: %s\n", entries[i].path);
+
+                    // Launch the game
+                    sprintf((char *)ptr_gs_run_game_file, "%s;%s", core_name, entries[i].path);
+                    sprintf((char *)ptr_gs_run_folder, "%s", current_path);
+                    sprintf((char *)ptr_gs_run_game_name, "%s", filename);
+
+                    // Remove extension
+                    char *dot_position = strrchr(ptr_gs_run_game_name, '.');
+                    if (dot_position != NULL) {
+                        *dot_position = '\0';
+                    }
+
+                    printf("Random game: Launching with game_file=%s\n", ptr_gs_run_game_file);
+                    printf("Random game: folder=%s, game_name=%s\n", ptr_gs_run_folder, ptr_gs_run_game_name);
+
+                    // Add to recent history
+                    recent_games_add(core_name, filename, entries[i].path);
+
+                    game_queued = true;
+                    printf("Random game: Game queued for launch!\n");
+                    return;
+                }
+                file_idx++;
+            }
+        }
+    }
+
+    // If we get here, we couldn't find a game after max_attempts
+    printf("Random game: Failed to find a game after %d attempts\n", max_attempts);
+    strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+    scan_directory(current_path);
 }
 
 // Handle input
@@ -1087,6 +1229,10 @@ static void handle_input() {
                 // Show favorites list
                 show_favorites();
                 strncpy(current_path, "FAVORITES", sizeof(current_path) - 1);
+            } else if (strcmp(entry->path, "RANDOM_GAME") == 0) {
+                // Pick and launch a random game
+                pick_random_game();
+                return;
             } else if (strcmp(entry->path, "TOOLS") == 0) {
                 // Show tools menu
                 show_tools_menu();
@@ -1257,7 +1403,10 @@ static void handle_input() {
 // Libretro API implementation
 void retro_init(void) {
     framebuffer = (uint16_t*)malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
-    
+
+    // Seed random number generator for random game picker
+    srand(time(NULL));
+
     // Initialize modular systems
     render_init(framebuffer);
     font_init();

@@ -116,7 +116,7 @@ void render_header(uint16_t *framebuffer, const char *title) {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, title, COLOR_HEADER);
 }
 
-void render_legend(uint16_t *framebuffer) {
+void render_legend(uint16_t *framebuffer, int show_favorite_button) {
     if (!framebuffer) return;
 
     int legend_y = SCREEN_HEIGHT - 24;
@@ -129,12 +129,14 @@ void render_legend(uint16_t *framebuffer) {
     render_rounded_rect(framebuffer, settings_x - 4, legend_y - 2, settings_width + 8, 20, 10, COLOR_LEGEND_BG);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, settings_x, legend_y, settings_legend, COLOR_LEGEND);
 
-    // Draw "X - FAVOURITE" legend to the left of settings
-    const char *favorite_legend = " X - FAVOURITE ";
-    int favorite_width = font_measure_text(favorite_legend);
-    int favorite_x = settings_x - favorite_width - spacing - 12;
-    render_rounded_rect(framebuffer, favorite_x - 4, legend_y - 2, favorite_width + 8, 20, 10, COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, favorite_x, legend_y, favorite_legend, COLOR_LEGEND);
+    // Draw "X - FAVOURITE" legend to the left of settings (only in ROM directories)
+    if (show_favorite_button) {
+        const char *favorite_legend = " X - FAVOURITE ";
+        int favorite_width = font_measure_text(favorite_legend);
+        int favorite_x = settings_x - favorite_width - spacing - 12;
+        render_rounded_rect(framebuffer, favorite_x - 4, legend_y - 2, favorite_width + 8, 20, 10, COLOR_LEGEND_BG);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, favorite_x, legend_y, favorite_legend, COLOR_LEGEND);
+    }
 }
 
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,
