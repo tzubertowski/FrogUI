@@ -669,7 +669,7 @@ static void render_settings_menu() {
     int legend_y = SCREEN_HEIGHT - 24;
     
     // Calculate width and position (right-aligned)
-    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
+    int legend_width = font_measure_text(legend);
     int legend_x = SCREEN_WIDTH - legend_width - 12;
     
     // Draw legend pill with rounded corners
@@ -695,7 +695,7 @@ static void render_hotkeys_screen() {
     // Draw legend
     const char *legend = " B - BACK ";
     int legend_y = SCREEN_HEIGHT - 24;
-    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
+    int legend_width = font_measure_text(legend);
     int legend_x = SCREEN_WIDTH - legend_width - 12;
     
     render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_LEGEND_BG);
@@ -714,7 +714,7 @@ static void render_credits_screen() {
     // Credits text with pillboxes for sections
     // FrogUI Dev & Idea section
     const char *section1 = " FrogUI Dev & Idea ";
-    int section1_width = strlen(section1) * FONT_CHAR_SPACING;
+    int section1_width = font_measure_text(section1);
     render_rounded_rect(framebuffer, PADDING - 4, start_y - 2, section1_width + 8, 20, 10, COLOR_HEADER);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y, section1, COLOR_BG);
     
@@ -722,7 +722,7 @@ static void render_credits_screen() {
     
     // Design section
     const char *section2 = " Design ";
-    int section2_width = strlen(section2) * FONT_CHAR_SPACING;
+    int section2_width = font_measure_text(section2);
     render_rounded_rect(framebuffer, PADDING - 4, start_y + line_height * 2 - 2, section2_width + 8, 20, 10, COLOR_HEADER);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, start_y + line_height * 2, section2, COLOR_BG);
     
@@ -731,7 +731,7 @@ static void render_credits_screen() {
     // Draw legend
     const char *legend = " B - BACK ";
     int legend_y = SCREEN_HEIGHT - 24;
-    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
+    int legend_width = font_measure_text(legend);
     int legend_x = SCREEN_WIDTH - legend_width - 12;
     
     render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_LEGEND_BG);
@@ -746,7 +746,7 @@ static void render_menu() {
     if (game_queued) {
         // Show centered loading pillbox
         const char* loading_text = "LOADING...";
-        int text_width = strlen(loading_text) * FONT_CHAR_SPACING;
+        int text_width = font_measure_text(loading_text);
         int x = (SCREEN_WIDTH - text_width) / 2;
         int y = (SCREEN_HEIGHT - FONT_CHAR_HEIGHT) / 2;
         

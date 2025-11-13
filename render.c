@@ -87,14 +87,14 @@ void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width, int hei
     }
 }
 
-void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text, 
+void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
                         uint16_t bg_color, uint16_t text_color, int padding) {
     if (!framebuffer || !text) return;
-    
-    // Calculate text dimensions
-    int text_width = strlen(text) * FONT_CHAR_SPACING;
+
+    // Calculate text dimensions using proper measurement
+    int text_width = font_measure_text(text);
     int text_height = FONT_CHAR_HEIGHT;
-    
+
     // Calculate pillbox dimensions - left padding stays at 6, right padding uses parameter
     int left_padding = 6;
     int pillbox_width = text_width + left_padding + padding; // padding only on right
@@ -118,14 +118,14 @@ void render_header(uint16_t *framebuffer, const char *title) {
 
 void render_legend(uint16_t *framebuffer) {
     if (!framebuffer) return;
-    
+
     // Draw "SEL - SETTINGS" legend in bottom right with highlight
     const char *legend = " SEL - SETTINGS ";
     int legend_y = SCREEN_HEIGHT - 24;
-    
-    // Calculate width (approximate)
-    int legend_width = strlen(legend) * FONT_CHAR_SPACING;
-    
+
+    // Calculate actual text width
+    int legend_width = font_measure_text(legend);
+
     // Draw legend pill (right-aligned) with rounded corners
     int legend_x = SCREEN_WIDTH - legend_width - 12;
     render_rounded_rect(framebuffer, legend_x - 4, legend_y - 2, legend_width + 8, 20, 10, COLOR_LEGEND_BG);

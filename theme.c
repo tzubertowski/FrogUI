@@ -230,6 +230,30 @@ const Theme themes[] = {
         .legend = RGB565(0, 255, 0),
         .legend_bg = RGB565(0, 40, 0),
         .disabled = RGB565(0, 120, 0)
+    },
+    {
+        .name = "Q_ta's Light Wii",
+        .bg = RGB565(192, 192, 192),
+        .text = RGB565(0, 176, 204),
+        .select_bg = RGB565(0, 176, 204),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(0, 176, 204),
+        .folder = RGB565(0, 176, 204),
+        .legend = RGB565(0, 176, 204),
+        .legend_bg = RGB565(160, 160, 160),
+        .disabled = RGB565(128, 160, 168)
+    },
+    {
+        .name = "Q_ta's Dark Wii",
+        .bg = RGB565(16, 24, 24),
+        .text = RGB565(0, 176, 204),
+        .select_bg = RGB565(0, 96, 112),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(0, 176, 204),
+        .folder = RGB565(0, 176, 204),
+        .legend = RGB565(0, 176, 204),
+        .legend_bg = RGB565(8, 12, 12),
+        .disabled = RGB565(0, 88, 102)
     }
 };
 

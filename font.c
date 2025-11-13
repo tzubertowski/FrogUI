@@ -68,20 +68,25 @@ static int load_font_file(const char *font_filename) {
 
 void font_load_from_settings(const char *font_name) {
     const char *font_filename = NULL;
+    float custom_size = FONT_SIZE;
 
     // Map font names to font files
     if (strcmp(font_name, "GamePocket") == 0) {
         font_filename = "GamePocket-Regular-ZeroKern.ttf";
-    } else if (strcmp(font_name, "ChillRound") == 0) {
-        font_filename = "ChillRoundM.ttf";
-    } else if (strcmp(font_name, "ZenMaru") == 0) {
-        font_filename = "ZenMaruGothic-Bold.ttf";
+    } else if (strcmp(font_name, "Monogram") == 0) {
+        font_filename = "monogram.ttf";
+        custom_size = 16.0f; // Monogram works best at 16px
     } else {
         // Default to GamePocket
         font_filename = "GamePocket-Regular-ZeroKern.ttf";
     }
 
     load_font_file(font_filename);
+
+    // Recalculate scale if custom size is different
+    if (custom_size != FONT_SIZE && font_loaded) {
+        font_scale = stbtt_ScaleForPixelHeight(&font_info, custom_size);
+    }
 }
 
 void font_init(void) {
@@ -186,4 +191,54 @@ void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
 
         text++;
     }
+}
+
+int font_measure_text(const char *text) {
+    if (!text || !font_loaded) return 0;
+
+    int width = 0;
+    int prev_codepoint = 0;
+
+    while (*text) {
+        // Skip newlines
+        if (*text == '\n') {
+            text++;
+            prev_codepoint = 0;
+            continue;
+        }
+
+        char c = *text;
+
+        // Convert to uppercase
+        if (c >= 'a' && c <= 'z') {
+            c = c - 'a' + 'A';
+        }
+
+        // Get glyph index
+        int glyph_index = stbtt_FindGlyphIndex(&font_info, c);
+
+        if (glyph_index != 0) {
+            // Get advance width
+            int advance_width, left_side_bearing;
+            stbtt_GetGlyphHMetrics(&font_info, glyph_index, &advance_width, &left_side_bearing);
+
+            // Apply kerning if we have a previous character
+            if (prev_codepoint != 0) {
+                int kern = stbtt_GetGlyphKernAdvance(&font_info, prev_codepoint, glyph_index);
+                width += (int)(kern * font_scale);
+            }
+
+            // Add character width
+            width += (int)(advance_width * font_scale);
+            prev_codepoint = glyph_index;
+        } else {
+            // Space or unknown character
+            width += FONT_CHAR_SPACING;
+            prev_codepoint = 0;
+        }
+
+        text++;
+    }
+
+    return width;
 }

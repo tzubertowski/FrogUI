@@ -17,6 +17,9 @@ void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height,
 void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
                    int x, int y, const char *text, uint16_t color);
 
+// Measure text width in pixels
+int font_measure_text(const char *text);
+
 // Get font character width/height
 #define FONT_CHAR_WIDTH 18
 #define FONT_CHAR_HEIGHT 16
