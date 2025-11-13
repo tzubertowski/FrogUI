@@ -1030,10 +1030,10 @@ static void pick_random_game(void) {
                     printf("Random game: Selected game: %s (core: %s)\n", filename, core_name);
                     printf("Random game: Full path: %s\n", entries[i].path);
 
-                    // Launch the game
-                    sprintf((char *)ptr_gs_run_game_file, "%s;%s", core_name, entries[i].path);
-                    sprintf((char *)ptr_gs_run_folder, "%s", current_path);
-                    sprintf((char *)ptr_gs_run_game_name, "%s", filename);
+                    // Launch the game - match format used by normal game selection
+                    sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename);
+                    sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
+                    sprintf((char *)ptr_gs_run_game_name, "%s;%s", core_name, filename);
 
                     // Remove extension
                     char *dot_position = strrchr(ptr_gs_run_game_name, '.');
