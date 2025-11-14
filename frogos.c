@@ -226,9 +226,9 @@ static void auto_launch_recent_game(void) {
     const char *filename = game->game_name;
 
     // Queue the game for launch
-    sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename);
+    sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
     sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
-    sprintf((char *)ptr_gs_run_game_name, "%s;%s", core_name, filename);
+    sprintf((char *)ptr_gs_run_game_name, "%s", filename);
 
     // Remove extension from ptr_gs_run_game_name
     char *dot_position = strrchr(ptr_gs_run_game_name, '.');
@@ -1077,9 +1077,9 @@ static void pick_random_game(void) {
                     printf("Random game: Full path: %s\n", entries[i].path);
 
                     // Launch the game - match format used by normal game selection
-                    sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename);
+                    sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
                     sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
-                    sprintf((char *)ptr_gs_run_game_name, "%s;%s", core_name, filename);
+                    sprintf((char *)ptr_gs_run_game_name, "%s", filename);
 
                     // Remove extension
                     char *dot_position = strrchr(ptr_gs_run_game_name, '.');
@@ -1393,8 +1393,8 @@ static void handle_input() {
             // Check if we're in Utils - launch js2000 core
             if (strcmp(current_path, "UTILS") == 0) {
                 // Launch selected file with js2000 core using format: corename;full_path
-                sprintf((char *)ptr_gs_run_game_file, "js2000;%s.gba", entry->path);
-                sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS/js2000");
+                sprintf((char *)ptr_gs_run_game_file, "js2000;js2000;%s.gba", entry->name);
+                sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
                 sprintf((char *)ptr_gs_run_game_name, "%s", entry->name);
 
                 // Remove extension from game name
@@ -1470,9 +1470,9 @@ static void handle_input() {
                 recent_games_add(core_name, filename, entry->path);
             }
 
-            sprintf((char *)ptr_gs_run_game_file, "/mnt/sda1/ROMS/%s;%s.gba", core_name, filename); // Workaround for loading a core from within a core, loader corrects
+            sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
             sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS"); // Expects "/mnt/sda1/ROMS" format
-            sprintf((char *)ptr_gs_run_game_name, "%s;%s", core_name, filename); // Expects the filename without any extension 
+            sprintf((char *)ptr_gs_run_game_name, "%s", filename); // Expects the filename without any extension 
 
             // Remove extension from ptr_gs_run_game_name
             char *dot_position = strrchr(ptr_gs_run_game_name, '.');
