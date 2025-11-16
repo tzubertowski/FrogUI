@@ -1,8 +1,8 @@
-# FrogOS Quick Start Guide
+# FrogUI Quick Start Guide
 
-## What is FrogOS?
+## What is FrogUI?
 
-FrogOS is a file browser core for SF2000/GB300 multicore that lets you browse your ROMS folders and launch games directly. It's designed to mimic MinUI's clean interface.
+FrogUI is a file browser core for SF2000/GB300 multicore that lets you browse your ROMS folders and launch games directly. It's designed to mimic MinUI's clean interface.
 
 ## Quick Setup
 
@@ -15,9 +15,9 @@ make CONSOLE=frogos CORE=cores/FrogOS
 ### 2. The core is automatically installed to:
 - `sdcard/cores/frogos/core_87000000`
 
-### 3. Launch FrogOS
+### 3. Launch FrogUI
 
-To launch FrogOS, you need a stub file. The multicore system recognizes files in the format:
+To launch FrogUI, you need a stub file. The multicore system recognizes files in the format:
 ```
 [corename];[filename].extension
 ```
@@ -30,7 +30,7 @@ touch "frogos;browser.gba"
 
 When multicore sees this file, it will load the `frogos` core.
 
-## How to Use FrogOS
+## How to Use FrogUI
 
 1. **Navigate**: Use D-Pad Up/Down to move through the list
 2. **Enter Folders**: Press A to enter a folder
@@ -53,14 +53,14 @@ When multicore sees this file, it will load the `frogos` core.
 Place the stub file in any ROM folder and select it from the stock firmware's game list.
 
 ### Method 2: Auto-Boot on Startup (Advanced)
-To make FrogOS launch automatically when the device boots:
+To make FrogUI launch automatically when the device boots:
 
 1. Modify the main.c loader to check for a special trigger
-2. Or create a default game selection that points to FrogOS
+2. Or create a default game selection that points to FrogUI
 
 Example: Add this to main.c before the normal game loading:
 ```c
-// Check if we should launch FrogOS by default
+// Check if we should launch FrogUI by default
 if (no_game_selected) {
     load_and_run_core("frogos;launcher", 0);
     return;
@@ -77,7 +77,7 @@ corename;filename.extension
 Examples:
 - `gba;pokemon.gba` - Loads GBA core with pokemon ROM
 - `nes;mario.gba` - Loads NES core with mario ROM (note: .gba extension is just for stock FW compatibility)
-- `frogos;browser.gba` - Loads FrogOS core
+- `frogos;browser.gba` - Loads FrogUI core
 
 ## File Structure
 
@@ -86,20 +86,20 @@ Examples:
 ├── ROMS/
 │   ├── gba/
 │   │   ├── pokemon.gba
-│   │   └── frogos;browser.gba  <- Stub file to launch FrogOS
+│   │   └── frogos;browser.gba  <- Stub file to launch FrogUI
 │   ├── nes/
 │   └── snes/
 ├── cores/
 │   ├── frogos/
-│   │   └── core_87000000       <- FrogOS core binary
+│   │   └── core_87000000       <- FrogUI core binary
 │   ├── gba/
 │   └── nes/
-└── frogos_boot.txt             <- Created when FrogOS launches a game
+└── frogos_boot.txt             <- Created when FrogUI launches a game
 ```
 
 ## Troubleshooting
 
-### FrogOS won't start
+### FrogUI won't start
 - Make sure `core_87000000` exists in `/mnt/sda1/cores/frogos/`
 - Verify the stub file name matches the pattern `frogos;[anything].[ext]`
 
@@ -123,7 +123,7 @@ Examples:
 
 ## What Happens When You Launch a Game?
 
-1. FrogOS determines the core name from the parent folder (e.g., "gba", "nes")
+1. FrogUI determines the core name from the parent folder (e.g., "gba", "nes")
 2. It extracts the ROM path from the selected file
 3. It writes this info to `/mnt/sda1/frogos_boot.txt` in format: `corename;/path/to/rom`
 4. It triggers a shutdown via `RETRO_ENVIRONMENT_SHUTDOWN`
@@ -140,16 +140,16 @@ make clean CONSOLE=frogos CORE=cores/FrogOS
 make CONSOLE=frogos CORE=cores/FrogOS
 
 # Or use the build script (add to buildcoresworking.sh)
-echo "-- FrogOS make (File Browser) --"
+echo "-- FrogUI make (File Browser) --"
 make clean CONSOLE=frogos CORE=cores/FrogOS
 make CONSOLE=frogos CORE=cores/FrogOS
 ```
 
 ## Next Steps
 
-- Try launching FrogOS using the stub file
+- Try launching FrogUI using the stub file
 - Navigate your ROMS folders
 - Launch a game and verify it works
-- Consider integrating FrogOS as the default launcher for your multicore setup
+- Consider integrating FrogUI as the default launcher for your multicore setup
 
 Enjoy your new file browser! 🐸

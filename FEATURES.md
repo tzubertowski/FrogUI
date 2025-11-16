@@ -1,7 +1,7 @@
-# FrogOS - Current Features Documentation
+# FrogUI - Current Features Documentation
 
 ## Overview
-FrogOS is a MinUI-inspired libretro file browser core for SF2000/GB300 handheld devices. It provides an elegant interface for navigating ROM collections and launching games through various emulator cores.
+FrogUI is a MinUI-inspired libretro file browser core for SF2000/GB300 handheld devices. It provides an elegant interface for navigating ROM collections and launching games through various emulator cores.
 
 ---
 
@@ -90,7 +90,7 @@ FrogOS is a MinUI-inspired libretro file browser core for SF2000/GB300 handheld 
   - `saves/` - Save files (hidden from browser)
 
 ### Console & Core Mappings
-FrogOS supports 105+ consoles mapped to their respective cores:
+FrogUI supports 105+ consoles mapped to their respective cores:
 - **Game Boy**: gb → Gambatte, gbb → TGBDual, gbgb → Gearboy, mgba → mGBA
 - **Game Boy Advance**: gba → gpSP, gbaf → gpSP, gbaff → gpSP, gbav → VBA-Next, mgba → mGBA
 - **NES**: nes → FCEUmm, nesq → QuickNES, nest → Nestopia
@@ -212,7 +212,7 @@ FrogOS supports 105+ consoles mapped to their respective cores:
 ## 7. THEME SYSTEM
 
 ### Available Themes
-FrogOS includes 16 built-in themes:
+FrogUI includes 16 built-in themes:
 
 1. **MinUI Style** - Classic black/white interface
 2. **Emerald** - Green forest theme
@@ -421,7 +421,7 @@ Accessible from main menu, provides access to:
 
 ## Summary of Features
 
-FrogOS provides a complete MinUI-inspired file browser experience with:
+FrogUI provides a complete MinUI-inspired file browser experience with:
 - Clean, responsive 320x240 interface
 - 7-item menu with automatic scrolling
 - 105+ console/core support

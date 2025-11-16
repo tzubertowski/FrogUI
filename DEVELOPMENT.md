@@ -133,7 +133,7 @@ This will create:
 
 ### Source Structure
 ```
-FrogOS/
+FrogUI/
 ├── frogos.c          <- Main browser logic
 ├── theme.c           <- Theme definitions
 ├── settings.c        <- Settings management
