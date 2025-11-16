@@ -1,0 +1,40 @@
+name: Other
+description: Question, discussion, or general inquiry
+title: ""
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question or want to start a discussion? You're in the right place!
+  
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What type of issue is this?
+      options:
+        - Question
+        - Discussion
+        - Documentation
+        - Support
+        - Other
+    validations:
+      required: true
+  
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe your question or topic
+      placeholder: I wanted to ask about...
+    validations:
+      required: true
+  
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any relevant links, context, or examples
+    validations:
+      required: false

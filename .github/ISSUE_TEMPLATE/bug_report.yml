@@ -1,0 +1,84 @@
+name: Bug Report
+description: Report a bug or issue
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the information below to help us fix it.
+  
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      description: Which device are you using?
+      options:
+        - SF2000
+        - GB300
+        - Other
+    validations:
+      required: true
+  
+  - type: input
+    id: cfw-version
+    attributes:
+      label: CFW Version
+      description: What version of the CFW are you using?
+      placeholder: e.g., v1.2.3
+    validations:
+      required: true
+  
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is
+      placeholder: When I do X, Y happens instead of Z...
+    validations:
+      required: true
+  
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Go to...
+        2. Click on...
+        3. See error...
+    validations:
+      required: true
+  
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+  
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or Screenshots
+      description: If applicable, add logs, screenshots, or videos
+      placeholder: Paste logs or drag images here...
+    validations:
+      required: false
+  
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that might be relevant
+    validations:
+      required: false
