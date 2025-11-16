@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static SettingsOption settings[MAX_SETTINGS];
 static int settings_count = 0;
@@ -12,7 +13,22 @@ static int settings_selected = 0;
 static int settings_scroll_offset = 0;
 
 // Track current config file being edited
-static char current_config_path[512] = "/mnt/sda1/configs/multicore.opt";
+static char current_config_path[512] = "";
+
+// Auto-detect config directory based on platform
+static const char* get_config_directory(void) {
+	static const char *config_dir = NULL;
+	if (!config_dir) {
+		// Check if GB300 config directory exists
+		if (access("/mnt/sda1/cores/config", 0) == 0) {
+			config_dir = "/mnt/sda1/cores/config";
+		} else {
+			// Fall back to SF2000 structure
+			config_dir = "/mnt/sda1/configs";
+		}
+	}
+	return config_dir;
+}
 
 // Forward declarations
 static int settings_load_file(const char *config_path);
@@ -94,14 +110,18 @@ static int parse_option_line(const char *line, SettingsOption *option) {
 }
 
 int settings_load(void) {
-    // For testing on dev machine, use sdcard path if it exists  
-    const char *config_path = "/mnt/sda1/configs/multicore.opt";
+    char config_path[512];
+
+    // For testing on dev machine, use sdcard path if it exists
     FILE *test = fopen("/app/sdcard/configs/multicore.opt", "r");
     if (test) {
         fclose(test);
-        config_path = "/app/sdcard/configs/multicore.opt";
+        snprintf(config_path, sizeof(config_path), "/app/sdcard/configs/multicore.opt");
+    } else {
+        // Auto-detect platform and build path
+        snprintf(config_path, sizeof(config_path), "%s/multicore.opt", get_config_directory());
     }
-    
+
     strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
     return settings_load_file(config_path);
 }
@@ -109,7 +129,7 @@ int settings_load(void) {
 // Load core-specific settings
 int settings_load_core(const char *core_name) {
     char config_path[512];
-    
+
     // Try sdcard path first for dev machines - note the subdirectory structure!
     snprintf(config_path, sizeof(config_path), "/app/sdcard/configs/%s/%s.opt", core_name, core_name);
     FILE *test = fopen(config_path, "r");
@@ -118,9 +138,19 @@ int settings_load_core(const char *core_name) {
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
         return settings_load_file(config_path);
     }
-    
-    // Use standard path with subdirectory structure
-    snprintf(config_path, sizeof(config_path), "/mnt/sda1/configs/%s/%s.opt", core_name, core_name);
+
+    // Try GB300 structure first: /cores/config/{core}.opt
+    const char *base_dir = get_config_directory();
+    snprintf(config_path, sizeof(config_path), "%s/%s.opt", base_dir, core_name);
+    test = fopen(config_path, "r");
+    if (test) {
+        fclose(test);
+        strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
+        return settings_load_file(config_path);
+    }
+
+    // Fall back to SF2000 structure: /configs/{core}/{core}.opt
+    snprintf(config_path, sizeof(config_path), "%s/%s/%s.opt", base_dir, core_name, core_name);
     strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
     return settings_load_file(config_path);
 }

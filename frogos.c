@@ -12,8 +12,12 @@
 
 #ifdef SF2000
 
-void (*load_and_run_core)(const char*, int*) = (void (*)(const char*, int*))0x800016d0;
 #include "../../stockfw.h"
+
+// Direct call to loader - bypasses run_gba
+typedef void (*loader_func_t)(const char*, int);
+#define LOADER_ADDR 0x80001500
+static loader_func_t direct_loader = (loader_func_t)LOADER_ADDR;
 
 // For SF2000, use the custom dirent implementation
 #include "../../dirent.h"
@@ -1391,11 +1395,8 @@ static void handle_input() {
             const char *core_name;
             const char *filename;
 
-            xlog("Game launch: Starting, entry->name=%s, entry->path=%s\n", entry->name, entry->path);
-
             // Check if we're in Utils - launch js2000 core
             if (strcmp(current_path, "UTILS") == 0) {
-                xlog("Game launch: Utils mode detected\n");
                 // Launch selected file with js2000 core using format: corename;full_path
                 sprintf((char *)ptr_gs_run_game_file, "js2000;js2000;%s.gba", entry->name);
                 sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
@@ -1413,14 +1414,12 @@ static void handle_input() {
             
             // Check if we're in Recent games
             if (strcmp(current_path, "RECENT_GAMES") == 0) {
-                xlog("Game launch: Recent games mode\n");
                 // Parse core_name;game_name from entry->path
                 char *separator = strchr(entry->path, ';');
                 if (separator) {
                     *separator = '\0';
                     core_name = entry->path;
                     filename = separator + 1;
-                    xlog("Game launch: Recent - core=%s, filename=%s\n", core_name, filename);
 
                     // For recent games, get the full_path from the RecentGame structure
                     const RecentGame* recent_list = recent_games_get_list();
@@ -1441,14 +1440,12 @@ static void handle_input() {
                     return; // Invalid format
                 }
             } else if (strcmp(current_path, "FAVORITES") == 0) {
-                xlog("Game launch: Favorites mode\n");
                 // Parse core_name;game_name from entry->path
                 char *separator = strchr(entry->path, ';');
                 if (separator) {
                     *separator = '\0';
                     core_name = entry->path;
                     filename = separator + 1;
-                    xlog("Game launch: Favorites - core=%s, filename=%s\n", core_name, filename);
 
                     // For favorites, get the full_path from the FavoriteGame structure
                     const FavoriteGame* favorites_list = favorites_get_list();
@@ -1469,38 +1466,26 @@ static void handle_input() {
                     return; // Invalid format
                 }
             } else {
-                xlog("Game launch: Normal mode\n");
                 // Extract core name from parent directory
                 core_name = get_basename(current_path);
                 const char *filename_path = strrchr(entry->path, '/');
                 filename = filename_path ? filename_path + 1 : entry->name;
 
-                xlog("Game launch: Normal - core=%s, filename=%s, entry->path=%s\n", core_name, filename, entry->path);
-
                 // Add to recent history - use full entry path
                 recent_games_add(core_name, filename, entry->path);
             }
 
-            xlog("Game launch: Setting up pointers - core=%s, filename=%s\n", core_name, filename);
             sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
-            xlog("Game launch: After game_file sprintf\n");
             sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS"); // Expects "/mnt/sda1/ROMS" format
-            xlog("Game launch: After folder sprintf\n");
             sprintf((char *)ptr_gs_run_game_name, "%s", filename); // Expects the filename without any extension
-            xlog("Game launch: After game_name sprintf\n");
 
             // Remove extension from ptr_gs_run_game_name
             char *dot_position = strrchr(ptr_gs_run_game_name, '.');
             if (dot_position != NULL) {
                 *dot_position = '\0';
             }
-            xlog("Game launch: After extension removal\n");
-
-            xlog("Game launch: Final values - game_file=%s, folder=%s, game_name=%s\n",
-                 ptr_gs_run_game_file, ptr_gs_run_folder, ptr_gs_run_game_name);
 
             game_queued = true; // Pass to retro_run, can only load the core from there
-            xlog("Game launch: game_queued set to true\n");
         }
     }
 
@@ -1582,22 +1567,16 @@ void retro_init(void) {
 }
 
 void retro_deinit(void) {
-    xlog("retro_deinit: Starting\n");
     // Free thumbnail cache
     if (thumbnail_cache_valid) {
-        xlog("retro_deinit: Freeing thumbnail\n");
         free_thumbnail(&current_thumbnail);
         thumbnail_cache_valid = 0;
-        xlog("retro_deinit: Thumbnail freed\n");
     }
 
     if (framebuffer) {
-        xlog("retro_deinit: Freeing framebuffer\n");
         free(framebuffer);
         framebuffer = NULL;
-        xlog("retro_deinit: Framebuffer freed\n");
     }
-    xlog("retro_deinit: Complete\n");
 }
 
 unsigned retro_api_version(void) {
@@ -1669,14 +1648,16 @@ void retro_run(void) {
     if (video_cb) {
         video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
     }
-    if (game_queued) { // Can only load the game from here without crashing
-        xlog("retro_run: game_queued is true, about to launch game\n");
-        xlog("retro_run: ptr_gs_run_game_file=%s\n", ptr_gs_run_game_file);
-        xlog("retro_run: Calling retro_deinit\n");
-        retro_deinit();
-        xlog("retro_run: retro_deinit complete, calling load_and_run_core\n");
-        load_and_run_core(ptr_gs_run_game_file, 0);
-        xlog("retro_run: load_and_run_core returned (should not happen)\n");
+    if (game_queued) {
+        const char *stub_path = "/mnt/sda1/temp_launch.gba";
+        FILE *stub_file = fopen(stub_path, "wb");
+        if (stub_file) {
+            fwrite(ptr_gs_run_game_file, 1, strlen(ptr_gs_run_game_file), stub_file);
+            fclose(stub_file);
+        } else {
+            return;
+        }
+        direct_loader(stub_path, 0);
         return;
     }
 }
