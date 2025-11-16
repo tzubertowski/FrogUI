@@ -13,7 +13,7 @@ endif
 system_platform = unix
 
 CORE_DIR    := .
-TARGET_NAME := frogos
+TARGET_NAME := menu
 LIBM        = -lm
 
 ifeq ($(STATIC_LINKING), 1)

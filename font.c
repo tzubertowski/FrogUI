@@ -73,12 +73,14 @@ void font_load_from_settings(const char *font_name) {
     // Map font names to font files
     if (strcmp(font_name, "GamePocket") == 0) {
         font_filename = "GamePocket-Regular-ZeroKern.ttf";
+        custom_size = 18.0f; // GamePocket at 18px
     } else if (strcmp(font_name, "Monogram") == 0) {
         font_filename = "monogram.ttf";
         custom_size = 16.0f; // Monogram works best at 16px
     } else {
         // Default to GamePocket
         font_filename = "GamePocket-Regular-ZeroKern.ttf";
+        custom_size = 18.0f; // GamePocket at 18px
     }
 
     load_font_file(font_filename);
