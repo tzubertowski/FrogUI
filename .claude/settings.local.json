@@ -59,7 +59,15 @@
       "Bash(do sleep 5)",
       "Bash(do sleep 30)",
       "Bash(git rm:*)",
-      "WebFetch(domain:retromods.pl)"
+      "WebFetch(domain:retromods.pl)",
+      "Bash(test:*)",
+      "Bash(xargs:*)",
+      "Bash(while read core)",
+      "Bash(do mkdir -p \"/app/sdcard/release/saves/savestates/$core%/\")",
+      "Bash(do mkdir -p \"/app/sdcard/release/saves/savestates/$core\")",
+      "Bash(echo:*)",
+      "Bash(for core in BennuGD_libretro Dinothawr DirkSimple FBNeo FFmpeg FreeChaF FreeIntv FrogGBA Gearboy Gearcoleco Gearsystem Mu PokeMini QuickNES_Core RACE REminiscence RG350_pcsx4all SameBoy SquirrelJME TIC-80 ToadGBC a5200 arduous beetle-psx-libretro bk-emulator cannonball cavestory chimerasnes daphne desmume2015 dosbox-core dosbox-pure dosbox-svn dosbox ecwolf ep128emu-core fake-08 fbalpha2012 fbalpha2012_cps1 fbalpha2012_cps2 fbalpha2012_cps3 fbalpha2012_neogeo freej2me gb gba gbaf gbaff genesis-plus-gx gong gpsp-latest gpsp gpsp_last_fast gpsp_madcock hatari hatariB jaxe js2000 libretro-2048 libretro-81 libretro-atari800 libretro-atari800lib libretro-beetle-lynx libretro-beetle-pce-fast libretro-beetle-pcfx libretro-beetle-psx libretro-beetle-supergrafx libretro-beetle-vb libretro-beetle-wswan libretro-blueMSX libretro-cap32 libretro-chailove libretro-crocods libretro-doublecherryGB libretro-fceumm libretro-fmsx libretro-frodo libretro-fuse libretro-galaxy libretro-gambatte libretro-geolith libretro-gfxprim libretro-gme libretro-gw libretro-handy libretro-imageviewer-legacy libretro-jumpnbump libretro-lutro libretro-mame2000 libretro-mame2003-plus libretro-minivmac libretro-mrboom libretro-nogg libretro-nxengine libretro-o2em libretro-onscripter libretro-opera libretro-pcem libretro-pcsx-rearmed libretro-pocketcdg libretro-prboom libretro-prosystem libretro-px68k libretro-quasi88 libretro-samples libretro-simcoupe libretro-stella2014 libretro-superbroswar libretro-superflappybirds libretro-tgbdual libretro-uae libretro-uw8 libretro-uzem libretro-vbam libretro-vecx libretro-vemulator libretro-vice libretro-virtualjaguar libretro-x48 libretro-xmil libretro-xrick libretro-zc210 libretro-zc250x libretro_neocd lowres-nx mame2003Wii mame2003_midway meg4 mgba minicraft_3d mojozork nestopia numero nxengine-evo oberon-risc-emu pcsx4all-libretro picodrive pntr potator pzretro retro-tennis retro8 scummvm smsplus-gx snes9x-next snes9x2002 snes9x2005 swanstation tamalibretro theodore tyrquake vaporspec vba-next virtualxt vitaquake2)",
+      "Bash(do mkdir -p \"$core\")"
     ],
     "deny": [],
     "ask": [],

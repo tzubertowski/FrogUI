@@ -1406,8 +1406,27 @@ static void handle_input() {
             // Go to parent directory
             char *last_slash = strrchr(current_path, '/');
             if (last_slash && last_slash != current_path) {
+                // Remember which directory we're leaving so we can restore position
+                char prev_dir[256];
+                strncpy(prev_dir, last_slash + 1, sizeof(prev_dir) - 1);
+                prev_dir[sizeof(prev_dir) - 1] = '\0';
+
                 *last_slash = '\0';
                 scan_directory(current_path);
+
+                // Find the directory we just left and restore selection to it
+                for (int i = 0; i < entry_count; i++) {
+                    if (strcmp(entries[i].name, prev_dir) == 0) {
+                        selected_index = i;
+                        // Update scroll offset to keep selection visible
+                        if (selected_index < scroll_offset) {
+                            scroll_offset = selected_index;
+                        } else if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+                            scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                        }
+                        break;
+                    }
+                }
             }
         } else if (entry->is_dir) {
             // Enter directory
@@ -1548,14 +1567,44 @@ static void handle_input() {
             // Go back from Recent games to main ROMS directory
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
+            // Restore selection to "Recent games" entry
+            for (int i = 0; i < entry_count; i++) {
+                if (strcmp(entries[i].path, "RECENT_GAMES") == 0) {
+                    selected_index = i;
+                    if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+                        scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                    }
+                    break;
+                }
+            }
         } else if (strcmp(current_path, "FAVORITES") == 0) {
             // Go back from Favorites to main ROMS directory
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
+            // Restore selection to "Favorites" entry
+            for (int i = 0; i < entry_count; i++) {
+                if (strcmp(entries[i].path, "FAVORITES") == 0) {
+                    selected_index = i;
+                    if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+                        scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                    }
+                    break;
+                }
+            }
         } else if (strcmp(current_path, "TOOLS") == 0) {
             // Go back from Tools to main ROMS directory
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
+            // Restore selection to "Tools" entry
+            for (int i = 0; i < entry_count; i++) {
+                if (strcmp(entries[i].path, "TOOLS") == 0) {
+                    selected_index = i;
+                    if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+                        scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                    }
+                    break;
+                }
+            }
         } else if (strcmp(current_path, "HOTKEYS") == 0) {
             // Go back from Hotkeys to Tools
             show_tools_menu();
@@ -1569,10 +1618,29 @@ static void handle_input() {
             show_tools_menu();
             strncpy(current_path, "TOOLS", sizeof(current_path) - 1);
         } else if (strcmp(current_path, ROMS_PATH) != 0) {
+            // Remember which directory we're leaving so we can restore position
+            char prev_dir[256];
             char *last_slash = strrchr(current_path, '/');
             if (last_slash && last_slash != current_path) {
+                strncpy(prev_dir, last_slash + 1, sizeof(prev_dir) - 1);
+                prev_dir[sizeof(prev_dir) - 1] = '\0';
+
                 *last_slash = '\0';
                 scan_directory(current_path);
+
+                // Find the directory we just left and restore selection to it
+                for (int i = 0; i < entry_count; i++) {
+                    if (strcmp(entries[i].name, prev_dir) == 0) {
+                        selected_index = i;
+                        // Update scroll offset to keep selection visible
+                        if (selected_index < scroll_offset) {
+                            scroll_offset = selected_index;
+                        } else if (selected_index >= scroll_offset + VISIBLE_ENTRIES) {
+                            scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                        }
+                        break;
+                    }
+                }
             }
         }
     }
