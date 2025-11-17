@@ -1,5 +1,5 @@
 /*
- * FrogOS - MinUI-style File Browser for Multicore
+ * FrogUI - MinUI-style File Browser for Multicore
  * A libretro core that provides a file browser interface
  */
 

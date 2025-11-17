@@ -9,11 +9,11 @@ FrogUI is a file browser core for SF2000/GB300 multicore that lets you browse yo
 ### 1. Build the Core
 ```bash
 cd /app
-make CONSOLE=frogos CORE=cores/FrogOS
+make CONSOLE=menu CORE=cores/FrogOS
 ```
 
 ### 2. The core is automatically installed to:
-- `sdcard/cores/frogos/core_87000000`
+- `sdcard/cores/menu/core_87000000`
 
 ### 3. Launch FrogUI
 
@@ -25,10 +25,10 @@ To launch FrogUI, you need a stub file. The multicore system recognizes files in
 For example, create a stub file:
 ```bash
 # In any ROMS subfolder (e.g., /mnt/sda1/ROMS/gba/)
-touch "frogos;browser.gba"
+touch "menu;m.gba"
 ```
 
-When multicore sees this file, it will load the `frogos` core.
+When multicore sees this file, it will load the `menu` core.
 
 ## How to Use FrogUI
 
@@ -52,19 +52,6 @@ When multicore sees this file, it will load the `frogos` core.
 ### Method 1: Manual Launch
 Place the stub file in any ROM folder and select it from the stock firmware's game list.
 
-### Method 2: Auto-Boot on Startup (Advanced)
-To make FrogUI launch automatically when the device boots:
-
-1. Modify the main.c loader to check for a special trigger
-2. Or create a default game selection that points to FrogUI
-
-Example: Add this to main.c before the normal game loading:
-```c
-// Check if we should launch FrogUI by default
-if (no_game_selected) {
-    load_and_run_core("frogos;launcher", 0);
-    return;
-}
 ```
 
 ## Understanding the Format
@@ -75,9 +62,7 @@ corename;filename.extension
 ```
 
 Examples:
-- `gba;pokemon.gba` - Loads GBA core with pokemon ROM
-- `nes;mario.gba` - Loads NES core with mario ROM (note: .gba extension is just for stock FW compatibility)
-- `frogos;browser.gba` - Loads FrogUI core
+- `menu;m.gba` - Loads FrogUI core
 
 ## File Structure
 
@@ -86,22 +71,21 @@ Examples:
 ├── ROMS/
 │   ├── gba/
 │   │   ├── pokemon.gba
-│   │   └── frogos;browser.gba  <- Stub file to launch FrogUI
-│   ├── nes/
+│   ├── menu/
+│   │   └── m  <- Stub file to launch FrogUI
 │   └── snes/
 ├── cores/
-│   ├── frogos/
+│   ├── menu/
 │   │   └── core_87000000       <- FrogUI core binary
 │   ├── gba/
 │   └── nes/
-└── frogos_boot.txt             <- Created when FrogUI launches a game
 ```
 
 ## Troubleshooting
 
 ### FrogUI won't start
-- Make sure `core_87000000` exists in `/mnt/sda1/cores/frogos/`
-- Verify the stub file name matches the pattern `frogos;[anything].[ext]`
+- Make sure `core_87000000` exists in `/mnt/sda1/cores/menu/`
+- Verify the stub file name matches the pattern `menu;[anything].[ext]`
 
 ### No folders show up
 - Ensure your ROMS are in `/mnt/sda1/ROMS/`
@@ -121,28 +105,20 @@ Examples:
 | A | Enter folder / Launch game |
 | B | Go back to parent folder |
 
-## What Happens When You Launch a Game?
-
-1. FrogUI determines the core name from the parent folder (e.g., "gba", "nes")
-2. It extracts the ROM path from the selected file
-3. It writes this info to `/mnt/sda1/frogos_boot.txt` in format: `corename;/path/to/rom`
-4. It triggers a shutdown via `RETRO_ENVIRONMENT_SHUTDOWN`
-5. The multicore system reads `frogos_boot.txt` and launches the specified core with the ROM
-
 ## Building from Source
 
 ```bash
 # Clean build
 cd /app
-make clean CONSOLE=frogos CORE=cores/FrogOS
+make clean CONSOLE=menu CORE=cores/FrogOS
 
 # Build
-make CONSOLE=frogos CORE=cores/FrogOS
+make CONSOLE=menu CORE=cores/FrogOS
 
 # Or use the build script (add to buildcoresworking.sh)
 echo "-- FrogUI make (File Browser) --"
-make clean CONSOLE=frogos CORE=cores/FrogOS
-make CONSOLE=frogos CORE=cores/FrogOS
+make clean CONSOLE=menu CORE=cores/FrogOS
+make CONSOLE=menu CORE=cores/FrogOS
 ```
 
 ## Next Steps

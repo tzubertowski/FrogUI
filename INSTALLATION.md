@@ -23,7 +23,6 @@ This guide covers the installation of **FrogUI** for **Datafrog SF2000** and **G
 - A Datafrog SF2000 or GB300 handheld
 - An SD card reader (via phone or PC) to transfer files to the SD card
 - If you're using a **GB300**, make sure you're on **GB300 v2**. See [Updating GB300 to v2 software version](#5-updating-gb300-to-v2-software-version)
-- Multicore must already be installed. See the [Multicore installation guide](https://retromods.pl/blog/gb300-setup/)
 
 ---
 
@@ -33,9 +32,7 @@ This guide covers the installation of **FrogUI** for **Datafrog SF2000** and **G
 2. Download the [latest stable release of FrogUI](https://github.com/tzubertowski/FrogUI/releases)
    - ⚠️ **Make sure you download the archive for your correct device (GB300 or SF2000)**
 3. Unzip the archive
-4. Copy the contents to your SD card:
-   - Copy the `frogos` core folder to `sd:/cores/frogos/`
-   - The core file should be at: `sd:/cores/frogos/core_87000000`
+4. Copy the contents to your SD card
 5. Put the SD card back into your device and power it on
 6. Done! FrogUI is now installed 🎉
 
@@ -55,15 +52,11 @@ This guide covers the installation of **FrogUI** for **Datafrog SF2000** and **G
 4. **No ROM list regeneration needed** - FrogUI scans directories dynamically, so new games appear immediately
 
 ### 3.2 Launching FrogUI
-
-The release includes a launcher stub (`frogos;launcher.gba`) that appears in your device's boot screen.
-
 **To launch FrogUI:**
 1. Power on your device
-2. From the stock UI boot screen, select the FrogUI entry
+2. UI will boot to FrogUI splash screen
 3. Press **A** to launch
 
-That's it! FrogUI will start and display your ROM folders.
 
 ### Navigation Controls
 
@@ -101,8 +94,7 @@ That's it! FrogUI is now installed.
 ## Troubleshooting
 
 ### FrogUI won't boot
-- Verify the core file is at `sd:/cores/frogos/core_87000000`
-- Ensure Multicore is properly installed
+- Verify the core file is at `sd:/cores/menu/core_87000000`
 - Check that your device is on v2 firmware (GB300)
 
 ### Games won't launch
