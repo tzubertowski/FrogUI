@@ -46,31 +46,37 @@ void settings_init(void) {
 // Parse a line like: ### [option_name] :[current] :[val1|val2|val3]
 static int parse_option_line(const char *line, SettingsOption *option) {
     if (strncmp(line, "### [", 5) != 0) return 0;
-    
+
     // Find option name
     const char *name_start = line + 5;
     const char *name_end = strchr(name_start, ']');
     if (!name_end) return 0;
-    
+
     int name_len = name_end - name_start;
     if (name_len >= MAX_OPTION_NAME_LEN) return 0;
-    
+
     strncpy(option->name, name_start, name_len);
     option->name[name_len] = '\0';
-    
-    // Find current value (between first : and next :)
+
+    // Find current value (between first : and next ])
     const char *current_start = strchr(name_end, ':');
     if (!current_start) return 0;
     current_start++; // Skip ':'
-    
-    if (*current_start == '[') current_start++; // Skip '[' if present
-    
+
+    // Skip whitespace and '[' if present
+    while (*current_start == ' ' || *current_start == '\t' || *current_start == '[') current_start++;
+
     const char *current_end = strchr(current_start, ']');
     if (!current_end) return 0;
-    
+
+    // Trim trailing whitespace from current value
+    while (current_end > current_start && (*(current_end - 1) == ' ' || *(current_end - 1) == '\t')) {
+        current_end--;
+    }
+
     int current_len = current_end - current_start;
-    if (current_len >= MAX_OPTION_VALUE_LEN) return 0;
-    
+    if (current_len >= MAX_OPTION_VALUE_LEN || current_len <= 0) return 0;
+
     strncpy(option->current_value, current_start, current_len);
     option->current_value[current_len] = '\0';
     
@@ -95,14 +101,24 @@ static int parse_option_line(const char *line, SettingsOption *option) {
     
     char *token = strtok(values_str, "|");
     while (token && option->value_count < MAX_OPTION_VALUES) {
+        // Trim leading whitespace
+        while (*token == ' ' || *token == '\t') token++;
+
+        // Trim trailing whitespace
+        char *end = token + strlen(token) - 1;
+        while (end > token && (*end == ' ' || *end == '\t')) {
+            *end = '\0';
+            end--;
+        }
+
         strncpy(option->possible_values[option->value_count], token, MAX_OPTION_VALUE_LEN - 1);
         option->possible_values[option->value_count][MAX_OPTION_VALUE_LEN - 1] = '\0';
-        
+
         // Check if this is the current value
         if (strcmp(token, option->current_value) == 0) {
             option->current_index = option->value_count;
         }
-        
+
         option->value_count++;
         token = strtok(NULL, "|");
     }
@@ -645,6 +661,10 @@ int settings_reset_to_defaults(void) {
 
     // Reload settings from the reset file
     settings_load_file(current_config_path);
+
+    // Reset UI state to show the reloaded settings
+    settings_selected = 0;
+    settings_scroll_offset = 0;
 
     return 1;
 }
