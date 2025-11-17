@@ -145,7 +145,7 @@ FrogUI supports 105+ consoles mapped to their respective cores:
 - **Path Limits**: MAX_PATH_LEN = 512 characters
 
 ### File Display
-- **Max Entries**: 256 per folder
+- **Max Entries**: No limit (dynamic allocation)
 - **Sorting**: Alphabetical by name (case-sensitive)
 - **Directory First**: Directories added to entries, then files
 - **Entry Information Stored**:

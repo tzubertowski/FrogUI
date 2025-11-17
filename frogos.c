@@ -139,11 +139,11 @@ static void show_core_settings(const char* core_name) {
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
-#define MAX_ENTRIES 256
 #define MAX_PATH_LEN 512
 #define ROMS_PATH "/mnt/sda1/ROMS"
 #define HISTORY_FILE "/mnt/sda1/game_history.txt"
 #define MAX_RECENT_GAMES 10
+#define INITIAL_ENTRIES_CAPACITY 64
 
 // Layout constants are now in render.h
 
@@ -165,8 +165,9 @@ typedef struct {
     int is_dir;
 } MenuEntry;
 
-static MenuEntry entries[MAX_ENTRIES];
+static MenuEntry *entries = NULL;
 static int entry_count = 0;
+static int entries_capacity = 0;
 static int selected_index = 0;
 static int scroll_offset = 0;
 static char current_path[MAX_PATH_LEN];
@@ -180,6 +181,28 @@ static int at_boundary = 0; // 1 = at top, 2 = at bottom
 // A-Z picker state
 static int az_picker_active = 0;
 static int az_selected_index = 0; // 0-25 for A-Z, 26 for 0-9, 27 for #
+
+// Ensure entries array has enough capacity
+static void ensure_entries_capacity(int required_capacity) {
+    if (entries_capacity >= required_capacity) {
+        return; // Already have enough capacity
+    }
+
+    // Double capacity each time, or use initial capacity
+    int new_capacity = entries_capacity == 0 ? INITIAL_ENTRIES_CAPACITY : entries_capacity;
+    while (new_capacity < required_capacity) {
+        new_capacity *= 2;
+    }
+
+    MenuEntry *new_entries = (MenuEntry*)realloc(entries, new_capacity * sizeof(MenuEntry));
+    if (!new_entries) {
+        // Memory allocation failed - keep old array
+        return;
+    }
+
+    entries = new_entries;
+    entries_capacity = new_capacity;
+}
 
 // Reset navigation state when entering new folder
 static void reset_navigation_state(void) {
@@ -426,20 +449,22 @@ static void show_recent_games(void) {
 
     if (recent_count == 0) {
         // Only show back entry if no recent games
+        ensure_entries_capacity(entry_count + 1);
         strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
         entries[entry_count].is_dir = 1;
         entry_count++;
     } else {
         // Add recent games first
-        for (int i = 0; i < recent_count && entry_count < MAX_ENTRIES; i++) {
+        ensure_entries_capacity(entry_count + recent_count + 1);
+        for (int i = 0; i < recent_count; i++) {
             strncpy(entries[entry_count].name, recent_list[i].display_name, sizeof(entries[entry_count].name) - 1);
-            snprintf(entries[entry_count].path, sizeof(entries[entry_count].path), 
+            snprintf(entries[entry_count].path, sizeof(entries[entry_count].path),
                     "%s;%s", recent_list[i].core_name, recent_list[i].game_name);
             entries[entry_count].is_dir = 0;
             entry_count++;
         }
-        
+
         // Add back entry after recent games
         strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
@@ -469,13 +494,15 @@ static void show_favorites(void) {
 
     if (favorites_count == 0) {
         // Only show back entry if no favorites
+        ensure_entries_capacity(entry_count + 1);
         strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
         entries[entry_count].is_dir = 1;
         entry_count++;
     } else {
         // Add favorites first
-        for (int i = 0; i < favorites_count && entry_count < MAX_ENTRIES; i++) {
+        ensure_entries_capacity(entry_count + favorites_count + 1);
+        for (int i = 0; i < favorites_count; i++) {
             strncpy(entries[entry_count].name, favorites_list[i].display_name, sizeof(entries[entry_count].name) - 1);
             snprintf(entries[entry_count].path, sizeof(entries[entry_count].path),
                     "%s;%s", favorites_list[i].core_name, favorites_list[i].game_name);
@@ -499,38 +526,41 @@ static void show_favorites(void) {
 static void show_tools_menu(void) {
     entry_count = 0;
     reset_navigation_state();
-    
+
     // Set current_path for tools mode
     strncpy(current_path, "TOOLS", sizeof(current_path) - 1);
     current_path[sizeof(current_path) - 1] = '\0';
-    
+
     // Clear thumbnail cache when switching to tools mode
     thumbnail_cache_valid = 0;
-    
+
+    // Ensure we have space for 4 entries
+    ensure_entries_capacity(4);
+
     // Add Hotkeys entry
     strncpy(entries[entry_count].name, "Hotkeys", sizeof(entries[entry_count].name) - 1);
     strncpy(entries[entry_count].path, "HOTKEYS", sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
     entry_count++;
-    
+
     // Add Credits entry
     strncpy(entries[entry_count].name, "Credits", sizeof(entries[entry_count].name) - 1);
     strncpy(entries[entry_count].path, "CREDITS", sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
     entry_count++;
-    
+
     // Add Utils entry
     strncpy(entries[entry_count].name, "Utils", sizeof(entries[entry_count].name) - 1);
     strncpy(entries[entry_count].path, "UTILS", sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
     entry_count++;
-    
+
     // Add back entry
     strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
     strncpy(entries[entry_count].path, ROMS_PATH, sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
     entry_count++;
-    
+
     // Load thumbnail for initially selected item AND reset last_selected_index to prevent duplicate loading
     load_current_thumbnail();
     last_selected_index = selected_index;  // Prevent render loop from detecting this as a "change"
@@ -551,18 +581,19 @@ static void show_utils_menu(void) {
     // Scan js2000 directory for files
     char js2000_path[MAX_PATH_LEN];
     snprintf(js2000_path, sizeof(js2000_path), "%s/js2000", ROMS_PATH);
-    
+
     DIR *dir = opendir(js2000_path);
     if (dir) {
         struct dirent *ent;
-        while ((ent = readdir(dir)) != NULL && entry_count < MAX_ENTRIES) {
+        while ((ent = readdir(dir)) != NULL) {
             if (ent->d_name[0] == '.') continue;  // Skip hidden files
-            
+
             char full_path[MAX_PATH_LEN];
             snprintf(full_path, sizeof(full_path), "%s/%s", js2000_path, ent->d_name);
-            
+
             struct stat st;
             if (stat(full_path, &st) == 0) {
+                ensure_entries_capacity(entry_count + 1);
                 strncpy(entries[entry_count].name, ent->d_name, sizeof(entries[entry_count].name) - 1);
                 strncpy(entries[entry_count].path, full_path, sizeof(entries[entry_count].path) - 1);
                 entries[entry_count].is_dir = S_ISDIR(st.st_mode);
@@ -571,8 +602,9 @@ static void show_utils_menu(void) {
         }
         closedir(dir);
     }
-    
+
     // Add back entry
+    ensure_entries_capacity(entry_count + 1);
     strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
     strncpy(entries[entry_count].path, "TOOLS", sizeof(entries[entry_count].path) - 1);
     entries[entry_count].is_dir = 1;
@@ -620,6 +652,7 @@ static void scan_directory(const char *path) {
 
     // Add parent directory entry if not at root
     if (!is_root) {
+        ensure_entries_capacity(entry_count + 1);
         strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
         strncpy(entries[entry_count].path, path, sizeof(entries[entry_count].path) - 1);
         entries[entry_count].is_dir = 1;
@@ -632,7 +665,7 @@ static void scan_directory(const char *path) {
     }
 
     // Collect all entries in a single pass - optimized
-    while ((ent = readdir(dir)) != NULL && entry_count < MAX_ENTRIES) {
+    while ((ent = readdir(dir)) != NULL) {
         if (ent->d_name[0] == '.') continue;  // Skip hidden files
 
         // Skip frogui, and saves folders
@@ -650,6 +683,9 @@ static void scan_directory(const char *path) {
         if (strcmp(path, ROMS_PATH) == 0 && !is_dir) {
             continue;
         }
+
+        // Ensure we have space for one more entry
+        ensure_entries_capacity(entry_count + 1);
 
         // Add directories first, then files
         if (is_dir) {
@@ -672,14 +708,17 @@ static void scan_directory(const char *path) {
 
     // Sort all entries alphabetically by name
     qsort(entries, entry_count, sizeof(MenuEntry), compare_entries);
-    
+
     // Add Recent games at the very top if in root directory
     if (is_root) {
+        // Ensure we have space for 4 more entries (Recent games, Favorites, Random game, Tools)
+        ensure_entries_capacity(entry_count + 4);
+
         // Shift all entries down by 1 to make room for Recent games at index 0
         for (int i = entry_count; i > 0; i--) {
             entries[i] = entries[i - 1];
         }
-        
+
         // Insert Recent games at the top
         strncpy(entries[0].name, "Recent games", sizeof(entries[0].name) - 1);
         strncpy(entries[0].path, "RECENT_GAMES", sizeof(entries[0].path) - 1);
@@ -1571,6 +1610,14 @@ void retro_deinit(void) {
     if (thumbnail_cache_valid) {
         free_thumbnail(&current_thumbnail);
         thumbnail_cache_valid = 0;
+    }
+
+    // Free entries array
+    if (entries) {
+        free(entries);
+        entries = NULL;
+        entries_capacity = 0;
+        entry_count = 0;
     }
 
     if (framebuffer) {

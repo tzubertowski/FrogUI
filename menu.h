@@ -1,7 +1,6 @@
 #ifndef MENU_H
 #define MENU_H
 
-#define MAX_ENTRIES 256
 #define MAX_PATH_LEN 512
 #define ROMS_PATH "/mnt/sda1/ROMS"
 
@@ -14,8 +13,9 @@ typedef struct {
 
 // Menu state structure
 typedef struct {
-    MenuEntry entries[MAX_ENTRIES];
+    MenuEntry *entries;
     int entry_count;
+    int entries_capacity;
     int selected_index;
     int scroll_offset;
     char current_path[MAX_PATH_LEN];

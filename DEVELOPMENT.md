@@ -66,7 +66,7 @@ This will create:
 ### File System
 - Uses custom `dirent.h` implementation for SF2000
 - Scans `/mnt/sda1/ROMS` for directories and files
-- Maximum 256 entries per directory
+- No limit on entries per directory (dynamic allocation)
 - Supports hidden folders (starting with `.` or named `save`)
 
 ### Core Integration
