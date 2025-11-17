@@ -11,6 +11,7 @@ static int settings_count = 0;
 static int settings_active = 0;
 static int settings_selected = 0;
 static int settings_scroll_offset = 0;
+static int settings_saving = 0;  // Flag to indicate save in progress
 
 // Track current config file being edited
 static char current_config_path[512] = "";
@@ -232,93 +233,156 @@ static int settings_load_file(const char *config_path) {
 }
 
 int settings_save(void) {
+    settings_saving = 1;  // Set saving flag to prevent premature exit
+
     // Use the current config path that was set during load
     const char *config_path = current_config_path;
     char temp_path[512];
     snprintf(temp_path, sizeof(temp_path), "%s.tmp", config_path);
-    
+
     FILE *fp_read = fopen(config_path, "r");
     if (!fp_read) {
+        settings_saving = 0;
         return 0;
     }
-    
+
     // Create temporary file
     FILE *fp_write = fopen(temp_path, "w");
     if (!fp_write) {
         fclose(fp_read);
+        settings_saving = 0;
         return 0;
     }
-    
+
     char line[512];
+    int write_error = 0;
+
     while (fgets(line, sizeof(line), fp_read)) {
         // Check if this is a config line (not comment)
         if (strncmp(line, "###", 3) == 0) {
             // Keep comment lines as-is
-            fputs(line, fp_write);
+            if (fputs(line, fp_write) == EOF) {
+                write_error = 1;
+                break;
+            }
         } else {
             // Check if this is a setting we need to update
             char *equals = strchr(line, '=');
             if (equals) {
                 *equals = '\0';
                 char *option_name = line;
-                
+
                 // Trim whitespace
                 while (*option_name == ' ' || *option_name == '\t') option_name++;
                 char *end = option_name + strlen(option_name) - 1;
                 while (end > option_name && (*end == ' ' || *end == '\t')) end--;
                 *(end + 1) = '\0';
-                
+
                 // Find matching setting
                 int found = 0;
                 for (int i = 0; i < settings_count; i++) {
                     if (strcmp(settings[i].name, option_name) == 0) {
-                        fprintf(fp_write, "%s = \"%s\"\n", option_name, 
-                               settings[i].possible_values[settings[i].current_index]);
+                        if (fprintf(fp_write, "%s = \"%s\"\n", option_name,
+                                   settings[i].possible_values[settings[i].current_index]) < 0) {
+                            write_error = 1;
+                            break;
+                        }
                         found = 1;
                         break;
                     }
                 }
-                
+
+                if (write_error) break;
+
                 if (!found) {
                     // Restore original line
                     *equals = '=';
-                    fputs(line, fp_write);
+                    if (fputs(line, fp_write) == EOF) {
+                        write_error = 1;
+                        break;
+                    }
                     // Make sure line has newline
                     if (!strchr(line, '\n')) {
-                        fputc('\n', fp_write);
+                        if (fputc('\n', fp_write) == EOF) {
+                            write_error = 1;
+                            break;
+                        }
                     }
                 }
             } else {
-                fputs(line, fp_write);
+                if (fputs(line, fp_write) == EOF) {
+                    write_error = 1;
+                    break;
+                }
                 // Make sure line has newline
                 if (!strchr(line, '\n')) {
-                    fputc('\n', fp_write);
+                    if (fputc('\n', fp_write) == EOF) {
+                        write_error = 1;
+                        break;
+                    }
                 }
             }
         }
     }
-    
+
     fclose(fp_read);
-    fclose(fp_write);
-    
-    // Replace original file using copy approach (more reliable on embedded systems)
-    FILE *src = fopen(temp_path, "r");
-    FILE *dst = fopen(config_path, "w");
-    
-    if (src && dst) {
-        char buffer[1024];
-        size_t bytes;
-        while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
-            fwrite(buffer, 1, bytes, dst);
+
+    // Flush to ensure data is written to disk
+    if (!write_error) {
+        if (fflush(fp_write) != 0) {
+            write_error = 1;
         }
-        fclose(src);
-        fclose(dst);
-        remove(temp_path);  // Delete temp file
-    } else {
-        if (src) fclose(src);
-        if (dst) fclose(dst);
+    }
+
+    fclose(fp_write);
+
+    // If there was a write error, remove temp file and abort
+    if (write_error) {
+        remove(temp_path);
+        settings_saving = 0;
         return 0;
     }
+
+    // Atomically replace original file with temp file using rename
+    // This is atomic on most filesystems and safer than copying
+    if (rename(temp_path, config_path) != 0) {
+        // If rename fails, fall back to copy method
+        FILE *src = fopen(temp_path, "r");
+        FILE *dst = fopen(config_path, "w");
+
+        if (src && dst) {
+            char buffer[1024];
+            size_t bytes;
+            int copy_error = 0;
+            while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+                if (fwrite(buffer, 1, bytes, dst) != bytes) {
+                    copy_error = 1;
+                    break;
+                }
+            }
+
+            if (!copy_error) {
+                fflush(dst);
+            }
+
+            fclose(src);
+            fclose(dst);
+
+            if (!copy_error) {
+                remove(temp_path);
+            } else {
+                settings_saving = 0;
+                return 0;
+            }
+        } else {
+            if (src) fclose(src);
+            if (dst) fclose(dst);
+            settings_saving = 0;
+            return 0;
+        }
+    }
+
+    settings_saving = 0;
 
     // Apply theme and font changes after saving settings
     apply_theme_from_settings();
@@ -352,18 +416,21 @@ void settings_show_menu(void) {
     settings_scroll_offset = 0;
 }
 
-int settings_handle_input(int up, int down, int left, int right, int a, int b, int select) {
+int settings_handle_input(int up, int down, int left, int right, int a, int b, int y) {
     if (!settings_active) return 0;
-    
+
+    // Don't allow any input while saving is in progress
+    if (settings_saving) return 1;
+
     int max_visible = 3; // Reduced to ensure no overlap with legend
-    
+
     if (up) {
         if (settings_selected > 0) {
             settings_selected--;
         } else {
             settings_selected = settings_count - 1;
         }
-        
+
         // Adjust scroll offset
         if (settings_selected < settings_scroll_offset) {
             settings_scroll_offset = settings_selected;
@@ -372,14 +439,14 @@ int settings_handle_input(int up, int down, int left, int right, int a, int b, i
         }
         return 1;
     }
-    
+
     if (down) {
         if (settings_selected < settings_count - 1) {
             settings_selected++;
         } else {
             settings_selected = 0;
         }
-        
+
         // Adjust scroll offset
         if (settings_selected < settings_scroll_offset) {
             settings_scroll_offset = settings_selected;
@@ -388,13 +455,13 @@ int settings_handle_input(int up, int down, int left, int right, int a, int b, i
         }
         return 1;
     }
-    
+
     if (right) {
         // Cycle to next value
         settings_cycle_option(settings_selected);
         return 1;
     }
-    
+
     if (left) {
         // Cycle to previous value
         if (settings_selected >= 0 && settings_selected < settings_count) {
@@ -405,21 +472,32 @@ int settings_handle_input(int up, int down, int left, int right, int a, int b, i
         }
         return 1;
     }
-    
-    if (a) {
-        // Save settings and exit
-        settings_save();
-        settings_active = 0;
+
+    if (y) {
+        // Reset to defaults
+        if (settings_reset_to_defaults()) {
+            // Successfully reset, settings are reloaded automatically
+            // Stay in settings menu to show the reset values
+        }
         return 1;
     }
-    
+
+    if (a) {
+        // Save settings and exit (don't exit until save completes)
+        if (settings_save()) {
+            settings_active = 0;
+        }
+        return 1;
+    }
+
     if (b) {
         // Exit and save (B button should save like most settings menus)
-        settings_save();
-        settings_active = 0;
+        if (settings_save()) {
+            settings_active = 0;
+        }
         return 1;
     }
-    
+
     return 1; // Consumed input
 }
 
@@ -465,4 +543,113 @@ const char* settings_get_value(const char *setting_name) {
         }
     }
     return NULL;
+}
+
+// Get default configs directory based on platform
+static const char* get_default_config_directory(void) {
+    static const char *default_dir = NULL;
+    if (!default_dir) {
+        // Check if GB300 default config directory exists
+        if (access("/mnt/sda1/cores/default_configs", 0) == 0) {
+            default_dir = "/mnt/sda1/cores/default_configs";
+        } else {
+            // Fall back to SF2000 structure
+            default_dir = "/mnt/sda1/default_configs";
+        }
+    }
+    return default_dir;
+}
+
+// Reset settings to defaults by copying from default_configs
+int settings_reset_to_defaults(void) {
+    if (current_config_path[0] == '\0') {
+        return 0;  // No config file loaded
+    }
+
+    settings_saving = 1;  // Set saving flag
+
+    // Determine the default config path based on current config path
+    char default_path[512];
+    const char *default_base = get_default_config_directory();
+
+    // Extract relative path from current config path
+    const char *config_base = get_config_directory();
+    const char *relative_path = current_config_path;
+
+    // Skip the base directory to get relative path
+    if (strncmp(current_config_path, config_base, strlen(config_base)) == 0) {
+        relative_path = current_config_path + strlen(config_base);
+        while (*relative_path == '/') relative_path++;  // Skip leading slashes
+    } else if (strncmp(current_config_path, "/app/sdcard/configs/", 20) == 0) {
+        // Handle dev machine path
+        relative_path = current_config_path + 20;
+    }
+
+    // Build default config path
+    snprintf(default_path, sizeof(default_path), "%s/%s", default_base, relative_path);
+
+    // Try to open default config file
+    FILE *default_file = fopen(default_path, "r");
+    if (!default_file) {
+        settings_saving = 0;
+        return 0;  // Default config doesn't exist
+    }
+
+    // Create temp file for atomic replacement
+    char temp_path[512];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", current_config_path);
+
+    FILE *temp_file = fopen(temp_path, "w");
+    if (!temp_file) {
+        fclose(default_file);
+        settings_saving = 0;
+        return 0;
+    }
+
+    // Copy default config to temp file
+    char buffer[1024];
+    size_t bytes;
+    int copy_error = 0;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), default_file)) > 0) {
+        if (fwrite(buffer, 1, bytes, temp_file) != bytes) {
+            copy_error = 1;
+            break;
+        }
+    }
+
+    fclose(default_file);
+
+    // Flush to ensure data is written
+    if (!copy_error) {
+        if (fflush(temp_file) != 0) {
+            copy_error = 1;
+        }
+    }
+
+    fclose(temp_file);
+
+    if (copy_error) {
+        remove(temp_path);
+        settings_saving = 0;
+        return 0;
+    }
+
+    // Atomically replace current config with default
+    if (rename(temp_path, current_config_path) != 0) {
+        remove(temp_path);
+        settings_saving = 0;
+        return 0;
+    }
+
+    settings_saving = 0;
+
+    // Reload settings from the reset file
+    settings_load_file(current_config_path);
+
+    return 1;
+}
+
+// Check if settings are currently being saved
+int settings_is_saving(void) {
+    return settings_saving;
 }

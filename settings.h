@@ -41,8 +41,8 @@ void settings_cycle_option(int index);
 // Show settings menu
 void settings_show_menu(void);
 
-// Handle settings menu input  
-int settings_handle_input(int up, int down, int left, int right, int a, int b, int select);
+// Handle settings menu input
+int settings_handle_input(int up, int down, int left, int right, int a, int b, int y);
 
 // Check if we're in settings mode
 int settings_is_active(void);
@@ -55,5 +55,11 @@ int settings_get_scroll_offset(void);
 
 // Get setting value by name (returns NULL if not found)
 const char* settings_get_value(const char *setting_name);
+
+// Reset settings to defaults from default_configs directory
+int settings_reset_to_defaults(void);
+
+// Check if settings are currently being saved
+int settings_is_saving(void);
 
 #endif // SETTINGS_H
