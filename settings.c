@@ -123,7 +123,6 @@ static int parse_option_line(const char *line, SettingsOption *option) {
 
     char values_str[16384];  // Increased to 16KB to handle large palette lists
     int values_len = values_end - values_start;
-    xlog("Settings: [%s] values_len=%d\n", option->name, values_len);
     if (values_len >= sizeof(values_str)) {
         xlog("Settings: Parse fail [%s] - value list too long (%d bytes, max %d)\n",
              option->name, values_len, (int)sizeof(values_str));
@@ -208,60 +207,51 @@ int settings_load_core(const char *core_name) {
     // Try sdcard path first for dev machines - note the subdirectory structure!
     // Try lowercase directory name first (more common)
     snprintf(config_path, sizeof(config_path), "/app/sdcard/configs/%s/%s.opt", core_name_lower, core_name);
-    xlog("Settings: Trying path: %s\n", config_path);
     FILE *test = fopen(config_path, "r");
     if (test) {
         fclose(test);
         xlog("Settings: Found config at: %s\n", config_path);
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
         int result = settings_load_file(config_path);
-        xlog("Settings: Loaded %d settings from core config\n", result);
         return result;
     }
 
     // Try capitalized directory name
     snprintf(config_path, sizeof(config_path), "/app/sdcard/configs/%s/%s.opt", core_name, core_name);
-    xlog("Settings: Trying path: %s\n", config_path);
     test = fopen(config_path, "r");
     if (test) {
         fclose(test);
         xlog("Settings: Found config at: %s\n", config_path);
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
         int result = settings_load_file(config_path);
-        xlog("Settings: Loaded %d settings from core config\n", result);
         return result;
     }
 
     // Try GB300 structure first: /cores/config/{core}.opt
     const char *base_dir = get_config_directory();
     snprintf(config_path, sizeof(config_path), "%s/%s.opt", base_dir, core_name);
-    xlog("Settings: Trying path: %s\n", config_path);
     test = fopen(config_path, "r");
     if (test) {
         fclose(test);
         xlog("Settings: Found config at: %s\n", config_path);
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
         int result = settings_load_file(config_path);
-        xlog("Settings: Loaded %d settings from core config\n", result);
         return result;
     }
 
     // Fall back to SF2000 structure: /configs/{core}/{core}.opt (lowercase dir)
     snprintf(config_path, sizeof(config_path), "%s/%s/%s.opt", base_dir, core_name_lower, core_name);
-    xlog("Settings: Trying path: %s\n", config_path);
     test = fopen(config_path, "r");
     if (test) {
         fclose(test);
         xlog("Settings: Found config at: %s\n", config_path);
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
         int result = settings_load_file(config_path);
-        xlog("Settings: Loaded %d settings from core config\n", result);
         return result;
     }
 
     // Final fallback to SF2000 structure with capitalized dir
     snprintf(config_path, sizeof(config_path), "%s/%s/%s.opt", base_dir, core_name, core_name);
-    xlog("Settings: Trying path: %s\n", config_path);
     strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
     int result = settings_load_file(config_path);
     xlog("Settings: Loaded %d settings from core config (final attempt)\n", result);
@@ -283,8 +273,6 @@ static int settings_load_file(const char *config_path) {
     long file_size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    xlog("Settings: File size: %ld bytes\n", file_size);
-
     char *file_contents = (char*)malloc(file_size + 1);
     if (!file_contents) {
         xlog("Settings: Failed to allocate memory for file\n");
@@ -295,8 +283,6 @@ static int settings_load_file(const char *config_path) {
     size_t bytes_read = fread(file_contents, 1, file_size, fp);
     file_contents[bytes_read] = '\0';
     fclose(fp);
-
-    xlog("Settings: Read %d bytes into memory\n", (int)bytes_read);
 
     char line[16384];
     settings_count = 0;
@@ -320,11 +306,6 @@ static int settings_load_file(const char *config_path) {
 
             // Parse comment lines that define options
             if (parse_option_line(line, &settings[settings_count])) {
-                xlog("Settings: Parsed [%d] %s = %s (%d values)\n",
-                     settings_count,
-                     settings[settings_count].name,
-                     settings[settings_count].current_value,
-                     settings[settings_count].value_count);
                 settings_count++;
             } else if (strncmp(line, "### [", 5) == 0) {
                 xlog("Settings: Failed to parse line (len=%d): %.80s...\n", line_len, line);
