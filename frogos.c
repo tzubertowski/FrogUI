@@ -254,7 +254,7 @@ static void auto_launch_recent_game(void) {
 
     // Queue the game for launch
     sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
-    sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
+    // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
     sprintf((char *)ptr_gs_run_game_name, "%s", filename);
 
     // Remove extension from ptr_gs_run_game_name
@@ -673,15 +673,41 @@ static void scan_directory(const char *path) {
             continue;
         }
 
+        // Save entry name and type BEFORE any nested readdir calls (readdir uses static buffer)
+        char entry_name[256];
+        strncpy(entry_name, ent->d_name, sizeof(entry_name) - 1);
+        entry_name[sizeof(entry_name) - 1] = '\0';
+        int entry_type = ent->d_type;
+
         char full_path[MAX_PATH_LEN];
-        snprintf(full_path, sizeof(full_path), "%s/%s", path, ent->d_name);
+        snprintf(full_path, sizeof(full_path), "%s/%s", path, entry_name);
 
         // Fast path: use d_type if available, avoid stat() calls
-        int is_dir = is_directory_fast(full_path, ent->d_type);
+        int is_dir = is_directory_fast(full_path, entry_type);
 
         // Skip files if in root ROMS directory (only show folders there)
-        if (strcmp(path, ROMS_PATH) == 0 && !is_dir) {
+        if (is_root && !is_dir) {
             continue;
+        }
+
+        // Skip empty directories in root ROMS directory (system folders with no games)
+        if (is_root && is_dir) {
+            DIR *check_dir = opendir(full_path);
+            if (check_dir) {
+                int has_content = 0;
+                struct dirent *check_ent;
+                while ((check_ent = readdir(check_dir)) != NULL) {
+                    if (check_ent->d_name[0] != '.') {
+                        has_content = 1;
+                        break;
+                    }
+                }
+                closedir(check_dir);
+
+                if (!has_content) {
+                    continue; // Skip empty directory
+                }
+            }
         }
 
         // Ensure we have space for one more entry
@@ -690,13 +716,13 @@ static void scan_directory(const char *path) {
         // Add directories first, then files
         if (is_dir) {
             // Add directory entry
-            strncpy(entries[entry_count].name, ent->d_name, sizeof(entries[entry_count].name) - 1);
+            strncpy(entries[entry_count].name, entry_name, sizeof(entries[entry_count].name) - 1);
             strncpy(entries[entry_count].path, full_path, sizeof(entries[entry_count].path) - 1);
             entries[entry_count].is_dir = 1;
             entry_count++;
         } else {
             // Add file entry
-            strncpy(entries[entry_count].name, ent->d_name, sizeof(entries[entry_count].name) - 1);
+            strncpy(entries[entry_count].name, entry_name, sizeof(entries[entry_count].name) - 1);
             strncpy(entries[entry_count].path, full_path, sizeof(entries[entry_count].path) - 1);
             entries[entry_count].is_dir = 0;
             entry_count++;
@@ -1133,7 +1159,7 @@ static void pick_random_game(void) {
 
                     // Launch the game - match format used by normal game selection
                     sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
-                    sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
+                    // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
                     sprintf((char *)ptr_gs_run_game_name, "%s", filename);
 
                     // Remove extension
@@ -1143,7 +1169,7 @@ static void pick_random_game(void) {
                     }
 
                     printf("Random game: Launching with game_file=%s\n", ptr_gs_run_game_file);
-                    printf("Random game: folder=%s, game_name=%s\n", ptr_gs_run_folder, ptr_gs_run_game_name);
+                    printf("Random game: game_name=%s\n", ptr_gs_run_game_name);
 
                     // Add to recent history
                     recent_games_add(core_name, filename, entries[i].path);
@@ -1471,7 +1497,7 @@ static void handle_input() {
             if (strcmp(current_path, "UTILS") == 0) {
                 // Launch selected file with js2000 core using format: corename;full_path
                 sprintf((char *)ptr_gs_run_game_file, "js2000;js2000;%s.gba", entry->name);
-                sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS");
+                // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
                 sprintf((char *)ptr_gs_run_game_name, "%s", entry->name);
 
                 // Remove extension from game name
@@ -1548,7 +1574,7 @@ static void handle_input() {
             }
 
             sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
-            sprintf((char *)ptr_gs_run_folder, "/mnt/sda1/ROMS"); // Expects "/mnt/sda1/ROMS" format
+            // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
             sprintf((char *)ptr_gs_run_game_name, "%s", filename); // Expects the filename without any extension
 
             // Remove extension from ptr_gs_run_game_name
