@@ -20,7 +20,7 @@ This guide covers the installation of **FrogUI** for **Datafrog SF2000** and **G
 
 ## 1. Prerequisites
 
-- A Datafrog SF2000 or GB300 handheld
+- A Datafrog SF2000 or GB300 handheld with stock operating system (or multicore, as it will be overridden)
 - An SD card reader (via phone or PC) to transfer files to the SD card
 - If you're using a **GB300**, make sure you're on **GB300 v2**. See [Updating GB300 to v2 software version](#5-updating-gb300-to-v2-software-version)
 
