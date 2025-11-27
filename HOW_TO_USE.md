@@ -22,19 +22,17 @@ FrogUI is a modern file browser interface for the SF2000/GB300 that provides acc
    /ROMS/md/          - Mega Drive/Genesis games
    ```
 
-2. **Supported Formats**: Each core supports different formats:
-   - **GB**: `.gb`, `.gbc` files
-   - **GBA**: `.gba` files
-   - **NES**: `.nes` files  
-   - **SNES**: `.sfc`, `.smc` files
-   - **Genesis**: `.md`, `.gen` files
+2. **Supported Systems**: FrogUI supports 60+ emulator cores including (examples):
+   - **GB/GBC**: `.gb`, `.gbc` files → Gambatte
+   - **GBA**: `.gba` files → gpSP
+   - **NES**: `.nes` files → QuickNES
+   - **SNES**: `.sfc`, `.smc` files → Snes9x
+   - **Genesis/Mega Drive**: `.md`, `.gen` files → PicoDrive
+   - **PlayStation**: `.bin`, `.cue`, `.pbp` files → PCSX ReARMed
+   - **Arcade**: `.zip` files → FinalBurn Alpha
+   - And many more systems...
 
-3. **Console Mapping**: FrogUI automatically maps console folders to cores:
-   - `gb` → Gambatte (Game Boy)
-   - `gba` → gpSP (Game Boy Advance)  
-   - `nes` → QuickNES (Nintendo Entertainment System)
-   - `snes` → Snes9x (Super Nintendo)
-   - And 60+ more core mappings
+3. **Console Mapping**: FrogUI automatically maps console folders to cores based on folder name. See the [Multicore repository](https://github.com/tzubertowski/gb300_multicore) for the full list of supported systems and cores.
 
 ## Adding Thumbnails
 
