@@ -47,36 +47,24 @@ static int parse_option_line(const char *line, SettingsOption *option) {
     // Find option name
     const char *name_start = line + 5;
     const char *name_end = strchr(name_start, ']');
-    if (!name_end) {
-        xlog("Settings: Parse fail - no closing ] for name\n");
-        return 0;
-    }
+    if (!name_end) return 0;
 
     int name_len = name_end - name_start;
-    if (name_len >= MAX_OPTION_NAME_LEN) {
-        xlog("Settings: Parse fail - name too long: %d\n", name_len);
-        return 0;
-    }
+    if (name_len >= MAX_OPTION_NAME_LEN) return 0;
 
     strncpy(option->name, name_start, name_len);
     option->name[name_len] = '\0';
 
     // Find current value (between first : and next ])
     const char *current_start = strchr(name_end, ':');
-    if (!current_start) {
-        xlog("Settings: Parse fail [%s] - no colon after name\n", option->name);
-        return 0;
-    }
+    if (!current_start) return 0;
     current_start++; // Skip ':'
 
     // Skip whitespace and '[' if present
     while (*current_start == ' ' || *current_start == '\t' || *current_start == '[') current_start++;
 
     const char *current_end = strchr(current_start, ']');
-    if (!current_end) {
-        xlog("Settings: Parse fail [%s] - no ] after current value\n", option->name);
-        return 0;
-    }
+    if (!current_end) return 0;
 
     // Trim trailing whitespace from current value
     while (current_end > current_start && (*(current_end - 1) == ' ' || *(current_end - 1) == '\t')) {
@@ -84,28 +72,19 @@ static int parse_option_line(const char *line, SettingsOption *option) {
     }
 
     int current_len = current_end - current_start;
-    if (current_len >= MAX_OPTION_VALUE_LEN || current_len <= 0) {
-        xlog("Settings: Parse fail [%s] - current value len invalid: %d\n", option->name, current_len);
-        return 0;
-    }
+    if (current_len >= MAX_OPTION_VALUE_LEN || current_len <= 0) return 0;
 
     strncpy(option->current_value, current_start, current_len);
     option->current_value[current_len] = '\0';
-    
+
     // Find possible values (between [ and last ])
     const char *values_start = strchr(current_end, '[');
-    if (!values_start) {
-        xlog("Settings: Parse fail [%s] - no [ for values list\n", option->name);
-        return 0;
-    }
+    if (!values_start) return 0;
     values_start++; // Skip '['
 
     // Find the LAST ']' on the line (not the first one)
     const char *values_end = strrchr(values_start, ']');
-    if (!values_end) {
-        xlog("Settings: Parse fail [%s] - no closing ] for values list\n", option->name);
-        return 0;
-    }
+    if (!values_end) return 0;
 
     // Parse pipe-separated values
     option->value_count = 0;
@@ -113,11 +92,7 @@ static int parse_option_line(const char *line, SettingsOption *option) {
 
     char values_str[16384];  // Increased to 16KB to handle large palette lists
     int values_len = values_end - values_start;
-    if (values_len >= sizeof(values_str)) {
-        xlog("Settings: Parse fail [%s] - value list too long (%d bytes, max %d)\n",
-             option->name, values_len, (int)sizeof(values_str));
-        return 0;
-    }
+    if (values_len >= (int)sizeof(values_str)) return 0;
     
     strncpy(values_str, values_start, values_len);
     values_str[values_len] = '\0';
@@ -154,20 +129,14 @@ int settings_load(void) {
 
     // Use standard location: /mnt/sda1/configs/multicore.opt
     snprintf(config_path, sizeof(config_path), "/mnt/sda1/configs/multicore.opt");
-    xlog("Settings: Loading from: %s\n", config_path);
-
     strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
-    int result = settings_load_file(config_path);
-    xlog("Settings: Loaded %d settings from multicore.opt\n", result);
-    return result;
+    return settings_load_file(config_path);
 }
 
 // Load core-specific settings
 int settings_load_core(const char *core_name) {
     char config_path[512];
     char core_name_lower[256];
-
-    xlog("Settings: Loading core settings for: %s\n", core_name);
 
     // Create lowercase version of core name
     strncpy(core_name_lower, core_name, sizeof(core_name_lower) - 1);
@@ -185,27 +154,20 @@ int settings_load_core(const char *core_name) {
     FILE *test = fopen(config_path, "r");
     if (test) {
         fclose(test);
-        xlog("Settings: Found config at: %s\n", config_path);
         strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
-        int result = settings_load_file(config_path);
-        return result;
+        return settings_load_file(config_path);
     }
 
     // Try capitalized directory name: /mnt/sda1/configs/{core}/{core}.opt
     snprintf(config_path, sizeof(config_path), "%s/%s/%s.opt", base_dir, core_name, core_name);
     strncpy(current_config_path, config_path, sizeof(current_config_path) - 1);
-    int result = settings_load_file(config_path);
-    xlog("Settings: Loaded %d settings from core config\n", result);
-    return result;
+    return settings_load_file(config_path);
 }
 
 // Common settings loading function
 static int settings_load_file(const char *config_path) {
-    xlog("Settings: Loading file: %s\n", config_path);
-
-    FILE *fp = fopen(config_path, "rb");  // Binary mode to prevent newline translation
+    FILE *fp = fopen(config_path, "rb");
     if (!fp) {
-        xlog("Settings: Failed to open file\n");
         return 0;
     }
 
@@ -216,7 +178,6 @@ static int settings_load_file(const char *config_path) {
 
     char *file_contents = (char*)malloc(file_size + 1);
     if (!file_contents) {
-        xlog("Settings: Failed to allocate memory for file\n");
         fclose(fp);
         return 0;
     }
@@ -248,8 +209,6 @@ static int settings_load_file(const char *config_path) {
             // Parse comment lines that define options
             if (parse_option_line(line, &settings[settings_count])) {
                 settings_count++;
-            } else if (strncmp(line, "### [", 5) == 0) {
-                xlog("Settings: Failed to parse line (len=%d): %.80s...\n", line_len, line);
             }
         }
 
@@ -259,8 +218,6 @@ static int settings_load_file(const char *config_path) {
         }
         line_start = line_end;
     }
-
-    xlog("Settings: First pass parsed %d options\n", settings_count);
 
     // Second pass: parse actual current values from setting lines
     line_start = file_contents;
@@ -654,25 +611,20 @@ static const char* get_default_config_directory(void) {
 
 // Reset settings to defaults by copying from default_configs
 int settings_reset_to_defaults(void) {
-    xlog("Settings: Reset to defaults called\n");
-
     if (current_config_path[0] == '\0') {
-        xlog("Settings: No config path set, aborting reset\n");
         return 0;  // No config file loaded
     }
 
-    settings_saving = 1;  // Set saving flag
-    xlog("Settings: Current config path: %s\n", current_config_path);
+    settings_saving = 1;
 
     // Determine the default config path
-    // Defaults are ALWAYS in nested structure: /mnt/sda1/default_configs/{coreName}/{coreName}.opt
     char default_path[512];
     const char *default_base = get_default_config_directory();
 
     // Extract core name from filename
     const char *filename = strrchr(current_config_path, '/');
     if (filename) {
-        filename++;  // Skip '/'
+        filename++;
     } else {
         filename = current_config_path;
     }
@@ -687,29 +639,20 @@ int settings_reset_to_defaults(void) {
     }
 
     // Build path: /mnt/sda1/default_configs/{coreName}/{coreName}.opt
-    // Exception: multicore.opt stays flat
     if (strcmp(core_name, "multicore") == 0) {
         snprintf(default_path, sizeof(default_path), "%s/multicore.opt", default_base);
     } else {
         snprintf(default_path, sizeof(default_path), "%s/%s/%s.opt", default_base, core_name, core_name);
     }
 
-    xlog("Settings: Looking for default at: %s\n", default_path);
-
-    // Try to open default config file
     FILE *default_file = fopen(default_path, "r");
     if (!default_file) {
-        xlog("Settings: Default config not found\n");
         settings_saving = 0;
-        return 0;  // Default config doesn't exist
+        return 0;
     }
 
-    xlog("Settings: Found default config, overwriting current config...\n");
-
-    // Open current config for writing (this truncates the file)
     FILE *dest_file = fopen(current_config_path, "w");
     if (!dest_file) {
-        xlog("Settings: Failed to open config for writing\n");
         fclose(default_file);
         settings_saving = 0;
         return 0;
@@ -722,43 +665,31 @@ int settings_reset_to_defaults(void) {
     while ((bytes = fread(buffer, 1, sizeof(buffer), default_file)) > 0) {
         if (fwrite(buffer, 1, bytes, dest_file) != bytes) {
             copy_error = 1;
-            xlog("Settings: Write error during copy\n");
             break;
         }
     }
 
     fclose(default_file);
 
-    // Flush to ensure data is written
-    if (!copy_error) {
-        if (fflush(dest_file) != 0) {
-            copy_error = 1;
-            xlog("Settings: Flush error\n");
-        }
+    if (!copy_error && fflush(dest_file) != 0) {
+        copy_error = 1;
     }
 
     fclose(dest_file);
 
     if (copy_error) {
-        xlog("Settings: Copy failed\n");
         settings_saving = 0;
         return 0;
     }
 
-    xlog("Settings: Overwrite successful\n");
-
     settings_saving = 0;
-
-    xlog("Settings: Reset successful, reloading settings\n");
 
     // Reload settings from the reset file
     settings_load_file(current_config_path);
 
-    // Reset UI state to show the reloaded settings
+    // Reset UI state
     settings_selected = 0;
     settings_scroll_offset = 0;
-
-    xlog("Settings: Reset complete, %d settings loaded\n", settings_count);
 
     return 1;
 }

@@ -7,6 +7,7 @@
 ### [sf2000_scaling_filtered]:[true]         :[true|false]
 ### [sf2000_show_fps]        :[false]        :[true|false]
 ### [frogui_font]            :[GamePocket]   :[GamePocket|Monogram]
+### [frogui_hide_empty]      :[true]         :[true|false]
 ### [frogui_resume_on_boot]  :[false]        :[true|false]
 ### [frogui_theme]           :[MinUI Style]  :[MinUI Style|Emerald|Orange|Golden|Rose|Purple|Prosty's Pink|Green|Red|Commodore 64|Game Boy|NES|Amber CRT|Green CRT|DOS|Famicom|SNES|Matrix|Sajnaps Green|Q_ta's Light Wii|Q_ta's Dark Wii|Desoxyn's Purple|Ocean|Sunset|Mono Dark|Nord|Dracula|Gruvbox|Tokyo Night|Solarized Dark]
 sf2000_tearing_fix = "disabled"
@@ -19,4 +20,5 @@ sf2000_scaling_filtered = "true"
 sf2000_show_fps = "false"
 frogui_resume_on_boot = "false"
 frogui_font = "GamePocket"
+frogui_hide_empty = "true"
 frogui_theme = "MinUI Style"

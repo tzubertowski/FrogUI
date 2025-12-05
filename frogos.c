@@ -145,6 +145,115 @@ static void show_core_settings(const char* core_name) {
 #define MAX_RECENT_GAMES 10
 #define INITIAL_ENTRIES_CAPACITY 64
 
+// Empty folders cache - avoid rescanning on every navigation
+#define EMPTY_DIRS_CACHE_FILE "/mnt/sda1/configs/frogui_empty_dirs.cache"
+#define MAX_EMPTY_DIRS 256
+static char empty_dirs[MAX_EMPTY_DIRS][64];  // Store folder names (not full paths)
+static int empty_dirs_count = 0;
+static int empty_dirs_loaded = 0;
+
+// Forward declarations
+static void rebuild_empty_dirs_cache(void);
+static void show_cache_rebuild_screen(void);
+
+// Load empty directories cache from file (or rebuild if missing)
+static void load_empty_dirs_cache(void) {
+    if (empty_dirs_loaded) return;
+    empty_dirs_loaded = 1;
+    empty_dirs_count = 0;
+
+    FILE *fp = fopen(EMPTY_DIRS_CACHE_FILE, "r");
+    if (!fp) {
+        // Cache file doesn't exist - rebuild it
+        xlog("Empty dirs cache: file not found, rebuilding...\n");
+        rebuild_empty_dirs_cache();
+        return;
+    }
+
+    char line[64];
+    while (fgets(line, sizeof(line), fp) && empty_dirs_count < MAX_EMPTY_DIRS) {
+        // Remove newline
+        int len = strlen(line);
+        if (len > 0 && line[len-1] == '\n') line[len-1] = '\0';
+        if (line[0] != '\0') {
+            strncpy(empty_dirs[empty_dirs_count], line, sizeof(empty_dirs[0]) - 1);
+            empty_dirs[empty_dirs_count][sizeof(empty_dirs[0]) - 1] = '\0';
+            empty_dirs_count++;
+        }
+    }
+    fclose(fp);
+    xlog("Empty dirs cache: loaded %d entries\n", empty_dirs_count);
+}
+
+// Check if a folder name is in the empty dirs cache
+static int is_in_empty_cache(const char *folder_name) {
+    for (int i = 0; i < empty_dirs_count; i++) {
+        if (strcasecmp(empty_dirs[i], folder_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Rebuild and save empty directories cache by scanning ROMS folder
+static void rebuild_empty_dirs_cache(void) {
+    show_cache_rebuild_screen();
+    empty_dirs_count = 0;
+
+    DIR *dir = opendir(ROMS_PATH);
+    if (!dir) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL && empty_dirs_count < MAX_EMPTY_DIRS) {
+        if (ent->d_name[0] == '.') continue;
+        if (strcasecmp(ent->d_name, "frogui") == 0 ||
+            strcasecmp(ent->d_name, "saves") == 0 ||
+            strcasecmp(ent->d_name, "save") == 0) continue;
+
+        // Skip non-directories using d_type (avoids stat() syscall)
+        if (ent->d_type != DT_DIR) continue;
+
+        // Save entry name BEFORE inner readdir (readdir uses static buffer!)
+        char entry_name[64];
+        strncpy(entry_name, ent->d_name, sizeof(entry_name) - 1);
+        entry_name[sizeof(entry_name) - 1] = '\0';
+
+        char full_path[MAX_PATH_LEN];
+        snprintf(full_path, sizeof(full_path), "%s/%s", ROMS_PATH, entry_name);
+
+        // Check if directory is empty via opendir/readdir
+        DIR *check = opendir(full_path);
+        if (check) {
+            int has_content = 0;
+            struct dirent *sub;
+            while ((sub = readdir(check)) != NULL) {
+                if (sub->d_name[0] != '.') {
+                    has_content = 1;
+                    break;
+                }
+            }
+            closedir(check);
+
+            if (!has_content) {
+                strncpy(empty_dirs[empty_dirs_count], entry_name, sizeof(empty_dirs[0]) - 1);
+                empty_dirs[empty_dirs_count][sizeof(empty_dirs[0]) - 1] = '\0';
+                empty_dirs_count++;
+            }
+        }
+    }
+    closedir(dir);
+
+    // Save to file
+    FILE *fp = fopen(EMPTY_DIRS_CACHE_FILE, "w");
+    if (fp) {
+        for (int i = 0; i < empty_dirs_count; i++) {
+            fprintf(fp, "%s\n", empty_dirs[i]);
+        }
+        fclose(fp);
+    }
+    xlog("Empty dirs cache: rebuilt with %d entries\n", empty_dirs_count);
+}
+
 // Layout constants are now in render.h
 
 // Thumbnail cache
@@ -224,6 +333,23 @@ static retro_input_state_t input_state_cb = NULL;
 static int prev_input[16] = {0};
 static bool game_queued = false;  // Flag to indicate game is queued
 
+// Show a loading screen during cache rebuild
+static void show_cache_rebuild_screen(void) {
+    if (!framebuffer || !video_cb) return;
+
+    // Fill background
+    render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, theme_bg());
+
+    // Draw centered message
+    const char* msg = "Rebuilding folder cache...";
+    int text_width = font_measure_text(msg);
+    int x = (SCREEN_WIDTH - text_width) / 2;
+    int y = (SCREEN_HEIGHT - FONT_CHAR_HEIGHT) / 2;
+    render_text_pillbox(framebuffer, x, y, msg, theme_header(), theme_bg(), 6);
+
+    // Push frame to display
+    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
+}
 
 // Get the base name from a path
 static const char *get_basename(const char *path) {
@@ -603,6 +729,13 @@ static void show_utils_menu(void) {
         closedir(dir);
     }
 
+    // Add "Rebuild folder cache" option
+    ensure_entries_capacity(entry_count + 1);
+    strncpy(entries[entry_count].name, "Rebuild folder cache", sizeof(entries[entry_count].name) - 1);
+    strncpy(entries[entry_count].path, "REBUILD_CACHE", sizeof(entries[entry_count].path) - 1);
+    entries[entry_count].is_dir = 0;
+    entry_count++;
+
     // Add back entry
     ensure_entries_capacity(entry_count + 1);
     strncpy(entries[entry_count].name, "..", sizeof(entries[entry_count].name) - 1);
@@ -690,22 +823,14 @@ static void scan_directory(const char *path) {
             continue;
         }
 
-        // Skip empty directories in root ROMS directory (system folders with no games)
+        // Skip empty directories in root ROMS directory (use cache for speed)
         if (is_root && is_dir) {
-            DIR *check_dir = opendir(full_path);
-            if (check_dir) {
-                int has_content = 0;
-                struct dirent *check_ent;
-                while ((check_ent = readdir(check_dir)) != NULL) {
-                    if (check_ent->d_name[0] != '.') {
-                        has_content = 1;
-                        break;
-                    }
-                }
-                closedir(check_dir);
-
-                if (!has_content) {
-                    continue; // Skip empty directory
+            const char *hide_empty = settings_get_value("frogui_hide_empty");
+            if (!hide_empty || strcmp(hide_empty, "true") == 0) {
+                // Load cache on first use (default to hiding if setting not found)
+                load_empty_dirs_cache();
+                if (is_in_empty_cache(entry_name)) {
+                    continue; // Skip cached empty directory
                 }
             }
         }
@@ -1068,22 +1193,17 @@ static void render_menu() {
 
 // Pick and launch a random game by randomly navigating the menu
 static void pick_random_game(void) {
-    printf("Random game: Starting selection...\n");
-
-    int max_attempts = 100; // Prevent infinite loop
+    int max_attempts = 100;
     int attempts = 0;
 
-    // Keep trying random selections until we find a file
     while (attempts < max_attempts) {
         attempts++;
-        printf("Random game: Attempt %d/%d\n", attempts, max_attempts);
 
-        // First, pick a random console directory from root
+        // Pick a random console directory from root
         strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
         scan_directory(current_path);
-        printf("Random game: Scanned root, found %d entries\n", entry_count);
 
-        // Filter out non-console entries (Recent games, Favorites, Random game, Tools)
+        // Filter out non-console entries
         int valid_console_count = 0;
         for (int i = 0; i < entry_count; i++) {
             if (entries[i].is_dir &&
@@ -1095,9 +1215,7 @@ static void pick_random_game(void) {
             }
         }
 
-        printf("Random game: Found %d valid console directories\n", valid_console_count);
         if (valid_console_count == 0) {
-            printf("Random game: No console directories found!\n");
             strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
             scan_directory(current_path);
             return;
@@ -1105,8 +1223,6 @@ static void pick_random_game(void) {
 
         // Pick a random console directory
         int random_console = rand() % valid_console_count;
-        printf("Random game: Selecting console index %d\n", random_console);
-
         int console_idx = 0;
         for (int i = 0; i < entry_count; i++) {
             if (entries[i].is_dir &&
@@ -1116,7 +1232,6 @@ static void pick_random_game(void) {
                 strcmp(entries[i].path, "TOOLS") != 0) {
                 if (console_idx == random_console) {
                     strncpy(current_path, entries[i].path, sizeof(current_path) - 1);
-                    printf("Random game: Selected console directory: %s\n", entries[i].name);
                     break;
                 }
                 console_idx++;
@@ -1125,7 +1240,6 @@ static void pick_random_game(void) {
 
         // Scan the console directory
         scan_directory(current_path);
-        printf("Random game: Scanned console dir, found %d entries\n", entry_count);
 
         // Count files (not directories, not ..)
         int file_count = 0;
@@ -1135,47 +1249,30 @@ static void pick_random_game(void) {
             }
         }
 
-        printf("Random game: Found %d game files in this directory\n", file_count);
         if (file_count == 0) {
-            printf("Random game: No files found, trying another console...\n");
-            continue; // No files in this directory, try again
+            continue;
         }
 
         // Pick a random file
         int random_file = rand() % file_count;
-        printf("Random game: Selecting file index %d\n", random_file);
-
         int file_idx = 0;
         for (int i = 0; i < entry_count; i++) {
             if (!entries[i].is_dir && strcmp(entries[i].name, "..") != 0) {
                 if (file_idx == random_file) {
-                    // Found our random game! Launch it
                     const char *core_name = get_basename(current_path);
                     const char *filename_path = strrchr(entries[i].path, '/');
                     const char *filename = filename_path ? filename_path + 1 : entries[i].name;
 
-                    printf("Random game: Selected game: %s (core: %s)\n", filename, core_name);
-                    printf("Random game: Full path: %s\n", entries[i].path);
-
-                    // Launch the game - match format used by normal game selection
-                    sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename); // TODO: Replace second core_name with full directory (besides /mnt/sda1) and seperate core_name from directory
-                    // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
+                    sprintf((char *)ptr_gs_run_game_file, "%s;%s;%s.gba", core_name, core_name, filename);
                     sprintf((char *)ptr_gs_run_game_name, "%s", filename);
 
-                    // Remove extension
                     char *dot_position = strrchr(ptr_gs_run_game_name, '.');
                     if (dot_position != NULL) {
                         *dot_position = '\0';
                     }
 
-                    printf("Random game: Launching with game_file=%s\n", ptr_gs_run_game_file);
-                    printf("Random game: game_name=%s\n", ptr_gs_run_game_name);
-
-                    // Add to recent history
                     recent_games_add(core_name, filename, entries[i].path);
-
                     game_queued = true;
-                    printf("Random game: Game queued for launch!\n");
                     return;
                 }
                 file_idx++;
@@ -1183,8 +1280,6 @@ static void pick_random_game(void) {
         }
     }
 
-    // If we get here, we couldn't find a game after max_attempts
-    printf("Random game: Failed to find a game after %d attempts\n", max_attempts);
     strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
     scan_directory(current_path);
 }
@@ -1493,8 +1588,17 @@ static void handle_input() {
             const char *core_name;
             const char *filename;
 
-            // Check if we're in Utils - launch js2000 core
+            // Check if we're in Utils
             if (strcmp(current_path, "UTILS") == 0) {
+                // Handle "Rebuild folder cache" action
+                if (strcmp(entry->path, "REBUILD_CACHE") == 0) {
+                    rebuild_empty_dirs_cache();
+                    // Go back to ROMS root after rebuild
+                    strncpy(current_path, ROMS_PATH, sizeof(current_path) - 1);
+                    scan_directory(current_path);
+                    return;
+                }
+
                 // Launch selected file with js2000 core using format: corename;full_path
                 sprintf((char *)ptr_gs_run_game_file, "js2000;js2000;%s.gba", entry->name);
                 // Don't set ptr_gs_run_folder - inherit from menu core for savestates to work
