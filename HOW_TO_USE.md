@@ -13,26 +13,111 @@ FrogUI is a modern file browser interface for the SF2000/GB300 that provides acc
 
 ## Adding ROMs
 
-1. **Create Console Folders**: Place ROMs in `/ROMS/[console]/` folders on your SD card:
-   ```
-   /ROMS/gb/          - Game Boy games
-   /ROMS/gba/         - Game Boy Advance games  
-   /ROMS/nes/         - NES/Famicom games
-   /ROMS/snes/        - SNES games
-   /ROMS/md/          - Mega Drive/Genesis games
-   ```
+1. **Create Console Folders**: Place ROMs in `/ROMS/[console]/` folders on your SD card. FrogUI automatically maps folder names to the correct emulator core.
 
-2. **Supported Systems**: FrogUI supports 60+ emulator cores including (examples):
-   - **GB/GBC**: `.gb`, `.gbc` files → Gambatte
-   - **GBA**: `.gba` files → gpSP
-   - **NES**: `.nes` files → QuickNES
-   - **SNES**: `.sfc`, `.smc` files → Snes9x
-   - **Genesis/Mega Drive**: `.md`, `.gen` files → PicoDrive
-   - **PlayStation**: `.bin`, `.cue`, `.pbp` files → PCSX ReARMed
-   - **Arcade**: `.zip` files → FinalBurn Alpha
-   - And many more systems...
+2. **Console Mapping**: The folder name determines which core is used. See the complete list below.
 
-3. **Console Mapping**: FrogUI automatically maps console folders to cores based on folder name. See the [Multicore repository](https://github.com/tzubertowski/gb300_multicore) for the full list of supported systems and cores.
+### Complete Supported Systems List
+
+| Folder | System | Core | File Extensions |
+|--------|--------|------|-----------------|
+| **Nintendo Handhelds** ||||
+| `gb` | Game Boy / Game Boy Color | Gambatte | `.gb`, `.gbc` |
+| `gbb` | Game Boy (alt) | TGBDual | `.gb`, `.gbc` |
+| `gbgb` | Game Boy (alt) | Gearboy | `.gb`, `.gbc` |
+| `dblcherrygb` | Game Boy (alt) | DoubleCherryGB | `.gb`, `.gbc` |
+| `gba` | Game Boy Advance | gpSP | `.gba` |
+| `gbaf` | Game Boy Advance (safe) | gpSP | `.gba` |
+| `gbaff` | Game Boy Advance (fast) | gpSP | `.gba` |
+| `gbav` | Game Boy Advance (alt) | VBA-Next | `.gba` |
+| `mgba` | Game Boy Advance (alt) | mGBA | `.gba` |
+| `pokem` | Pokemon Mini | PokeMini | `.min` |
+| `vb` | Virtual Boy | Beetle-VB | `.vb`, `.vboy` |
+| **Nintendo Consoles** ||||
+| `nes` | NES / Famicom | FCEUmm | `.nes`, `.fds` |
+| `nesq` | NES (alt) | QuickNES | `.nes` |
+| `nest` | NES (alt) | Nestopia | `.nes`, `.fds` |
+| `snes` | Super Nintendo | Snes9x 2005 | `.sfc`, `.smc` |
+| `snes02` | Super Nintendo (alt) | Snes9x 2002 | `.sfc`, `.smc` |
+| **Sega Systems** ||||
+| `sega` | Mega Drive / Genesis | PicoDrive | `.md`, `.gen`, `.smd` |
+| `gpgx` | Mega Drive (alt) | Genesis-Plus-GX | `.md`, `.gen` |
+| `gg` | Game Gear / Master System | Gearsystem | `.gg`, `.sms` |
+| **Atari Systems** ||||
+| `a26` | Atari 2600 | Stella 2014 | `.a26`, `.bin` |
+| `a5200` | Atari 5200 | a5200 | `.a52`, `.bin` |
+| `a78` | Atari 7800 | ProSystem | `.a78`, `.bin` |
+| `a800` | Atari 800 | Atari800lib | `.atr`, `.xex` |
+| `lnx` | Atari Lynx | Handy | `.lnx` |
+| `lnxb` | Atari Lynx (alt) | Beetle-Lynx | `.lnx` |
+| **NEC Systems** ||||
+| `pce` | PC Engine / TurboGrafx-16 | Beetle-PCE-Fast | `.pce`, `.cue` |
+| `pcesgx` | PC Engine SuperGrafx | Beetle-SuperGrafx | `.pce`, `.sgx` |
+| `pcfx` | PC-FX | Beetle-PCFX | `.cue`, `.ccd` |
+| **SNK Systems** ||||
+| `ngpc` | Neo Geo Pocket Color | RACE | `.ngp`, `.ngc` |
+| `geolith` | Neo Geo | Geolith | `.zip` |
+| **Other Handhelds** ||||
+| `wswan` | WonderSwan | Beetle-WonderSwan | `.ws`, `.wsc` |
+| `wsv` | Watara Supervision | Potator | `.sv` |
+| `gw` | Game & Watch | libretro-gw | `.mgw` |
+| `arduboy` | Arduboy | Arduous | `.hex` |
+| **Home Computers** ||||
+| `amstrad` | Amstrad CPC | CrocoDS | `.dsk`, `.sna` |
+| `amstradb` | Amstrad CPC (alt) | Cap32 | `.dsk`, `.sna` |
+| `c64` | Commodore 64 | VICE x64 | `.d64`, `.t64`, `.prg` |
+| `c64sc` | Commodore 64 (cycle) | VICE x64sc | `.d64`, `.t64`, `.prg` |
+| `vic20` | Commodore VIC-20 | VICE xvic | `.d64`, `.prg` |
+| `zx81` | Sinclair ZX81 | 81 | `.p`, `.81` |
+| `spec` | ZX Spectrum | Fuse | `.tzx`, `.tap`, `.z80` |
+| `msx` | MSX | blueMSX | `.rom`, `.dsk` |
+| `thom` | Thomson MO/TO | Theodore | `.fd`, `.k7` |
+| `pc8800` | NEC PC-8800 | Quasi88 | `.d88` |
+| `xmil` | Sharp X1 | X Millennium | `.2d`, `.2hd` |
+| **Arcade & MAME** ||||
+| `m2k` | Arcade (MAME 2000) | MAME 2000 | `.zip` |
+| **Other Consoles** ||||
+| `col` | ColecoVision | Gearcoleco | `.col` |
+| `int` | Intellivision | FreeIntv | `.int`, `.bin` |
+| `o2em` | Odyssey 2 / Videopac | O2EM | `.bin` |
+| `fcf` | Fairchild Channel F | FreeChaF | `.bin`, `.chf` |
+| `vec` | Vectrex | vecx | `.vec`, `.bin` |
+| **Fantasy Consoles** ||||
+| `chip8` | CHIP-8 | JAXE | `.ch8` |
+| `retro8` | PICO-8 | Retro8 | `.p8`, `.png` |
+| `fake08` | PICO-8 (alt) | Fake-08 | `.p8`, `.png` |
+| `lowres-nx` | LowRes NX | LowRes NX | `.nx` |
+| `vapor` | VaporSpec | VaporSpec | `.vaporbin` |
+| **Ports & Games** ||||
+| `prboom` | Doom | PrBoom | `.wad` |
+| `quake` | Quake | TyrQuake | `.pak` |
+| `wolf3d` | Wolfenstein 3D | ECWolf | `.wl6` |
+| `outrun` | OutRun | Cannonball | game files |
+| `flashback` | Flashback | REminiscence | game files |
+| `xrick` | Rick Dangerous | XRick | game files |
+| `cavestory` | Cave Story | NXEngine | game files |
+| `jnb` | Jump'n'Bump | Jump'n'Bump | game files |
+| `gong` | Pong | Gong | - |
+| **Media Players** ||||
+| `mp3` | MP3 Audio Player | FroggyMP3 | `.mp3` |
+| `videos` | Video Player | SF2000-Video-Player | `.avi`, `.mjpeg` |
+| `gme` | Game Music | GME | `.nsf`, `.spc`, `.vgm`, `.gbs` |
+| `cdg` | CD+G Karaoke | PocketCDG | `.cdg` |
+
+### Quick Setup Examples
+
+```
+/ROMS/
+├── gb/                 ← Game Boy games (.gb, .gbc)
+├── gba/                ← GBA games (.gba)
+├── nes/                ← NES games (.nes)
+├── snes/               ← SNES games (.sfc, .smc)
+├── sega/               ← Genesis/Mega Drive (.md, .gen)
+├── pce/                ← PC Engine (.pce)
+├── mp3/                ← MP3 music files (.mp3)
+├── videos/             ← Video files (.avi, .mjpeg)
+└── m2k/                ← Arcade ROMs (.zip)
+```
 
 ## Adding Thumbnails
 
