@@ -1,6 +1,7 @@
 #include "render.h"
 #include "theme.h"
 #include "font.h"
+#include "i18n.h"
 #include "stb_image.h"   /* decls only; impl lives in banner.c */
 #include <string.h>
 #include <stdlib.h>
@@ -198,7 +199,7 @@ void render_header(uint16_t *framebuffer, const char *title) {
 }
 
 void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
-    static const char *labels[] = { "RECENTS", "GAMES", "APPS", "SETTINGS" };
+    static const char *keys[] = { "tab.recents", "tab.games", "tab.apps", "tab.settings" };
     extern int frogui_battery_pct(void);
     if (!framebuffer) return;
 
@@ -208,13 +209,14 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
     int gap = UI_S(8);
     for (int i = 0; i < 4; i++) {
         int pad = UI_S(7);
-        int tw = font_measure_text(labels[i]);
+        const char *label = tr(keys[i]);
+        int tw = font_measure_text(label);
         int w = tw + pad * 2;
         int baseline, cap_h;
         font_cap_metrics(&baseline, &cap_h);
         int ty = y + h / 2 - (baseline - cap_h / 2);
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
-                       x + pad, ty, labels[i],
+                       x + pad, ty, label,
                        i == active ? COLOR_TEXT : COLOR_DISABLED);
         x += w + gap;
     }
@@ -233,7 +235,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select, in
     int anchor = SCREEN_WIDTH - PADDING;
 
     {
-        const char *nav = " A-ENTER  B-BACK ";
+        const char *nav = tr("legend.enter_back");
         int w = font_measure_text(nav);
         int x = anchor - w;
         render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h,
@@ -244,7 +246,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select, in
     }
 
     if (x_button_mode != LEGEND_X_NONE) {
-        const char *xl = (x_button_mode == LEGEND_X_REMOVE) ? " Y-UNFAV " : " Y-FAV ";
+        const char *xl = tr(x_button_mode == LEGEND_X_REMOVE ? "legend.unfavourite" : "legend.favourite");
         int w = font_measure_text(xl);
         int x = anchor - w;
         render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h,
@@ -255,7 +257,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select, in
     }
 
     if (show_select) {
-        const char *sl = " SEL-OPTIONS ";
+        const char *sl = tr("legend.options");
         int w = font_measure_text(sl);
         int x = anchor - w;
         render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h,
@@ -266,7 +268,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select, in
     }
 
     if (show_search) {
-        const char *xs = " X-SEARCH ";
+        const char *xs = tr("legend.search");
         int w = font_measure_text(xs);
         int x = anchor - w;
         render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h,

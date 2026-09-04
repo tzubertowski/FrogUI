@@ -37,6 +37,7 @@
 #include "input.h"
 #include "core_override.h"
 #include "ext_filter.h"
+#include "i18n.h"
 
 #define SDCARD_BASE  "/mnt/sdcard"
 #define CORES_PATH   SDCARD_BASE "/cubegm/cores"
@@ -852,7 +853,7 @@ static int settings_audio_mute_reassert = 0;
 static int settings_filter_idx = 1;     /* forced bilinear (option removed from menu) */
 static int settings_filter_idx_on_enter = 0;  /* snapshot for restart-on-change */
 static int settings_quick_resume = 0;      /* boot straight into last game: 0=off, 1=on. Settings key stays "auto_resume" for upgrade compat. */
-static int settings_autosave_autoload = 0; /* auto-save on pause/quit + auto-load on any game launch (boot or manual pick): 0=off, 1=on */
+static int settings_autosave_autoload = 1; /* auto-save on pause/quit + auto-load on any game launch (boot or manual pick): 0=off, 1=on */
 static int settings_anim = 1;           /* UI animations: 0=off, 1=on */
 static int settings_menu_sounds = 0;    /* short navigation tick: 0=off, 1=on */
 enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_COUNT };
@@ -865,6 +866,9 @@ static int settings_backgrounds = 1;     /* show per-system background images: 0
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
+enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_COUNT };
+static int settings_language = LANGUAGE_EN_US;
+static const char *language_codes[LANGUAGE_COUNT] = { "en_US", "pl_PL" };
 
 /* Pastel themes are complete treatments, not palette-only options.  Pair
  * them with their matching artwork pack whenever the theme is applied. */
@@ -906,7 +910,7 @@ static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system"
  * and FONT are special (dynamic option lists); ACTION opens the remap wizard. */
 typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_THEME, RT_STYLE, RT_FONT, RT_WALLPAPER,
                RT_WALLFIT, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
-               RT_CACHE_REBUILD, RT_ACTION } SRowType;
+               RT_CACHE_REBUILD, RT_ACTION, RT_LANGUAGE } SRowType;
 typedef struct {
     SRowType type;
     const char *label;
@@ -915,50 +919,30 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "APPEARANCE" },
-    { RT_THEME,  "Theme" },
-    { RT_THEME_PACK, "Background Theme Pack" },
-    { RT_STYLE,  "Style" },
-    { RT_ICON_PACK, "Icon Pack" },
-    { RT_TOGGLE, "Center Text", &settings_center_text },
-    { RT_TOGGLE, "Friendly System Names", &settings_friendly_names },
-    { RT_FONT,   "Font" },
-    { RT_HEADER, "GENERAL" },
-    { RT_RANGE,  "Brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP },
-    { RT_TOGGLE, "Animations", &settings_anim },
-    { RT_TOGGLE, "Menu Sounds", &settings_menu_sounds },
-    { RT_TOGGLE, "Battery Colour Mode", &settings_battery_color },
-    { RT_TOGGLE, "Background Images", &settings_backgrounds },
-    { RT_RANGE,  "Background Dim", &settings_background_dim, 0, 100, 5 },
-    { RT_WALLPAPER, "Wallpaper" },
-    { RT_WALLFIT, "Background Image Fit" },
-    { RT_TOGGLE, "Hide Extensions", &settings_hide_extensions },
-    { RT_TOGGLE, "Hide Empty Folders", &settings_hide_empty },
-    { RT_HEADER, "LIBRARY" },
-    { RT_ROM_SOURCE, "ROM Source" },
-    { RT_OTG_STATUS, "OTG Storage" },
-    { RT_TOGGLE, "Game Switcher", &settings_game_switcher },
-    { RT_TOGGLE, "Start in Recents", &settings_load_recents },
-    { RT_HEADER, "GAMEPLAY" },
-    { RT_TOGGLE, "Quick Resume", &settings_quick_resume },
-    { RT_TOGGLE, "Auto-Save/Auto-Load", &settings_autosave_autoload },
-    { RT_HEADER, "SYSTEM" },
-    { RT_RANGE,  "Volume", &settings_volume, 0, 100, 5 },
-    { RT_TOGGLE, "File Cache", &settings_file_cache },
-    { RT_CACHE_REBUILD, "Rebuild File Cache" },
-    { RT_TOGGLE, "Disable Sleep (restart)", &settings_disable_sleep },
-    { RT_INFO,   "TreeFrogUI Version" },
-    { RT_ACTION, "Button Mapping" },
+    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
+    { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
+    { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload },
+    { RT_HEADER, "settings.system" }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
 };
 #define SETTINGS_ROW_N ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
 static bool otg_roms_available(void);
+
+/* A disabled dependent row stays visible (so the relationship is obvious),
+ * but cannot be changed until its prerequisite is enabled. */
+static bool settings_row_enabled(const SRow *r) {
+    if (!r) return false;
+    if (r->type == RT_THEME_PACK) return settings_backgrounds != 0;
+    if (r->type == RT_ICON_PACK) return settings_style == STYLE_SYSTEM;
+    return true;
+}
 
 /* ---- Collapsible settings sections ---------------------------------------
  * Headers stay dividers for rendering, but the cursor can land on them and
  * LEFT/RIGHT (or A) collapses/expands their section — same interaction as the
  * SELECT picker's ">> Cores" / ">> EXTENSIONS". The visible-row list below
  * is rebuilt whenever a section flips. */
-static const char *settings_section_names[] = { "APPEARANCE", "GENERAL", "LIBRARY", "GAMEPLAY", "SYSTEM", NULL };
+static const char *settings_section_names[] = { "settings.appearance", "settings.general", "settings.library", "settings.gameplay", "settings.system", NULL };
 #define SETTINGS_SECTION_N 5
 static bool settings_section_open[SETTINGS_SECTION_N] = { true, true, true, true, true };
 
@@ -1206,6 +1190,12 @@ static void settings_load_file(void) {
             for (int i = 0; i < font_count; i++)
                 if (strcasecmp(font_files[i], val) == 0 ||
                     strcasecmp(font_disp[i], val) == 0) { settings_font_idx = i; break; }
+        } else if (strcmp(line, "language") == 0) {
+            for (int i = 0; i < LANGUAGE_COUNT; i++)
+                if (strcasecmp(val, language_codes[i]) == 0) {
+                    settings_language = i;
+                    break;
+                }
         } else if (strcmp(line, "wallpaper") == 0) {
             settings_wallpaper_idx = 0;   /* default None */
             for (int i = 1; i < wallpaper_count; i++)
@@ -1326,6 +1316,7 @@ static void settings_save_file(void) {
     if (!f) { dbg("settings save: fopen failed"); return; }
     fprintf(f, "theme=%s\n", themes[settings_theme_idx].name);
     fprintf(f, "font=%s\n", font_count > 0 ? font_files[settings_font_idx] : "");
+    fprintf(f, "language=%s\n", i18n_current_language());
     fprintf(f, "wallpaper=%s\n",
             (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count)
             ? wallpaper_files[settings_wallpaper_idx] : "none");
@@ -1476,9 +1467,9 @@ static const SystemLabel system_labels[] = {
 };
 
 static const char *system_display_name(const char *folder) {
-    if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) return "Settings";
-    if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) return "Recent Games";
-    if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) return "Favourites";
+    if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) return tr("folder.settings");
+    if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) return tr("folder.recents");
+    if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) return tr("folder.favourites");
     if (!settings_friendly_names) return folder;
     for (size_t i = 0; i < sizeof(system_labels) / sizeof(system_labels[0]); i++)
         if (strcasecmp(folder, system_labels[i].folder) == 0)
@@ -2284,16 +2275,16 @@ static int games_tab_entry_count = 0;
 /* Apps are virtual top-level entries. The on-card folder names remain stable
  * for compatibility, while the Apps tab presents friendly names and hides
  * media folders from the Games library. */
-typedef struct { const char *key; const char *label; const char *folder_a; const char *folder_b; const char *bin; } AppEntry;
+typedef struct { const char *key; const char *label_key; const char *label_en; const char *folder_a; const char *folder_b; const char *bin; } AppEntry;
 static const AppEntry app_defs[] = {
-    {"activity", "Activity Tracker", NULL, NULL, NULL},
-    {"frogshell", "FrogShell", NULL, NULL, FROGSHELL_CORE},
-    {"usbmode", "USB mode", NULL, NULL, USB_MODE_BIN},
-    {"ebook", "Ebook Reader", "Ebook", "ebooks", NULL},
-    {"images", "Image Viewer", "images", "photos", NULL},
-    {"videos",  "Videos",  "videos",  "video", NULL},
-    {"music", "Music / MP3", "music", "audio", NULL},
-    {"rockbox", "Rockbox", "rockbox", NULL, NULL},
+    {"activity", "app.activity", "Activity Tracker", NULL, NULL, NULL},
+    {"frogshell", "app.frogshell", "FrogShell", NULL, NULL, FROGSHELL_CORE},
+    {"usbmode", "app.usb_mode", "USB mode", NULL, NULL, USB_MODE_BIN},
+    {"ebook", "app.ebook_reader", "Ebook Reader", "Ebook", "ebooks", NULL},
+    {"images", "app.image_viewer", "Image Viewer", "images", "photos", NULL},
+    {"videos", "app.videos", "Videos", "videos", "video", NULL},
+    {"music", "app.music_mp3", "Music / MP3", "music", "audio", NULL},
+    {"rockbox", "app.rockbox", "Rockbox", "rockbox", NULL, NULL},
 };
 
 static const char *app_folder_path(int index, char *out, size_t out_size) {
@@ -2353,7 +2344,8 @@ static void scan_apps_tab(void) {
 
 static const char *app_label(const char *key) {
     for (size_t i = 0; i < sizeof(app_defs) / sizeof(app_defs[0]); i++)
-        if (strcasecmp(key, app_defs[i].key) == 0) return app_defs[i].label;
+        if (strcasecmp(key, app_defs[i].key) == 0)
+            return tr_or(app_defs[i].label_key, app_defs[i].label_en);
     return key;
 }
 
@@ -3035,7 +3027,7 @@ static void handle_settings_menu(void) {
         settings_sections_save();   /* persist immediately (review request) */
         settings_build_vis_rows();
         /* cursor stays on the header we just flipped */
-    } else if (left || right) {
+    } else if ((left || right) && settings_row_enabled(&settings_rows[settings_menu_idx])) {
         int delta = right ? 1 : -1;
         const SRow *r = &settings_rows[settings_menu_idx];
         switch (r->type) {
@@ -3064,6 +3056,10 @@ static void handle_settings_menu(void) {
             break;
         case RT_ROM_SOURCE:
             settings_rom_source = (settings_rom_source + delta + ROM_SOURCE_COUNT) % ROM_SOURCE_COUNT;
+            break;
+        case RT_LANGUAGE:
+            settings_language = (settings_language + delta + LANGUAGE_COUNT) % LANGUAGE_COUNT;
+            i18n_init(language_codes[settings_language]);
             break;
         case RT_TOGGLE:
             *r->val = (*r->val + delta + 2) % 2;
@@ -4029,6 +4025,7 @@ void retro_init(void) {
     }
     input_init();
     input_load_remap(KEYMAP_FILE);
+    i18n_init("en_US");
     font_init();
     dbg("font_init done");
     font_scan();
@@ -4042,6 +4039,7 @@ void retro_init(void) {
     theme_init();
     dbg("theme_init done");
     settings_load_file();
+    i18n_init(language_codes[settings_language]);
     settings_sections_load();   /* restore the user's collapsed sections */
     /* Sync cubevol's stored backlight before checking the daemon. If it had
      * genuinely died, the replacement reads the right value immediately. */
@@ -4141,7 +4139,7 @@ static void render_settings_menu(void) {
         if (r->type == RT_HEADER) {
             /* Category divider: TreeFrogUI ">> " marker, accent color, no
              * pillbox when idle ??? but selectable, so pillbox under cursor. */
-            snprintf(line, sizeof line, ">> %s", r->label);
+            snprintf(line, sizeof line, ">> %s", tr(r->label));
             if (settings_menu_idx == idx)
                 render_text_pillbox(framebuffer, PADDING, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
             else
@@ -4149,35 +4147,37 @@ static void render_settings_menu(void) {
             continue;
         }
         switch (r->type) {
-        case RT_INFO:   snprintf(line, sizeof line, "%s: %s", r->label, treefrogui_version()); break;
-        case RT_THEME:  snprintf(line, sizeof line, "%s: < %s >", r->label, themes[settings_theme_idx].name); break;
-        case RT_STYLE:  snprintf(line, sizeof line, "%s: < %s >", r->label, style_names[settings_style]); break;
-        case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", r->label, font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
-        case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", r->label, wallpaper_disp[settings_wallpaper_idx]); break;
-        case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", r->label, wallpaper_fit_names[settings_wallpaper_fit]); break;
-        case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", r->label, theme_pack_disp[settings_theme_pack_idx]); break;
-        case RT_ICON_PACK: snprintf(line, sizeof line, "%s: < %s >", r->label, icon_pack_disp[settings_icon_pack_idx]); break;
+        case RT_INFO:   snprintf(line, sizeof line, "%s: %s", tr(r->label), treefrogui_version()); break;
+        case RT_THEME:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), themes[settings_theme_idx].name); break;
+        case RT_STYLE:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), style_names[settings_style]); break;
+        case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
+        case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_disp[settings_wallpaper_idx]); break;
+        case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_fit_names[settings_wallpaper_fit]); break;
+        case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), theme_pack_disp[settings_theme_pack_idx]); break;
+        case RT_ICON_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), icon_pack_disp[settings_icon_pack_idx]); break;
+        case RT_LANGUAGE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label),
+                                   tr(settings_language == LANGUAGE_PL_PL ? "language.pl_PL" : "language.en_US")); break;
         case RT_ROM_SOURCE:
             if (otg_roms_available())
-                snprintf(line, sizeof line, "%s: < %s >", r->label, rom_source_names[settings_rom_source]);
+                snprintf(line, sizeof line, "%s: < %s >", tr(r->label), rom_source_names[settings_rom_source]);
             else
-                snprintf(line, sizeof line, "%s: %s", r->label, rom_source_names[ROM_SOURCE_SD]);
+                snprintf(line, sizeof line, "%s: %s", tr(r->label), rom_source_names[ROM_SOURCE_SD]);
             break;
         case RT_OTG_STATUS:
-            snprintf(line, sizeof line, "%s: %s", r->label,
-                     otg_roms_available() ? "connected" : "not connected");
+            snprintf(line, sizeof line, "%s: %s", tr(r->label),
+                     tr(otg_roms_available() ? "value.connected" : "value.not_connected"));
             break;
-        case RT_TOGGLE: snprintf(line, sizeof line, "%s: < %s >", r->label, onoff_names[*r->val]); break;
-        case RT_RANGE:  snprintf(line, sizeof line, "%s: < %d%% >", r->label, *r->val); break;
-        default:        snprintf(line, sizeof line, "%s", r->label); break;   /* RT_ACTION */
+        case RT_TOGGLE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), tr(*r->val ? "value.on" : "value.off")); break;
+        case RT_RANGE:  snprintf(line, sizeof line, "%s: < %d%% >", tr(r->label), *r->val); break;
+        default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
         /* Options sit indented under their ">> HEADER" so the grouping reads
          * clearly. Headers stay flush at PADDING. */
         int ix = PADDING + UI_S(16);
-        if (settings_menu_idx == idx)
+        if (settings_menu_idx == idx && settings_row_enabled(r))
             render_text_pillbox(framebuffer, ix, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
         else {
-            int color = (r->type == RT_OTG_STATUS ||
+            int color = (!settings_row_enabled(r) || r->type == RT_OTG_STATUS ||
                          (r->type == RT_ROM_SOURCE && !otg_roms_available()))
                       ? COLOR_DISABLED : COLOR_TEXT;
             font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, ix, y, line, color);
@@ -4192,7 +4192,7 @@ static void render_remap_wizard(void) {
         banner_render(framebuffer);
     else
         render_clear_screen(framebuffer);
-    render_header(framebuffer, "BUTTON MAPPING");
+    render_header(framebuffer, tr("header.button_mapping"));
 
     char line[128];
     int y = START_Y;
@@ -4200,7 +4200,7 @@ static void render_remap_wizard(void) {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, line, COLOR_TEXT);
 
     y += ITEM_HEIGHT;
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, "[B] = skip / keep default", COLOR_TEXT);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, tr("remap.skip"), COLOR_TEXT);
 }
 
 static void render_core_picker(void) {
@@ -4208,7 +4208,7 @@ static void render_core_picker(void) {
         banner_render(framebuffer);
     else
         render_clear_screen(framebuffer);
-    render_header(framebuffer, "SELECT CORE");
+    render_header(framebuffer, tr("header.select_core"));
 
     int y = START_Y;
     /* subtitle: which game/folder we're overriding */
@@ -4226,14 +4226,14 @@ static void render_core_picker(void) {
         char line[96];
         switch (r->type) {
         case PR_CORE_HDR:
-            snprintf(line, sizeof(line), ">> %s", "Cores");
+            snprintf(line, sizeof(line), ">> %s", tr("picker.cores"));
             break;
         case PR_EXT_HDR:
-            snprintf(line, sizeof(line), ">> %s", "EXTENSIONS");
+            snprintf(line, sizeof(line), ">> %s", tr("picker.extensions"));
             break;
         case PR_EXT_TOGGLE:
-            snprintf(line, sizeof(line), "   Filter files: %s",
-                     ext_filter_get_enabled(extf_folder) ? "ON" : "OFF");
+            snprintf(line, sizeof(line), "   %s: %s", tr("picker.filter_files"),
+                     tr(ext_filter_get_enabled(extf_folder) ? "value.on" : "value.off"));
             break;
         case PR_EXT_BOX: {
             char ext[EXT_FILTER_EXT_LEN + 1];
@@ -4250,7 +4250,7 @@ static void render_core_picker(void) {
             break;
         }
         case PR_EXT_ADD:
-            snprintf(line, sizeof(line), "   Add extension...");
+            snprintf(line, sizeof(line), "   %s", tr("picker.add_extension"));
             break;
         case PR_CORE:
             /* "->" marks the currently-active core; ">> " is reserved for
@@ -4283,7 +4283,7 @@ static void render_core_picker(void) {
 
 static void render_search_kbd(void) {
     render_clear_screen(framebuffer);
-    render_header(framebuffer, "SEARCH");
+    render_header(framebuffer, tr("header.search"));
 
     int y = START_Y;
     char q[96];
@@ -4313,7 +4313,7 @@ static void render_search_kbd(void) {
  * the typed text shown as ".<text>" (the dot is implied and stripped). */
 static void render_extf_kbd(void) {
     render_clear_screen(framebuffer);
-    render_header(framebuffer, "ADD EXTENSION");
+    render_header(framebuffer, tr("header.add_extension"));
 
     int y = START_Y;
     char q[96];
@@ -4338,24 +4338,24 @@ static void render_extf_kbd(void) {
     }
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING,
                    y + KBD_NROWS * ch + UI_S(6),
-                   "A OK   B cancel", COLOR_TEXT);
+                   tr("keyboard.ok_cancel"), COLOR_TEXT);
     render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
 }
 
 static void render_usb_confirm(void) {
     render_clear_screen(framebuffer);
-    render_header(framebuffer, "USB MODE");
+    render_header(framebuffer, tr("header.usb_mode"));
     const char *a = usb_mode_initiated_active
-                  ? "USB MTP INITIATED"
-                  : "Connect the console to a PC over USB-C";
+                  ? tr("usb.initiated")
+                  : tr("usb.connect_instruction");
     const char *b = usb_mode_initiated_active
-                  ? "B  BACK"
-                  : "A  CONNECT   B  BACK";
+                  ? tr("usb.back")
+                  : tr("usb.connect_back");
     if (!usb_mode_initiated_active)
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
                        (SCREEN_WIDTH - font_measure_text(a)) / 2,
                        SCREEN_HEIGHT / 2 - UI_S(18), a, COLOR_TEXT);
-    const char *pill = usb_mode_initiated_active ? "USB MTP INITIATED" : "USB MTP READY";
+    const char *pill = usb_mode_initiated_active ? tr("usb.initiated") : tr("usb.ready");
     render_text_pillbox(framebuffer, (SCREEN_WIDTH - font_measure_text(pill)) / 2,
                         SCREEN_HEIGHT / 2 - UI_S(48), pill,
                         /* Keep the selected-theme contrast pair inside the
@@ -4366,7 +4366,7 @@ static void render_usb_confirm(void) {
                    (SCREEN_WIDTH - font_measure_text(b)) / 2,
                    SCREEN_HEIGHT / 2 + UI_S(12), b, COLOR_TEXT);
     if (usb_mode_initiated_active) {
-        const char *warn = "Do not disconnect while files are transferring";
+        const char *warn = tr("usb.transfer_warning");
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
                        (SCREEN_WIDTH - font_measure_text(warn)) / 2,
                        SCREEN_HEIGHT / 2 + UI_S(42), warn, COLOR_TEXT);
@@ -4609,7 +4609,7 @@ void retro_run(void) {
             snprintf(search_title, sizeof(search_title), "SEARCH: %s (%d)", search_query, entry_count);
             title = search_title;
         } else {
-            title = viewing_activity   ? "ACTIVITY TRACKER" :
+            title = viewing_activity   ? app_label("activity") :
                     viewing_recents    ? "RECENT GAMES" :
                     viewing_apps       ? "APPS" :
                     viewing_favourites ? "FAVOURITES" :

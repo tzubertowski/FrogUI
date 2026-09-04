@@ -1,0 +1,80 @@
+{
+  "language.en_US": "English (US)",
+  "language.pl_PL": "Polish",
+  "tab.recents": "RECENTS",
+  "tab.games": "GAMES",
+  "tab.apps": "APPS",
+  "tab.settings": "SETTINGS",
+  "legend.enter_back": " A-ENTER  B-BACK ",
+  "legend.favourite": " Y-FAV ",
+  "legend.unfavourite": " Y-UNFAV ",
+  "legend.options": " SEL-OPTIONS ",
+  "legend.search": " X-SEARCH ",
+  "settings.appearance": "APPEARANCE",
+  "settings.theme": "Theme",
+  "settings.background_theme_pack": "Background Theme Pack",
+  "settings.style": "Style",
+  "settings.icon_pack": "Icon Pack",
+  "settings.center_text": "Center Text",
+  "settings.friendly_system_names": "Friendly System Names",
+  "settings.font": "Font",
+  "settings.general": "GENERAL",
+  "settings.language": "Language",
+  "settings.brightness": "Brightness",
+  "settings.animations": "Animations",
+  "settings.menu_sounds": "Menu Sounds",
+  "settings.battery_colour_mode": "Battery Colour Mode",
+  "settings.background_images": "Background Images",
+  "settings.background_dim": "Background Dim",
+  "settings.wallpaper": "Wallpaper",
+  "settings.background_image_fit": "Background Image Fit",
+  "settings.hide_extensions": "Hide Extensions",
+  "settings.hide_empty_folders": "Hide Empty Folders",
+  "settings.library": "LIBRARY",
+  "settings.rom_source": "ROM Source",
+  "settings.otg_storage": "OTG Storage",
+  "settings.game_switcher": "Game Switcher",
+  "settings.start_in_recents": "Start in Recents",
+  "settings.gameplay": "GAMEPLAY",
+  "settings.quick_resume": "Quick Resume",
+  "settings.autosave_autoload": "Auto-Save/Auto-Load",
+  "settings.system": "SYSTEM",
+  "settings.volume": "Volume",
+  "settings.file_cache": "File Cache",
+  "settings.rebuild_file_cache": "Rebuild File Cache",
+  "settings.disable_sleep": "Disable Sleep (restart)",
+  "settings.version": "TreeFrogUI Version",
+  "settings.button_mapping": "Button Mapping",
+  "value.on": "on",
+  "value.off": "off",
+  "value.connected": "connected",
+  "value.not_connected": "not connected",
+  "folder.settings": "Settings",
+  "folder.recents": "Recent Games",
+  "folder.favourites": "Favourites"
+  ,"header.button_mapping": "BUTTON MAPPING"
+  ,"header.select_core": "SELECT CORE"
+  ,"header.search": "SEARCH"
+  ,"header.add_extension": "ADD EXTENSION"
+  ,"header.usb_mode": "USB MODE"
+  ,"remap.skip": "[B] = skip / keep default"
+  ,"picker.cores": "Cores"
+  ,"picker.extensions": "EXTENSIONS"
+  ,"picker.filter_files": "Filter files"
+  ,"picker.add_extension": "Add extension..."
+  ,"keyboard.ok_cancel": "A OK   B cancel"
+  ,"usb.initiated": "USB MTP INITIATED"
+  ,"usb.connect_instruction": "Connect the console to a PC over USB-C"
+  ,"usb.back": "B  BACK"
+  ,"usb.connect_back": "A  CONNECT   B  BACK"
+  ,"usb.ready": "USB MTP READY"
+  ,"usb.transfer_warning": "Do not disconnect while files are transferring"
+  ,"app.activity": "Activity Tracker"
+  ,"app.frogshell": "FrogShell"
+  ,"app.usb_mode": "USB mode"
+  ,"app.ebook_reader": "Ebook Reader"
+  ,"app.image_viewer": "Image Viewer"
+  ,"app.videos": "Videos"
+  ,"app.music_mp3": "Music / MP3"
+  ,"app.rockbox": "Rockbox"
+}

@@ -1,0 +1,77 @@
+{
+  "language.en_US": "Angielski (USA)",
+  "language.pl_PL": "Polski",
+  "tab.recents": "OSTATNIE",
+  "tab.games": "GRY",
+  "tab.apps": "APLIKACJE",
+  "tab.settings": "USTAWIENIA",
+  "legend.enter_back": " A-WEJDŹ  B-WSTECZ ",
+  "legend.favourite": " Y-ULUBIONE ",
+  "legend.unfavourite": " Y-USUŃ ULUB. ",
+  "legend.options": " SEL-OPCJE ",
+  "legend.search": " X-SZUKAJ ",
+  "settings.appearance": "WYGLĄD",
+  "settings.theme": "Motyw",
+  "settings.background_theme_pack": "Pakiet motywów tła",
+  "settings.style": "Układ",
+  "settings.icon_pack": "Pakiet ikon",
+  "settings.center_text": "Wyśrodkuj tekst",
+  "settings.friendly_system_names": "Pełne nazwy systemów",
+  "settings.font": "Czcionka",
+  "settings.general": "OGÓLNE",
+  "settings.language": "Język",
+  "settings.brightness": "Jasność",
+  "settings.animations": "Animacje",
+  "settings.menu_sounds": "Dźwięki menu",
+  "settings.battery_colour_mode": "Kolorowy wskaźnik baterii",
+  "settings.background_images": "Obrazy tła",
+  "settings.background_dim": "Przyciemnienie tła",
+  "settings.wallpaper": "Tapeta",
+  "settings.background_image_fit": "Dopasowanie tła",
+  "settings.hide_extensions": "Ukryj rozszerzenia",
+  "settings.hide_empty_folders": "Ukryj puste foldery",
+  "settings.library": "BIBLIOTEKA",
+  "settings.rom_source": "Źródło ROM-ów",
+  "settings.otg_storage": "Pamięć OTG",
+  "settings.game_switcher": "Przełącznik gier",
+  "settings.start_in_recents": "Startuj w ostatnich",
+  "settings.gameplay": "GRANIE",
+  "settings.quick_resume": "Szybkie wznowienie",
+  "settings.autosave_autoload": "Autozapis / autowczytanie",
+  "settings.system": "SYSTEM",
+  "settings.volume": "Głośność",
+  "settings.file_cache": "Pamięć podręczna plików",
+  "settings.rebuild_file_cache": "Odbuduj pamięć podręczną",
+  "settings.disable_sleep": "Wyłącz uśpienie (restart)",
+  "settings.version": "Wersja TreeFrogUI",
+  "settings.button_mapping": "Mapowanie przycisków",
+  "value.on": "włączone",
+  "value.off": "wyłączone",
+  "value.connected": "podłączono",
+  "value.not_connected": "nie podłączono",
+  "folder.settings": "Ustawienia",
+  "folder.recents": "Ostatnie gry",
+  "folder.favourites": "Ulubione"
+  ,"header.button_mapping": "MAPOWANIE PRZYCISKÓW"
+  ,"header.select_core": "WYBIERZ RDZEŃ"
+  ,"header.search": "SZUKAJ"
+  ,"header.add_extension": "DODAJ ROZSZERZENIE"
+  ,"header.usb_mode": "TRYB USB"
+  ,"remap.skip": "[B] = pomiń / zachowaj domyślne"
+  ,"picker.cores": "Rdzenie"
+  ,"picker.extensions": "ROZSZERZENIA"
+  ,"picker.filter_files": "Filtruj pliki"
+  ,"picker.add_extension": "Dodaj rozszerzenie..."
+  ,"keyboard.ok_cancel": "A OK   B anuluj"
+  ,"usb.initiated": "MTP USB URUCHOMIONE"
+  ,"usb.connect_instruction": "Podłącz konsolę do PC przez USB-C"
+  ,"usb.back": "B  WSTECZ"
+  ,"usb.connect_back": "A  POŁĄCZ   B  WSTECZ"
+  ,"usb.ready": "MTP USB GOTOWE"
+  ,"usb.transfer_warning": "Nie odłączaj podczas przesyłania plików"
+  ,"app.activity": "Śledzenie aktywności"
+  ,"app.usb_mode": "Połączenie USB"
+  ,"app.image_viewer": "Obrazy"
+  ,"app.videos": "Wideo"
+  ,"app.music_mp3": "Muzyka / MP3"
+}
