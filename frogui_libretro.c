@@ -37,7 +37,7 @@
 #include "input.h"
 #include "core_override.h"
 #include "ext_filter.h"
-#include "i18n.h"
+#include "common/i18n.h"
 
 #define SDCARD_BASE  "/mnt/sdcard"
 #define CORES_PATH   SDCARD_BASE "/cubegm/cores"

@@ -5,10 +5,10 @@ SYSROOT="$HOME/sf3000-work/sf3000toolchain/mipsel-buildroot-linux-gnu_sdk-buildr
 CC="${MIPS}gcc"
 cd "$(dirname "$0")"
 
-CFLAGS="-mips32r2 -march=mips32r2 -mtune=24kc -mfp32 -mhard-float -mlong-calls -EL --sysroot=$SYSROOT -fPIC -G0 -Wall -I./ -I$SYSROOT/usr/include -Ofast -DPLATFORM_SF3000 -DNDEBUG -D__LIBRETRO__"
+CFLAGS="-mips32r2 -march=mips32r2 -mtune=24kc -mfp32 -mhard-float -mlong-calls -EL --sysroot=$SYSROOT -fPIC -G0 -Wall -I./ -I./common -I$SYSROOT/usr/include -Ofast -DPLATFORM_SF3000 -DNDEBUG -D__LIBRETRO__"
 
-for src in frogui_libretro.c render.c font.c recent_games.c theme.c favorites.c banner.c backlight.c input.c core_override.c ext_filter.c i18n.c; do
-    obj="${src%.c}.lo"
+for src in frogui_libretro.c render.c font.c recent_games.c theme.c favorites.c banner.c backlight.c input.c core_override.c ext_filter.c common/i18n.c; do
+    obj="$(basename "${src%.c}").lo"
     echo "CC $src"
     $CC $CFLAGS -c -o "$obj" "$src"
 done
