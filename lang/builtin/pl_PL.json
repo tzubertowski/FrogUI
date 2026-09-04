@@ -1,6 +1,9 @@
 {
-  "language.en_US": "Angielski (USA)",
+  "language.en_US": "English (US)",
   "language.pl_PL": "Polski",
+  "language.es_ES": "Español",
+  "language.pt_BR": "Português (Brasil)",
+  "language.ja_JP": "日本語",
   "tab.recents": "OSTATNIE",
   "tab.games": "GRY",
   "tab.apps": "APLIKACJE",

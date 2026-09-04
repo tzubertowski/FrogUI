@@ -866,9 +866,12 @@ static int settings_backgrounds = 1;     /* show per-system background images: 0
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
-enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_COUNT };
+enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_ES_ES, LANGUAGE_PT_BR, LANGUAGE_JA_JP, LANGUAGE_COUNT };
 static int settings_language = LANGUAGE_EN_US;
-static const char *language_codes[LANGUAGE_COUNT] = { "en_US", "pl_PL" };
+static const char *language_codes[LANGUAGE_COUNT] = { "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP" };
+static const char *language_name_keys[LANGUAGE_COUNT] = {
+    "language.en_US", "language.pl_PL", "language.es_ES", "language.pt_BR", "language.ja_JP"
+};
 
 /* Pastel themes are complete treatments, not palette-only options.  Pair
  * them with their matching artwork pack whenever the theme is applied. */
@@ -4156,7 +4159,7 @@ static void render_settings_menu(void) {
         case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), theme_pack_disp[settings_theme_pack_idx]); break;
         case RT_ICON_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), icon_pack_disp[settings_icon_pack_idx]); break;
         case RT_LANGUAGE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label),
-                                   tr(settings_language == LANGUAGE_PL_PL ? "language.pl_PL" : "language.en_US")); break;
+                                   tr(language_name_keys[settings_language])); break;
         case RT_ROM_SOURCE:
             if (otg_roms_available())
                 snprintf(line, sizeof line, "%s: < %s >", tr(r->label), rom_source_names[settings_rom_source]);
