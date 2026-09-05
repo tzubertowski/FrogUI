@@ -1,83 +1,83 @@
 {
-  "language.en_US": "English (US)",
+  "language.en_US": "Ingles",
   "language.pl_PL": "Polski",
   "language.es_ES": "Español",
   "language.pt_BR": "Português (Brasil)",
   "language.ja_JP": "日本語",
-  "tab.recents": "RECENTS",
-  "tab.games": "GAMES",
+  "tab.recents": "RECIENTES",
+  "tab.games": "JUEGOS",
   "tab.apps": "APPS",
-  "tab.settings": "SETTINGS",
-  "legend.enter_back": " A-ENTER  B-BACK ",
-  "legend.favourite": " Y-FAV ",
-  "legend.unfavourite": " Y-UNFAV ",
-  "legend.options": " SEL-OPTIONS ",
-  "legend.search": " X-SEARCH ",
-  "settings.appearance": "APPEARANCE",
-  "settings.theme": "Theme",
+  "tab.settings": "OPCIONES",
+  "legend.enter_back": " A-INGRESAR  B-ATRAS ",
+  "legend.favourite": " Y-FAVORITO ",
+  "legend.unfavourite": " Y-NOFAV ",
+  "legend.options": " SEL-OPCIONES ",
+  "legend.search": " X-BUSCAR ",
+  "settings.appearance": "APARENCIA",
+  "settings.theme": "Temas",
   "settings.background_theme_pack": "Background Theme Pack",
   "settings.style": "Style",
   "settings.icon_pack": "Icon Pack",
   "settings.center_text": "Center Text",
   "settings.friendly_system_names": "Friendly System Names",
-  "settings.font": "Font",
+  "settings.font": "Fuente",
   "settings.general": "GENERAL",
   "settings.language": "Language",
-  "settings.brightness": "Brightness",
-  "settings.animations": "Animations",
-  "settings.menu_sounds": "Menu Sounds",
-  "settings.battery_colour_mode": "Battery Colour Mode",
-  "settings.background_images": "Background Images",
-  "settings.background_dim": "Background Dim",
-  "settings.wallpaper": "Wallpaper",
-  "settings.background_image_fit": "Background Image Fit",
-  "settings.hide_extensions": "Hide Extensions",
-  "settings.hide_empty_folders": "Hide Empty Folders",
-  "settings.library": "LIBRARY",
-  "settings.rom_source": "ROM Source",
-  "settings.otg_storage": "OTG Storage",
-  "settings.game_switcher": "Game Switcher",
-  "settings.start_in_recents": "Start in Recents",
-  "settings.gameplay": "GAMEPLAY",
-  "settings.quick_resume": "Quick Resume",
-  "settings.autosave_autoload": "Auto-Save/Auto-Load",
-  "settings.system": "SYSTEM",
+  "settings.brightness": "Brillo",
+  "settings.animations": "Animaciones",
+  "settings.menu_sounds": "Menu de sonidos",
+  "settings.battery_colour_mode": "Modo de color de la bateria",
+  "settings.background_images": "Imágenes de fondo",
+  "settings.background_dim": "Atenuación del fondo",
+  "settings.wallpaper": "Fondo de pantalla",
+  "settings.background_image_fit": "Ajuste de la imagen de fondo",
+  "settings.hide_extensions": "Ocultar extensiones",
+  "settings.hide_empty_folders": "Ocultar carpetas vacías",
+  "settings.library": "BIBLIOTECA",
+  "settings.rom_source": "Fuente de la ROM",
+  "settings.otg_storage": "Almacenamiento OTG",
+  "settings.game_switcher": "Selector de juegos",
+  "settings.start_in_recents": "Comenzar en Recientes",
+  "settings.gameplay": "Jugabilidad",
+  "settings.quick_resume": "Reanudación rápida",
+  "settings.autosave_autoload": "Guardado/Carga automática",
+  "settings.system": "SISTEMA",
   "settings.volume": "Volume",
-  "settings.file_cache": "File Cache",
-  "settings.rebuild_file_cache": "Rebuild File Cache",
-  "settings.disable_sleep": "Disable Sleep (restart)",
+  "settings.file_cache": "Caché de archivos",
+  "settings.rebuild_file_cache": "Reconstruir caché de archivos",
+  "settings.disable_sleep": "Desactivar suspensión (reiniciar)",
   "settings.version": "TreeFrogUI Version",
-  "settings.button_mapping": "Button Mapping",
-  "value.on": "on",
-  "value.off": "off",
-  "value.connected": "connected",
-  "value.not_connected": "not connected",
-  "folder.settings": "Settings",
-  "folder.recents": "Recent Games",
-  "folder.favourites": "Favourites"
-  ,"header.button_mapping": "BUTTON MAPPING"
-  ,"header.select_core": "SELECT CORE"
-  ,"header.search": "SEARCH"
-  ,"header.add_extension": "ADD EXTENSION"
-  ,"header.usb_mode": "USB MODE"
-  ,"remap.skip": "[B] = skip / keep default"
-  ,"picker.cores": "Cores"
-  ,"picker.extensions": "EXTENSIONS"
-  ,"picker.filter_files": "Filter files"
-  ,"picker.add_extension": "Add extension..."
-  ,"keyboard.ok_cancel": "A OK   B cancel"
-  ,"usb.initiated": "USB MTP INITIATED"
-  ,"usb.connect_instruction": "Connect the console to a PC over USB-C"
-  ,"usb.back": "B  BACK"
-  ,"usb.connect_back": "A  CONNECT   B  BACK"
-  ,"usb.ready": "USB MTP READY"
-  ,"usb.transfer_warning": "Do not disconnect while files are transferring"
-  ,"app.activity": "Activity Tracker"
-  ,"app.frogshell": "FrogShell"
-  ,"app.usb_mode": "USB mode"
-  ,"app.ebook_reader": "Ebook Reader"
-  ,"app.image_viewer": "Image Viewer"
+  "settings.button_mapping": "Asignación de botones",
+  "value.on": "Activar",
+  "value.off": "Desactiva",
+  "value.connected": "Conectado",
+  "value.not_connected": "no conectado",
+  "folder.settings": "Opciones",
+  "folder.recents": "Juegos recientes",
+  "folder.favourites": "Favoritos"
+  ,"header.button_mapping": "ASIGNACION DE BOTONES"
+  ,"header.select_core": "SELECCIONAR NUCLEO"
+  ,"header.search": "BUSCAR"
+  ,"header.add_extension": "AÑADIR EXTENSIONES"
+  ,"header.usb_mode": "MODO USB"
+  ,"remap.skip": "[B] = omitir / mantener valor predeterminado"
+  ,"picker.cores": "Nucleos"
+  ,"picker.extensions": "EXTENSIONES"
+  ,"picker.filter_files": "Filtrar archivos"
+  ,"picker.add_extension": "Añadir extensión..."
+  ,"keyboard.ok_cancel": "A OK   B cancelar"
+  ,"usb.initiated": "USB MTP iniciado"
+  ,"usb.connect_instruction": "Conecta la consola a un PC mediante USB-C."
+  ,"usb.back": "B  ATRAS"
+  ,"usb.connect_back": "A  CONECTAR   B  ATRAS"
+  ,"usb.ready": "LISTO PARA USB MTP"
+  ,"usb.transfer_warning": "No desconecte mientras se transfieren los archivos."
+  ,"app.activity": "Monitor de actividad"
+  ,"app.frogshell": "Explorador FrogShell"
+  ,"app.usb_mode": "Modo USB"
+  ,"app.ebook_reader": "Lector de libros electrónicos"
+  ,"app.image_viewer": "Visor de imágenes"
   ,"app.videos": "Videos"
-  ,"app.music_mp3": "Music / MP3"
-  ,"app.rockbox": "Rockbox"
+  ,"app.music_mp3": "Musica / MP3"
+  ,"app.rockbox": "Rockbox player"
 }
