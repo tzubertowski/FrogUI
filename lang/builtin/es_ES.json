@@ -70,7 +70,7 @@
   ,"usb.connect_instruction": "Conecta la consola a un PC mediante USB-C."
   ,"usb.back": "B  ATRAS"
   ,"usb.connect_back": "A  CONECTAR   B  ATRAS"
-  ,"usb.ready": "LISTO PARA USB MTP"
+  ,"usb.ready": "USB MTP PREPARADO"
   ,"usb.transfer_warning": "No desconecte mientras se transfieren los archivos."
   ,"app.activity": "Monitor de actividad"
   ,"app.frogshell": "Explorador FrogShell"
