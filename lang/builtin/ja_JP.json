@@ -4,80 +4,82 @@
   "language.es_ES": "Español",
   "language.pt_BR": "Português (Brasil)",
   "language.ja_JP": "日本語",
-  "tab.recents": "RECENTS",
-  "tab.games": "GAMES",
-  "tab.apps": "APPS",
-  "tab.settings": "SETTINGS",
-  "legend.enter_back": " A-ENTER  B-BACK ",
-  "legend.favourite": " Y-FAV ",
-  "legend.unfavourite": " Y-UNFAV ",
-  "legend.options": " SEL-OPTIONS ",
-  "legend.search": " X-SEARCH ",
-  "settings.appearance": "APPEARANCE",
-  "settings.theme": "Theme",
-  "settings.background_theme_pack": "Background Theme Pack",
-  "settings.style": "Style",
-  "settings.icon_pack": "Icon Pack",
-  "settings.center_text": "Center Text",
-  "settings.friendly_system_names": "Friendly System Names",
-  "settings.font": "Font",
-  "settings.general": "GENERAL",
-  "settings.language": "Language",
-  "settings.brightness": "Brightness",
-  "settings.animations": "Animations",
-  "settings.menu_sounds": "Menu Sounds",
-  "settings.battery_colour_mode": "Battery Colour Mode",
-  "settings.background_images": "Background Images",
-  "settings.background_dim": "Background Dim",
-  "settings.wallpaper": "Wallpaper",
-  "settings.background_image_fit": "Background Image Fit",
-  "settings.hide_extensions": "Hide Extensions",
-  "settings.hide_empty_folders": "Hide Empty Folders",
-  "settings.library": "LIBRARY",
-  "settings.rom_source": "ROM Source",
-  "settings.otg_storage": "OTG Storage",
-  "settings.game_switcher": "Game Switcher",
-  "settings.start_in_recents": "Start in Recents",
-  "settings.gameplay": "GAMEPLAY",
-  "settings.quick_resume": "Quick Resume",
-  "settings.autosave_autoload": "Auto-Save/Auto-Load",
-  "settings.system": "SYSTEM",
-  "settings.volume": "Volume",
-  "settings.file_cache": "File Cache",
-  "settings.rebuild_file_cache": "Rebuild File Cache",
-  "settings.disable_sleep": "Disable Sleep (restart)",
-  "settings.version": "TreeFrogUI Version",
-  "settings.button_mapping": "Button Mapping",
-  "value.on": "on",
-  "value.off": "off",
-  "value.connected": "connected",
-  "value.not_connected": "not connected",
-  "folder.settings": "Settings",
-  "folder.recents": "Recent Games",
-  "folder.favourites": "Favourites"
-  ,"header.button_mapping": "BUTTON MAPPING"
-  ,"header.select_core": "SELECT CORE"
-  ,"header.search": "SEARCH"
-  ,"header.add_extension": "ADD EXTENSION"
-  ,"header.usb_mode": "USB MODE"
-  ,"remap.skip": "[B] = skip / keep default"
-  ,"picker.cores": "Cores"
-  ,"picker.extensions": "EXTENSIONS"
-  ,"picker.filter_files": "Filter files"
-  ,"picker.add_extension": "Add extension..."
-  ,"keyboard.ok_cancel": "A OK   B cancel"
-  ,"usb.initiated": "USB MTP INITIATED"
-  ,"usb.connect_instruction": "Connect the console to a PC over USB-C"
-  ,"usb.back": "B  BACK"
-  ,"usb.connect_back": "A  CONNECT   B  BACK"
-  ,"usb.ready": "USB MTP READY"
-  ,"usb.transfer_warning": "Do not disconnect while files are transferring"
-  ,"app.activity": "Activity Tracker"
+  "language.ru_RU": "Русский",
+  "language.zh_CN": "简体中文",
+  "tab.recents": "プレイ履歴",
+  "tab.games": "ゲーム",
+  "tab.apps": "アプリ",
+  "tab.settings": "設定",
+  "legend.enter_back": " [A] 選択  [B] 戻る ",
+  "legend.favourite": " [Y] お気に入りに追加 ",
+  "legend.unfavourite": " [Y] お気に入りから削除 ",
+  "legend.options": " [SELECT] オプション ",
+  "legend.search": " [X] 検索 ",
+  "settings.appearance": "外観",
+  "settings.theme": "テーマ",
+  "settings.background_theme_pack": "背景テーマパック",
+  "settings.style": "スタイル",
+  "settings.icon_pack": "アイコンパック",
+  "settings.center_text": "テキストを中央寄せ",
+  "settings.friendly_system_names": "既定のシステム名で表示",
+  "settings.font": "フォント",
+  "settings.general": "一般",
+  "settings.language": "言語",
+  "settings.brightness": "明るさ",
+  "settings.animations": "アニメーションエフェクト",
+  "settings.menu_sounds": "メニュー音",
+  "settings.battery_colour_mode": "バッテリーカラーモード",
+  "settings.background_images": "背景イメージ",
+  "settings.background_dim": "背景の暗さ",
+  "settings.wallpaper": "壁紙",
+  "settings.background_image_fit": "背景イメージのフィット",
+  "settings.hide_extensions": "拡張子を隠す",
+  "settings.hide_empty_folders": "空フォルダを隠す",
+  "settings.library": "ライブラリ",
+  "settings.rom_source": "ROMソース",
+  "settings.otg_storage": "OTGストレージ",
+  "settings.game_switcher": "ゲームスイッチャー",
+  "settings.start_in_recents": "プレイ履歴から開始",
+  "settings.gameplay": "ゲームプレイ",
+  "settings.quick_resume": "クイック再開",
+  "settings.autosave_autoload": "自動セーブ/自動ロード",
+  "settings.system": "システム",
+  "settings.volume": "ボリューム",
+  "settings.file_cache": "ファイルキャッシュ",
+  "settings.rebuild_file_cache": "ファイルキャッシュ再構築",
+  "settings.disable_sleep": "スリープ無効 (リスタート)",
+  "settings.version": "TreeFrogUI バージョン",
+  "settings.button_mapping": "ボタンの割当て",
+  "value.on": "ON",
+  "value.off": "OFF",
+  "value.connected": "接続済",
+  "value.not_connected": "未接続",
+  "folder.settings": "セッティング",
+  "folder.recents": "最近プレイしたゲーム",
+  "folder.favourites": "お気に入り"
+  ,"header.button_mapping": "ボタンマッピング"
+  ,"header.select_core": "コア選択"
+  ,"header.search": "サーチ"
+  ,"header.add_extension": "拡張子 追加"
+  ,"header.usb_mode": "USBモード"
+  ,"remap.skip": "[B] = スキップ / デフォルト維持"
+  ,"picker.cores": "コア"
+  ,"picker.extensions": "拡張子"
+  ,"picker.filter_files": "ファイルのフィルタ"
+  ,"picker.add_extension": "拡張子を追加 ..."
+  ,"keyboard.ok_cancel": "[A] OK   [B] Cancel"
+  ,"usb.initiated": "USB MTP 開始"
+  ,"usb.connect_instruction": "USB-C 経由でコンソールをPCに接続してください"
+  ,"usb.back": "[B] BACK"
+  ,"usb.connect_back": "[A] 接続   [B] 戻る"
+  ,"usb.ready": "USB MTP 準備完了"
+  ,"usb.transfer_warning": "ファイルの転送中は接続を解除しないでください"
+  ,"app.activity": "アクティビティ トラッカー"
   ,"app.frogshell": "FrogShell"
-  ,"app.usb_mode": "USB mode"
-  ,"app.ebook_reader": "Ebook Reader"
-  ,"app.image_viewer": "Image Viewer"
-  ,"app.videos": "Videos"
-  ,"app.music_mp3": "Music / MP3"
-  ,"app.rockbox": "Rockbox"
+  ,"app.usb_mode": "USBモード"
+  ,"app.ebook_reader": "E-BOOKリーダー"
+  ,"app.image_viewer": "イメージビュワー"
+  ,"app.videos": "ビデオプレイヤー"
+  ,"app.music_mp3": "ミュージックプレイヤー"
+  ,"app.rockbox": "Rock-Box"
 }
