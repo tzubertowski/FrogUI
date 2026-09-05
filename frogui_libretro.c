@@ -866,11 +866,15 @@ static int settings_backgrounds = 1;     /* show per-system background images: 0
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
-enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_ES_ES, LANGUAGE_PT_BR, LANGUAGE_JA_JP, LANGUAGE_COUNT };
+enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_ES_ES, LANGUAGE_PT_BR, LANGUAGE_JA_JP,
+       LANGUAGE_RU_RU, LANGUAGE_ZH_CN, LANGUAGE_COUNT };
 static int settings_language = LANGUAGE_EN_US;
-static const char *language_codes[LANGUAGE_COUNT] = { "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP" };
+static const char *language_codes[LANGUAGE_COUNT] = {
+    "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP", "ru_RU", "zh_CN"
+};
 static const char *language_name_keys[LANGUAGE_COUNT] = {
-    "language.en_US", "language.pl_PL", "language.es_ES", "language.pt_BR", "language.ja_JP"
+    "language.en_US", "language.pl_PL", "language.es_ES", "language.pt_BR", "language.ja_JP",
+    "language.ru_RU", "language.zh_CN"
 };
 
 /* Pastel themes are complete treatments, not palette-only options.  Pair
@@ -1120,6 +1124,7 @@ static void settings_apply(void) {
     theme_sync_artwork_pack();
     if (font_count > 0)
         font_load_file(font_files[settings_font_idx]);
+    font_sync_language_fallback();
     cube_set_backlight(settings_brightness);
     /* Keep cubevol's persistentmem value in sync so its delayed startup apply
      * shows the right brightness instead of flashing its stored default. */
@@ -3063,6 +3068,7 @@ static void handle_settings_menu(void) {
         case RT_LANGUAGE:
             settings_language = (settings_language + delta + LANGUAGE_COUNT) % LANGUAGE_COUNT;
             i18n_init(language_codes[settings_language]);
+            font_sync_language_fallback();
             break;
         case RT_TOGGLE:
             *r->val = (*r->val + delta + 2) % 2;

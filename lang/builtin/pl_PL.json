@@ -4,6 +4,8 @@
   "language.es_ES": "Español",
   "language.pt_BR": "Português (Brasil)",
   "language.ja_JP": "日本語",
+  "language.ru_RU": "Русский",
+  "language.zh_CN": "简体中文",
   "tab.recents": "OSTATNIE",
   "tab.games": "GRY",
   "tab.apps": "APLIKACJE",
@@ -109,4 +111,22 @@
   ,"pico.config.loaded_game": "Wczytano konfigurację gry"
   ,"pico.config.loaded_global": "Wczytano konfigurację globalną"
   ,"pico.legend.back_ok": "B-WSTECZ   A-OK"
+  ,"pico.control.up": "GÓRA"
+  ,"pico.control.down": "DÓŁ"
+  ,"pico.control.left": "LEWO"
+  ,"pico.control.right": "PRAWO"
+  ,"pico.control.a": "PRZYCISK A"
+  ,"pico.control.b": "PRZYCISK B"
+  ,"pico.control.x": "PRZYCISK X"
+  ,"pico.control.y": "PRZYCISK Y"
+  ,"pico.control.start": "START"
+  ,"pico.control.select": "SELECT"
+  ,"pico.control.l": "PRZYCISK L"
+  ,"pico.control.r": "PRZYCISK R"
+  ,"pico.control.l2": "PRZYCISK L2"
+  ,"pico.control.r2": "PRZYCISK R2"
+  ,"pico.emu.save_state": "Zapisz stan"
+  ,"pico.emu.load_state": "Wczytaj stan"
+  ,"pico.emu.toggle_hud": "Przełącz FPS/CPU%"
+  ,"pico.emu.fast_forward": "Przełącz przewijanie"
 }

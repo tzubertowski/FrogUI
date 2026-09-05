@@ -115,3 +115,10 @@ const char *tr_or(const char *key, const char *fallback) {
 
 const char *i18n_current_language(void) { return i18n_language; }
 const char *i18n_language_name(void) { return tr("language.en_US"); }
+int i18n_value_count(void) { return i18n_entry_count; }
+const char *i18n_key_at(int index) {
+	return index >= 0 && index < i18n_entry_count ? i18n_entries[index].key : NULL;
+}
+const char *i18n_value_at(int index) {
+	return index >= 0 && index < i18n_entry_count ? i18n_entries[index].value : NULL;
+}

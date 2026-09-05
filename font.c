@@ -2,6 +2,7 @@
 #include "stb_truetype.h"
 #include "font.h"
 #include "settings.h"
+#include "common/i18n.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@ static unsigned char *latin_buffer = NULL;
 static float latin_scale;
 static int latin_loaded = 0;
 static int active_font_id = 0;
+static int language_force_unicode = 0;
 static uint32_t utf8_next(const char **p);
 static uint32_t unicode_upper(uint32_t cp) {
     if (cp >= 'a' && cp <= 'z') return cp - 32;
@@ -270,6 +272,16 @@ void font_draw_char(uint16_t *framebuffer, int screen_width, int screen_height,
 /* Draw a Unicode codepoint using the primary face when possible and the
  * bundled broad-Unicode fallback otherwise.  ROM names are UTF-8, not a byte
  * stream: keeping decoding here also makes measuring and drawing agree. */
+static void font_blend_pixel(uint16_t *dst, uint16_t color, unsigned char alpha) {
+    if (alpha == 255) { *dst = color; return; }
+    uint16_t bg = *dst;
+    int fr = (color >> 11) & 31, fg = (color >> 5) & 63, fb = color & 31;
+    int br = (bg >> 11) & 31, bgc = (bg >> 5) & 63, bb = bg & 31, ia = 255 - alpha;
+    *dst = (uint16_t)((((fr * alpha + br * ia) / 255) << 11) |
+                      (((fg * alpha + bgc * ia) / 255) << 5) |
+                      ((fb * alpha + bb * ia) / 255));
+}
+
 static void font_draw_codepoint(uint16_t *framebuffer, int screen_width,
                                 int screen_height, int x, int y,
                                 uint32_t cp, uint16_t color) {
@@ -326,22 +338,19 @@ static void font_draw_codepoint(uint16_t *framebuffer, int screen_width,
             unsigned char alpha = g->bmp[row * g->w + col];
             int px = x + g->xoff + col, py = y + baseline + g->yoff + row;
             if (alpha && px >= 0 && px < screen_width && py >= 0 && py < screen_height) {
-                uint16_t *dst = &framebuffer[py * screen_width + px];
-                if (alpha == 255) *dst = color;
-                else {
-                    uint16_t bg = *dst;
-                    int fr = (color >> 11) & 31, fg = (color >> 5) & 63, fb = color & 31;
-                    int br = (bg >> 11) & 31, bgc = (bg >> 5) & 63, bb = bg & 31, ia = 255 - alpha;
-                    *dst = (uint16_t)((((fr * alpha + br * ia) / 255) << 11) |
-                                      (((fg * alpha + bgc * ia) / 255) << 5) |
-                                      ((fb * alpha + bb * ia) / 255));
-                }
+                font_blend_pixel(&framebuffer[py * screen_width + px], color, alpha);
+                /* The broad Unicode face is intentionally a little heavier
+                 * when it becomes the language-wide UI face, so it carries
+                 * the same visual weight as BPreplayBold. */
+                if (language_force_unicode && font_id == 1 && px + 1 < screen_width)
+                    font_blend_pixel(&framebuffer[py * screen_width + px + 1], color, alpha);
             }
         }
     }
 }
 
 static int choose_text_font(const char *text) {
+    if (language_force_unicode && load_fallback_font()) return 1;
     int need = 0; const char *p = text;
     while (p && *p) {
         uint32_t cp = unicode_upper(utf8_next(&p));
@@ -357,6 +366,28 @@ static int choose_text_font(const char *text) {
         if (all) return 2;
     }
     return 0;
+}
+
+void font_sync_language_fallback(void) {
+    language_force_unicode = 0;
+    if (!font_loaded) return;
+    char selected_key[32];
+    snprintf(selected_key, sizeof(selected_key), "language.%s", i18n_current_language());
+    for (int i = 0; i < i18n_value_count(); i++) {
+        const char *key = i18n_key_at(i);
+        const char *text = i18n_value_at(i);
+        /* Other locale names are stored in every pack for the selector but
+         * are not rendered in the active UI. Only inspect the selected one. */
+        if (key && strncmp(key, "language.", 9) == 0 && strcmp(key, selected_key) != 0)
+            continue;
+        for (const char *p = text; p && *p; ) {
+            uint32_t cp = unicode_upper(utf8_next(&p));
+            if (cp >= 128 && !stbtt_FindGlyphIndex(&font_info, (int)cp)) {
+                language_force_unicode = load_fallback_font();
+                return;
+            }
+        }
+    }
 }
 
 static uint32_t utf8_next(const char **p) {
