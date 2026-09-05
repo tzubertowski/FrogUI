@@ -1,9 +1,9 @@
 {
   "language.en_US": "Ingles",
-  "language.pl_PL": "Polski",
+  "language.pl_PL": "Polaco",
   "language.es_ES": "Español",
   "language.pt_BR": "Português (Brasil)",
-  "language.ja_JP": "日本語",
+  "language.ja_JP": "Japones",
   "tab.recents": "RECIENTES",
   "tab.games": "JUEGOS",
   "tab.apps": "APPS",
@@ -15,11 +15,11 @@
   "legend.search": " X-BUSCAR ",
   "settings.appearance": "APARENCIA",
   "settings.theme": "Temas",
-  "settings.background_theme_pack": "Background Theme Pack",
-  "settings.style": "Style",
-  "settings.icon_pack": "Icon Pack",
-  "settings.center_text": "Center Text",
-  "settings.friendly_system_names": "Friendly System Names",
+  "settings.background_theme_pack": "Paquete de temas de fondo",
+  "settings.style": "Estilo",
+  "settings.icon_pack": "Paquete de iconos",
+  "settings.center_text": "Centrar texto",
+  "settings.friendly_system_names": "Nombres amigables del sistema",
   "settings.font": "Fuente",
   "settings.general": "GENERAL",
   "settings.language": "Language",
@@ -59,13 +59,13 @@
   ,"header.select_core": "SELECCIONAR NUCLEO"
   ,"header.search": "BUSCAR"
   ,"header.add_extension": "AÑADIR EXTENSIONES"
-  ,"header.usb_mode": "MODO USB"
+  ,"header.usb_mode": "CONECCIÓN USB"
   ,"remap.skip": "[B] = omitir / mantener valor predeterminado"
   ,"picker.cores": "Nucleos"
   ,"picker.extensions": "EXTENSIONES"
   ,"picker.filter_files": "Filtrar archivos"
   ,"picker.add_extension": "Añadir extensión..."
-  ,"keyboard.ok_cancel": "A OK   B cancelar"
+  ,"keyboard.ok_cancel": "A Si   B Cancelar"
   ,"usb.initiated": "USB MTP iniciado"
   ,"usb.connect_instruction": "Conecta la consola a un PC mediante USB-C."
   ,"usb.back": "B  ATRAS"
