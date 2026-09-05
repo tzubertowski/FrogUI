@@ -2983,7 +2983,11 @@ static void handle_remap_wizard(void) {
     uint32_t raw   = input_get_raw_state();
     uint32_t risen = raw & ~remap_prev_raw;
     remap_prev_raw = raw;
-    bool skip = (risen >> input_get_raw_bit(FROG_BTN_B)) & 1;
+    int b_bit = input_get_raw_bit(FROG_BTN_B);
+    /* The wizard may be entered with an old or manually-edited keymap. A bad
+     * B binding must not turn the shift below into undefined behaviour. */
+    bool skip = b_bit >= 0 && b_bit <= FROG_RAW_MAX_BIT &&
+                ((risen & (1u << b_bit)) != 0);
     int  pressed_bit = -1;
     if (!skip) {
         for (int bit = 0; bit < FROG_RAW_BIT_COUNT; bit++) {
@@ -2992,11 +2996,33 @@ static void handle_remap_wizard(void) {
     }
     if (skip || pressed_bit >= 0) {
         if (!skip) input_set_raw_bit((FrogButton)remap_step, pressed_bit);
+        {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "remap: step=%d button=%s raw=%d skip=%d",
+                     remap_step, input_btn_name((FrogButton)remap_step),
+                     pressed_bit, skip ? 1 : 0);
+            dbg(msg);
+        }
         remap_step++;
         if (remap_step >= remap_wizard_count()) {
             remap_wizard_active = false;
-            input_save_remap(KEYMAP_FILE);
-            ui_toast_show("Button mapping saved");
+            if (input_save_remap(KEYMAP_FILE) == 0)
+                ui_toast_show("Button mapping saved");
+            else
+                ui_toast_show("Could not save button mapping");
+            /* Button Mapping belongs to Settings. Returning to its caller
+             * avoids dropping the user into a partly stale Games/System view
+             * after the final bind, which looked like empty icon tiles until
+             * the next full UI reload. */
+            settings_menu_active = true;
+            settings_build_vis_rows();
+            {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "remap: complete saved=%d return=settings style=%d icon_pack=%d",
+                         access(KEYMAP_FILE, R_OK) == 0, settings_style,
+                         settings_icon_pack_idx);
+                dbg(msg);
+            }
         }
     }
 }
@@ -3113,6 +3139,7 @@ static void handle_settings_menu(void) {
         remap_prev_raw = input_get_raw_state();
         remap_wizard_active = true;
         settings_menu_active = false;
+        dbg("remap: start from settings");
         return;
     }
     if ((input_was_pressed(FROG_BTN_A) && settings_rows[settings_menu_idx].type != RT_ACTION) ||

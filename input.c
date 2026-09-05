@@ -232,7 +232,8 @@ uint32_t input_get_raw_state(void) {
 }
 
 void input_set_raw_bit(FrogButton btn, int raw_bit) {
-    if (btn >= 0 && btn < FROG_BTN_COUNT) {
+    if (btn >= 0 && btn < FROG_BTN_COUNT &&
+        raw_bit >= -1 && raw_bit <= FROG_RAW_MAX_BIT) {
         remap_bits[btn] = raw_bit;
         rebuild_masks();
     }
@@ -260,7 +261,10 @@ int input_load_remap(const char *path) {
                  * a keymap written on an R36SX SD reused elsewhere) — bit 16
                  * there is an unrelated signal, not FN. */
                 if (i == FROG_BTN_FN && !input_fn_available()) break;
-                remap_bits[i] = val;
+                /* Never let a malformed hand-edited keymap create an invalid
+                 * shift/mask later in the remap wizard. */
+                if (val >= -1 && val <= FROG_RAW_MAX_BIT)
+                    remap_bits[i] = val;
                 break;
             }
         }
