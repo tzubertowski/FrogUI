@@ -23,7 +23,9 @@ static unsigned char *latin_buffer = NULL;
 static float latin_scale;
 static int latin_loaded = 0;
 static int active_font_id = 0;
-static int language_force_unicode = 0;
+/* 0 = selected UI font, 1 = broad CJK/Cyrillic fallback, 2 = Latin Extended
+ * fallback. A locale always uses one face throughout the UI. */
+static int language_force_font_id = 0;
 static uint32_t utf8_next(const char **p);
 static uint32_t unicode_upper(uint32_t cp) {
     if (cp >= 'a' && cp <= 'z') return cp - 32;
@@ -342,7 +344,8 @@ static void font_draw_codepoint(uint16_t *framebuffer, int screen_width,
                 /* The broad Unicode face is intentionally a little heavier
                  * when it becomes the language-wide UI face, so it carries
                  * the same visual weight as BPreplayBold. */
-                if (language_force_unicode && font_id == 1 && px + 1 < screen_width)
+                if (language_force_font_id && font_id == language_force_font_id &&
+                    px + 1 < screen_width)
                     font_blend_pixel(&framebuffer[py * screen_width + px + 1], color, alpha);
             }
         }
@@ -350,7 +353,8 @@ static void font_draw_codepoint(uint16_t *framebuffer, int screen_width,
 }
 
 static int choose_text_font(const char *text) {
-    if (language_force_unicode && load_fallback_font()) return 1;
+    if (language_force_font_id == 1 && load_fallback_font()) return 1;
+    if (language_force_font_id == 2 && load_latin_fallback()) return 2;
     int need = 0; const char *p = text;
     while (p && *p) {
         uint32_t cp = unicode_upper(utf8_next(&p));
@@ -368,9 +372,7 @@ static int choose_text_font(const char *text) {
     return 0;
 }
 
-void font_sync_language_fallback(void) {
-    language_force_unicode = 0;
-    if (!font_loaded) return;
+static int active_language_supported(stbtt_fontinfo *info) {
     char selected_key[32];
     snprintf(selected_key, sizeof(selected_key), "language.%s", i18n_current_language());
     for (int i = 0; i < i18n_value_count(); i++) {
@@ -382,12 +384,23 @@ void font_sync_language_fallback(void) {
             continue;
         for (const char *p = text; p && *p; ) {
             uint32_t cp = unicode_upper(utf8_next(&p));
-            if (cp >= 128 && !stbtt_FindGlyphIndex(&font_info, (int)cp)) {
-                language_force_unicode = load_fallback_font();
-                return;
-            }
+            if (cp >= 128 && !stbtt_FindGlyphIndex(info, (int)cp)) return 0;
         }
     }
+    return 1;
+}
+
+void font_sync_language_fallback(void) {
+    language_force_font_id = 0;
+    if (!font_loaded || active_language_supported(&font_info)) return;
+
+    /* Prefer one fallback that covers the whole active pack. WenQuanYi is our
+     * broad CJK/Cyrillic face, while DejaVu covers Latin Extended (including
+     * Polish), which WenQuanYi deliberately does not ship. */
+    if (load_fallback_font() && active_language_supported(&fallback_info))
+        language_force_font_id = 1;
+    else if (load_latin_fallback() && active_language_supported(&latin_info))
+        language_force_font_id = 2;
 }
 
 static uint32_t utf8_next(const char **p) {
