@@ -1475,13 +1475,16 @@ static const SystemLabel system_labels[] = {
 };
 
 static const char *system_display_name(const char *folder) {
+    char key[96];
     if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) return tr("folder.settings");
     if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) return tr("folder.recents");
     if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) return tr("folder.favourites");
     if (!settings_friendly_names) return folder;
     for (size_t i = 0; i < sizeof(system_labels) / sizeof(system_labels[0]); i++)
-        if (strcasecmp(folder, system_labels[i].folder) == 0)
-            return system_labels[i].label;
+        if (strcasecmp(folder, system_labels[i].folder) == 0) {
+            snprintf(key, sizeof(key), "system.%s", system_labels[i].folder);
+            return tr_or(key, system_labels[i].label);
+        }
     return folder;
 }
 
