@@ -20,6 +20,8 @@
   "settings.background_theme_pack": "Background Theme Pack",
   "settings.style": "Style",
   "settings.icon_pack": "Icon Pack",
+  "settings.requires_system_view": "仅系统视图",
+  "settings.requires_background_images": "背景图片已关闭",
   "settings.center_text": "Center Text",
   "settings.friendly_system_names": "Friendly System Names",
   "settings.font": "Font",

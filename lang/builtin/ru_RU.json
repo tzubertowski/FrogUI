@@ -20,6 +20,8 @@
   "settings.background_theme_pack": "Background Theme Pack",
   "settings.style": "Style",
   "settings.icon_pack": "Icon Pack",
+  "settings.requires_system_view": "Только вид системы",
+  "settings.requires_background_images": "Фоновые изображения выключены",
   "settings.center_text": "Center Text",
   "settings.friendly_system_names": "Friendly System Names",
   "settings.font": "Font",

@@ -20,6 +20,8 @@
   "settings.background_theme_pack": "背景テーマパック",
   "settings.style": "スタイル",
   "settings.icon_pack": "アイコンパック",
+  "settings.requires_system_view": "システム表示のみ",
+  "settings.requires_background_images": "背景画像オフ",
   "settings.center_text": "テキストを中央寄せ",
   "settings.friendly_system_names": "既定のシステム名で表示",
   "settings.font": "フォント",

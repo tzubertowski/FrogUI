@@ -20,6 +20,8 @@
   "settings.background_theme_pack": "Paquete de temas de fondo",
   "settings.style": "Estilo",
   "settings.icon_pack": "Paquete de iconos",
+  "settings.requires_system_view": "Solo vista de sistemas",
+  "settings.requires_background_images": "Imágenes de fondo desactivadas",
   "settings.center_text": "Centrar texto",
   "settings.friendly_system_names": "Nombres amigables del sistema",
   "settings.font": "Fuente",

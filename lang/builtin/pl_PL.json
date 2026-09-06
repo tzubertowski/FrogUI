@@ -20,6 +20,8 @@
   "settings.background_theme_pack": "Pakiet motywów tła",
   "settings.style": "Układ",
   "settings.icon_pack": "Pakiet ikon",
+  "settings.requires_system_view": "Tylko widok systemowy",
+  "settings.requires_background_images": "Obrazy tła wyłączone",
   "settings.center_text": "Wyśrodkuj tekst",
   "settings.friendly_system_names": "Pełne nazwy systemów",
   "settings.font": "Czcionka",

@@ -4256,6 +4256,14 @@ static void render_settings_menu(void) {
         case RT_RANGE:  snprintf(line, sizeof line, "%s: < %d%% >", tr(r->label), *r->val); break;
         default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
+        if (!settings_row_enabled(r)) {
+            const char *reason = r->type == RT_ICON_PACK
+                               ? tr("settings.requires_system_view")
+                               : tr("settings.requires_background_images");
+            size_t used = strlen(line);
+            if (used + strlen(reason) + 4 < sizeof line)
+                snprintf(line + used, sizeof line - used, " (%s)", reason);
+        }
         /* Options sit indented under their ">> HEADER" so the grouping reads
          * clearly. Headers stay flush at PADDING. */
         int ix = PADDING + UI_S(16);
