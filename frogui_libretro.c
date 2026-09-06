@@ -2086,20 +2086,66 @@ static void render_boxart_panel(uint16_t *fb, const char *full_path, const char 
     int ph   = bot - top;
     if (pw < UI_S(60) || ph < UI_S(60)) return;          /* too narrow to bother */
 
-    /* Cache the decoded thumbnail; only re-decode when the selected game changes.
-     * The old code ran stbi_load (PNG/JPG decode) EVERY frame -> scrolling crawled. */
-    static char cached_path[1024] = "";
-    static Thumbnail ctb; static int chas = 0;
-    if (strcmp(full_path, cached_path) != 0) {
-        if (chas) { free_thumbnail(&ctb); chas = 0; }
-        if (load_game_artwork(full_path, ARTWORK_BOXART, &ctb) && ctb.data) chas = 1;
-        /* Scrapers often provide a title screen rather than box art. */
-        if (!chas && load_game_artwork(full_path, ARTWORK_TITLE_SCREEN, &ctb) && ctb.data)
-            chas = 1;
-        strncpy(cached_path, full_path, sizeof cached_path - 1);
-        cached_path[sizeof cached_path - 1] = 0;
+    /* Keep a few decoded thumbnails instead of only the last one. The old
+     * single-entry cache made every selection change synchronously probe and
+     * decode the SD card again; large .res libraries therefore felt stuck
+     * while scrolling. Negative entries are cached too, avoiding repeated
+     * filesystem probes for games without artwork. */
+    enum { BOXART_CACHE_N = 4 };
+    typedef struct {
+        char path[1024];
+        Thumbnail thumb;
+        uint8_t *alpha;
+        unsigned age;
+        int valid;
+    } BoxartCacheEntry;
+    static BoxartCacheEntry cache[BOXART_CACHE_N];
+    static unsigned age;
+    BoxartCacheEntry *entry = NULL;
+    for (int i = 0; i < BOXART_CACHE_N; i++) {
+        if (cache[i].valid && strcmp(cache[i].path, full_path) == 0) {
+            entry = &cache[i];
+            break;
+        }
     }
-    if (!chas) return;   /* no art → no panel */
+    if (!entry) {
+        entry = &cache[0];
+        for (int i = 1; i < BOXART_CACHE_N; i++) {
+            if (!cache[i].valid || cache[i].age < entry->age)
+                entry = &cache[i];
+        }
+        free(entry->thumb.data);
+        free(entry->alpha);
+        memset(entry, 0, sizeof *entry);
+        strncpy(entry->path, full_path, sizeof entry->path - 1);
+        entry->path[sizeof entry->path - 1] = '\0';
+        Thumbnail decoded = {0};
+        int found = load_game_artwork(full_path, ARTWORK_BOXART, &decoded);
+        /* Scrapers often provide a title screen rather than box art. */
+        if (!found)
+            found = load_game_artwork(full_path, ARTWORK_TITLE_SCREEN, &decoded);
+        if (found && decoded.data && decoded.width > 0 && decoded.height > 0) {
+            size_t pixels = (size_t)decoded.width * (size_t)decoded.height;
+            entry->thumb.data = malloc(pixels * sizeof(uint16_t));
+            if (decoded.alpha) entry->alpha = malloc(pixels);
+            if (entry->thumb.data && (!decoded.alpha || entry->alpha)) {
+                memcpy(entry->thumb.data, decoded.data, pixels * sizeof(uint16_t));
+                if (decoded.alpha) memcpy(entry->alpha, decoded.alpha, pixels);
+                entry->thumb.width = decoded.width;
+                entry->thumb.height = decoded.height;
+                entry->thumb.alpha = entry->alpha;
+            } else {
+                free(entry->thumb.data);
+                free(entry->alpha);
+                entry->thumb.data = NULL;
+                entry->alpha = NULL;
+            }
+        }
+        entry->valid = 1;
+    }
+    entry->age = ++age;
+    if (!entry->thumb.data) return;   /* no art, or cached decode failure */
+    Thumbnail ctb = entry->thumb;
 
     int nameh = UI_S(22);
     int aw = pw, ah = ph - nameh;
