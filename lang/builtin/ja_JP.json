@@ -37,7 +37,7 @@
   "settings.background_image_fit": "背景イメージのフィット",
   "settings.hide_extensions": "拡張子を隠す",
   "settings.hide_empty_folders": "空フォルダを隠す",
-  "settings.custom_aspect_ratios": "すべての縦横比",
+  "settings.custom_aspect_ratios": "すべてのアスペクト比",
   "settings.library": "ライブラリ",
   "settings.rom_source": "ROMソース",
   "settings.otg_storage": "OTGストレージ",
@@ -92,7 +92,57 @@
   ,"app.videos": "ビデオプレイヤー"
   ,"app.music_mp3": "ミュージックプレイヤー"
   ,"app.rockbox": "Rock-Box",
-  "app.shutdown": "電源オフ",
+  "app.shutdown": "電源オフ"
+  ,"pico.menu.resume": "ゲームを再開"
+  ,"pico.menu.save_state": "ステートセーブ"
+  ,"pico.menu.load_state": "ステートロード"
+  ,"pico.menu.disc_control": "ディスクコントロール"
+  ,"pico.menu.cheats": "チート"
+  ,"pico.menu.options": "オプション"
+  ,"pico.menu.reset_game": "ゲームをリセット"
+  ,"pico.menu.load_new_game": "新しいゲームを読み込む"
+  ,"pico.menu.exit": "終了"
+  ,"pico.options.audio_video": "オーディオ/ビデオ"
+  ,"pico.options.emulator": "エミュレータオプション"
+  ,"pico.options.player_controls": "プレイヤー操作設定"
+  ,"pico.options.emulator_controls": "エミュレータ操作設定"
+  ,"pico.options.save_config": "設定を保存"
+  ,"pico.video.show_fps": "FPS表示"
+  ,"pico.video.show_cpu": "CPU使用率表示"
+  ,"pico.video.fast_forward": "早送り (SELECT+R1)"
+  ,"pico.video.rewind": "巻き戻し (SELECT+B長押し)"
+  ,"pico.video.aspect_ratio": "アスペクト比"
+  ,"pico.video.filter": "フィルター"
+  ,"pico.video.optimize_text": "テキスト最適化"
+  ,"pico.video.audio_buffer": "オーディオバッファ"
+  ,"pico.video.mono_output": "モノラル出力"
+  ,"pico.video.sharpness": "シャープネス"
+  ,"pico.video.volume": "音量 %"
+  ,"pico.config.save_global": "グローバル設定に保存"
+  ,"pico.config.save_game": "ゲーム設定に保存"
+  ,"pico.config.delete_game": "ゲーム設定を削除"
+  ,"pico.config.restore_defaults": "デフォルトに戻す"
+  ,"pico.config.loaded_game": "読み込み済み: ゲーム設定"
+  ,"pico.config.loaded_global": "読み込み済み: グローバル設定"
+  ,"pico.legend.back_ok": "[B] 戻る   [A] 決定"
+  ,"pico.control.up": "UP"
+  ,"pico.control.down": "DOWN"
+  ,"pico.control.left": "LEFT"
+  ,"pico.control.right": "RIGHT"
+  ,"pico.control.a": "A BUTTON"
+  ,"pico.control.b": "B BUTTON"
+  ,"pico.control.x": "X BUTTON"
+  ,"pico.control.y": "Y BUTTON"
+  ,"pico.control.start": "START"
+  ,"pico.control.select": "SELECT"
+  ,"pico.control.l": "L BUTTON"
+  ,"pico.control.r": "R BUTTON"
+  ,"pico.control.l2": "L2 BUTTON"
+  ,"pico.control.r2": "R2 BUTTON"
+  ,"pico.emu.save_state": "ステートセーブ"
+  ,"pico.emu.load_state": "ステートロード"
+  ,"pico.emu.toggle_hud": "FPS/CPU%表示切替"
+  ,"pico.emu.fast_forward": "早送り切替",
   "system.a26": "Atari 2600",
   "system.a5200": "Atari 5200",
   "system.a78": "Atari 7800",
