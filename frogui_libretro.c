@@ -2715,9 +2715,9 @@ static void search_walk(const char *dir, int depth) {
         if (e->d_name[0] == '.') continue;
         char p[MAX_PATH_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
-        struct stat st;
-        if (stat(p, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) {
+        int isdir = dirent_is_dir(dir, e);
+        if (isdir < 0) continue;
+        if (isdir) {
             if (depth < 3) search_walk(p, depth + 1);
         } else if (str_icontains(e->d_name, search_query)) {
             /* Same per-system whitelist as the browser, so search results never
