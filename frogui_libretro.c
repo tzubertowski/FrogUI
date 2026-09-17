@@ -598,10 +598,12 @@ static void fb1_clear_all(void) {
  * clears cubevol's battery corner each call so its glyph stays hidden. Called by
  * render_header (every screen, every frame). */
 static int raw_to_pct(int raw) {
-    /* R36SX packs measure about 64 empty, 153 half and 180 full. */
+    /* Match cubevol's four battery levels. Its converted thresholds 1070,
+     * 1140 and 1210 correspond to raw ADC values about 137, 146 and 154. */
     if (raw <= 64) return 0;
-    if (raw <= 153) return (raw - 64) * 50 / (153 - 64);
-    if (raw < 180) return 50 + (raw - 153) * 50 / (180 - 153);
+    if (raw < 137) return 25;
+    if (raw < 146) return 50;
+    if (raw < 154) return 75;
     return 100;
 }
 /* Persistent ADC fds, opened O_RDWR ONCE like cubevol (battery_adc_init) - these
@@ -851,7 +853,7 @@ static bool settings_menu_active = false;
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
 static int settings_font_idx = 0;
-static int settings_font_size = 26;
+static int settings_font_size = 21;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
  * its OWN stored brightness on start, DELAYED by panel/backlight-delay (to avoid
