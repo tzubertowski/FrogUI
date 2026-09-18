@@ -880,14 +880,15 @@ static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) 
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
 static int settings_stock_battery = 0;   /* cubevol's original fb1 indicator */
 enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_ES_ES, LANGUAGE_PT_BR, LANGUAGE_JA_JP,
-       LANGUAGE_RU_RU, LANGUAGE_ZH_CN,LANGUAGE_AR_MS,LANGUAGE_IT_IT,LANGUAGE_FR_FR, LANGUAGE_COUNT };
+       LANGUAGE_RU_RU, LANGUAGE_ZH_CN,LANGUAGE_AR_MS,LANGUAGE_IT_IT,LANGUAGE_FR_FR,LANGUAGE_DE_DE,LANGUAGE_TR_TR, LANGUAGE_COUNT };
 static int settings_language = LANGUAGE_EN_US;
 static const char *language_codes[LANGUAGE_COUNT] = {
-    "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP", "ru_RU", "zh_CN", "ar_MS", "it_IT", "fr_FR"
+    "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP", "ru_RU", "zh_CN", "ar_MS", "it_IT", "fr_FR", "de_DE", "tr_TR"
 };
 static const char *language_name_keys[LANGUAGE_COUNT] = {
     "language.en_US", "language.pl_PL", "language.es_ES", "language.pt_BR", "language.ja_JP",
-    "language.ru_RU", "language.zh_CN", "language.ar_MS", "language.it_IT", "language.fr_FR"
+    "language.ru_RU", "language.zh_CN", "language.ar_MS", "language.it_IT", "language.fr_FR",
+    "language.de_DE", "language.tr_TR"
 };
 
 /* Pastel themes are complete treatments, not palette-only options.  Pair
