@@ -184,6 +184,7 @@
   "system.xmil": "Sharp X68000",
   "system.pico286": "DOS / PC",
   "system.j2me": "Java-игры",
+  "system.classicube": "ClassiCube / Minecraft",
   "system.dos": "DOS",
   "system.prboom": "Doom",
   "system.doom": "Doom",
