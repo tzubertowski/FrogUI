@@ -63,17 +63,13 @@ static int language_force_font_id = 0;
 static CachedGlyph glyph_cache[GLYPH_CACHE_SIZE];
 
 static void clear_glyph_cache(void) {
-  memset(glyph_cache, 0, sizeof(glyph_cache));
   for (int i = 0; i < GLYPH_CACHE_SIZE; i++) {
+    glyph_cache[i].bitmap = NULL;
+    glyph_cache[i].glyph_index = 0;
     glyph_cache[i].font_id = -1;
+    glyph_cache[i].is_bold = 0;
   }
   arena_offset = 0;
-}
-
-static inline uint16_t blend_channel(uint32_t fg, uint32_t bg,
-                                     unsigned char alpha) {
-  uint32_t res = (fg * alpha + bg * (255 - alpha) + 128) >> 8;
-  return (uint16_t)res;
 }
 
 static inline void font_blend_pixel(uint16_t *dst, uint16_t color,
@@ -94,9 +90,9 @@ static inline void font_blend_pixel(uint16_t *dst, uint16_t color,
   uint32_t bgc = (bg >> 5) & 0x3F;
   uint32_t bb = bg & 0x1F;
 
-  uint32_t rr = blend_channel(fr, br, alpha);
-  uint32_t rg = blend_channel(fg, bgc, alpha);
-  uint32_t rb = blend_channel(fb, bb, alpha);
+  uint32_t rr = (fr * alpha + br * (255 - alpha) + 127) / 255;
+  uint32_t rg = (fg * alpha + bgc * (255 - alpha) + 127) / 255;
+  uint32_t rb = (fb * alpha + bb * (255 - alpha) + 127) / 255;
 
   *dst = (uint16_t)((rr << 11) | (rg << 5) | rb);
 }
@@ -158,7 +154,8 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
     return &glyph_cache[hash];
   }
 
-  FT_Int32 load_flags = FT_LOAD_TARGET_NORMAL | FT_LOAD_DEFAULT;
+  FT_Int32 load_flags =
+      FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_LIGHT | FT_LOAD_FORCE_AUTOHINT;
   if (FT_Load_Glyph(face->ft_face, glyph_index, load_flags)) {
     return NULL;
   }
@@ -490,8 +487,7 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                 hb_glyph_position_t *glyph_pos =
                     hb_buffer_get_glyph_positions(hb_buf, &glyph_count);
 
-                int baseline =
-                    (face->ft_face->size->metrics.ascender + 32) >> 6;
+                int baseline = face->ft_face->size->metrics.ascender >> 6;
                 int is_native_bold =
                     (face->ft_face->style_flags & FT_STYLE_FLAG_BOLD) != 0;
 
@@ -510,9 +506,8 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                     CachedGlyph *cg = get_cached_glyph(face, glyph_index,
                                                        active_font_id, is_bold);
                     if (cg && cg->bitmap) {
-                      int pen_x = (cursor_x_fractional + 32) >>
-                                  6; // Round to nearest pixel
-                      int draw_x = pen_x + (x_offset >> 6) + cg->left;
+                      int draw_x =
+                          ((cursor_x_fractional + x_offset) >> 6) + cg->left;
                       int draw_y = current_y + baseline - cg->top - y_offset;
 
                       for (int row = 0; row < cg->rows; row++) {
@@ -568,30 +563,27 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
     *out_width = max_width;
 }
 
-void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
-                    int x, int y, const char *text, uint16_t color, ...) {
-  int is_bold = 0;
-  va_list args;
-  va_start(args, color);
-  /* Extract optional is_bold parameter if passed */
-  is_bold = va_arg(args, int);
-  va_end(args);
-
+void font_draw_text_ex(uint16_t *framebuffer, int screen_width,
+                       int screen_height, int x, int y, const char *text,
+                       uint16_t color, int is_bold) {
   shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
                         color, is_bold, 0, NULL);
 }
 
-int font_measure_text(const char *text, ...) {
-  int is_bold = 0;
-  va_list args;
-  va_start(args, text);
-  /* Extract optional is_bold parameter if passed */
-  is_bold = va_arg(args, int);
-  va_end(args);
+void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
+                    int x, int y, const char *text, uint16_t color) {
+  font_draw_text_ex(framebuffer, screen_width, screen_height, x, y, text,
+                    color, 0);
+}
 
+int font_measure_text_ex(const char *text, int is_bold) {
   int width = 0;
   shape_and_render_text(NULL, 0, 0, 0, 0, text, 0, is_bold, 1, &width);
   return width;
+}
+
+int font_measure_text(const char *text) {
+  return font_measure_text_ex(text, 0);
 }
 
 void font_cap_metrics(int *baseline_out, int *cap_height_out) {

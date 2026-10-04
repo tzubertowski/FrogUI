@@ -118,7 +118,7 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
 
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
-  int text_width = font_measure_text(text, is_bold);
+  int text_width = font_measure_text_ex(text, is_bold);
 
   int pad_x = padding;
   int pad_y = padding;
@@ -133,8 +133,8 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
 
   render_rounded_rect(framebuffer, pillbox_x, pillbox_y, pillbox_width,
                       pillbox_height, 6, bg_color);
-  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
-                 text_color, is_bold);
+  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
+                    text_color, is_bold);
 }
 
 void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
@@ -215,8 +215,8 @@ void render_header(uint16_t *framebuffer, const char *title) {
     return;
 
   // Draw folder/section name in header area
-  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10, title,
-                 COLOR_HEADER, 1);
+  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10,
+                    title, COLOR_HEADER, 1);
 
   // Battery indicator, top-right (custom icon; fb1 masking is disabled for
   // test).
@@ -240,13 +240,13 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
   for (int i = 0; i < 4; i++) {
     int pad = UI_S(7);
     const char *label = tr(keys[i]);
-    int tw = font_measure_text(label, 1);
+    int tw = font_measure_text_ex(label, 1);
     int w = tw + pad * 2;
     int baseline, cap_h;
     font_cap_metrics(&baseline, &cap_h);
     int ty = y + h / 2 - (baseline - cap_h / 2);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x + pad, ty, label,
-                   i == active ? COLOR_TEXT : COLOR_DISABLED, 1);
+    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x + pad, ty,
+                      label, i == active ? COLOR_TEXT : COLOR_DISABLED, 1);
     x += w + gap;
   }
   render_battery_colors(framebuffer, frogui_battery_pct(), header_bg,
@@ -268,46 +268,46 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
 
   {
     const char *nav = tr("legend.enter_back");
-    int w = font_measure_text(nav, 1);
+    int w = font_measure_text_ex(nav, 1);
     int x = anchor - w;
     render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
                         COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
-                   COLOR_LEGEND, 1);
+    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
+                      COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (x_button_mode != LEGEND_X_NONE) {
     const char *xl = tr(x_button_mode == LEGEND_X_REMOVE ? "legend.unfavourite"
                                                          : "legend.favourite");
-    int w = font_measure_text(xl, 1);
+    int w = font_measure_text_ex(xl, 1);
     int x = anchor - w;
     render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
                         COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
-                   COLOR_LEGEND, 1);
+    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
+                      COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (show_select) {
     const char *sl = tr("legend.options");
-    int w = font_measure_text(sl, 1);
+    int w = font_measure_text_ex(sl, 1);
     int x = anchor - w;
     render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
                         COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
-                   COLOR_LEGEND, 1);
+    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
+                      COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (show_search) {
     const char *xs = tr("legend.search");
-    int w = font_measure_text(xs, 1);
+    int w = font_measure_text_ex(xs, 1);
     int x = anchor - w;
     render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
                         COLOR_LEGEND_BG);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
-                   COLOR_LEGEND, 1);
+    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
+                      COLOR_LEGEND, 1);
   }
 }
 
@@ -339,7 +339,7 @@ void render_toast(uint16_t *framebuffer, const char *text) {
   if (!framebuffer || !text || !*text)
     return;
   int pad = UI_S(10);
-  int w = font_measure_text(text, 1) + pad * 2;
+  int w = font_measure_text_ex(text, 1) + pad * 2;
   int max_w = SCREEN_WIDTH - PADDING * 2;
   if (w > max_w)
     w = max_w;
@@ -350,11 +350,11 @@ void render_toast(uint16_t *framebuffer, const char *text) {
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
   int ty = y + h / 2 - (baseline - cap_h / 2);
-  int tx = (SCREEN_WIDTH - font_measure_text(text, 1)) / 2;
+  int tx = (SCREEN_WIDTH - font_measure_text_ex(text, 1)) / 2;
   if (tx < x + UI_S(4))
     tx = x + UI_S(4);
-  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, tx, ty, text,
-                 COLOR_SELECT_TEXT, 1);
+  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, tx, ty, text,
+                    COLOR_SELECT_TEXT, 1);
 }
 
 /* Draw one row at an explicit pixel y (used by the animated list). */
@@ -367,7 +367,7 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
   if (is_favorited) {
     const char *star = "*";
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, star,
-                   COLOR_HEADER, 0);
+                   COLOR_HEADER);
     text_x = PADDING + 15;
   }
 
@@ -377,7 +377,7 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
   } else {
     uint16_t text_color = is_dir ? COLOR_FOLDER : COLOR_DISABLED;
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name,
-                   text_color, 0);
+                   text_color);
   }
 }
 
@@ -406,7 +406,7 @@ void render_menu_item_centered(uint16_t *framebuffer, int index,
     return;
 
   int y = START_Y + visible_index * ITEM_HEIGHT;
-  int text_x = (SCREEN_WIDTH - font_measure_text(name, 0)) / 2;
+  int text_x = (SCREEN_WIDTH - font_measure_text(name)) / 2;
   if (text_x < PADDING)
     text_x = PADDING;
   if (is_selected) {
@@ -414,7 +414,7 @@ void render_menu_item_centered(uint16_t *framebuffer, int index,
                         COLOR_SELECT_TEXT, 7, 0);
   } else {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name,
-                   is_dir ? COLOR_FOLDER : COLOR_DISABLED, 0);
+                   is_dir ? COLOR_FOLDER : COLOR_DISABLED);
   }
 }
 
