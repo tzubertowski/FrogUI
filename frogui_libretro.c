@@ -66,6 +66,7 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define DSPERATE_BIN SDCARD_BASE "/cubegm/dsperate/run_sf3000.sh"
 #define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
 #define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
+#define FHeroes2_CORE CORES_PATH "/fheroes2_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -76,6 +77,7 @@ typedef struct { const char *console_name; const char *core_path; } ConsoleMappi
 static const ConsoleMapping console_mappings[] = {
     /* ClassiCube */
     {"classicube", CLASSICUBE_CORE},
+    {"fheroes2", FHeroes2_CORE},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -1537,6 +1539,7 @@ static SystemLabel system_labels[] = {
     {"xmil", "Sharp X68000"}, {"pico286", "DOS / PC"},
     {"j2me", "Java Games"},
     {"classicube", "ClassiCube / Minecraft"},
+    {"fheroes2", "Heroes II"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
