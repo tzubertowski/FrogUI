@@ -66,7 +66,7 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define DSPERATE_BIN SDCARD_BASE "/cubegm/dsperate/run_sf3000.sh"
 #define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
 #define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
-#define FHeroes2_CORE CORES_PATH "/fheroes2_libretro.so"
+#define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -77,7 +77,7 @@ typedef struct { const char *console_name; const char *core_path; } ConsoleMappi
 static const ConsoleMapping console_mappings[] = {
     /* ClassiCube */
     {"classicube", CLASSICUBE_CORE},
-    {"fheroes2", FHeroes2_CORE},
+    {"mcpe", MCPE_CORE},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -232,6 +232,7 @@ typedef struct { const char *ext; const char *core_path; } ExtensionMapping;
 static const ExtensionMapping ext_mappings[] = {
     {".cw",   CLASSICUBE_CORE},
     {".classicube", CLASSICUBE_CORE},
+    {".mcpe", MCPE_CORE},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -1539,7 +1540,7 @@ static SystemLabel system_labels[] = {
     {"xmil", "Sharp X68000"}, {"pico286", "DOS / PC"},
     {"j2me", "Java Games"},
     {"classicube", "ClassiCube / Minecraft"},
-    {"fheroes2", "Heroes II"},
+    {"mcpe", "Minecraft PE"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
@@ -1624,8 +1625,9 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
             /* Java Games has no dedicated artwork; use the active theme's
              * composed main banner so stripes/framing remain intact. */
             strcasecmp(name, "j2me") == 0 ? "main" : NULL,
-            /* ClassiCube likewise uses each theme's composed main banner. */
+            /* Keep useful fallbacks for installs predating the bundled art. */
             strcasecmp(name, "classicube") == 0 ? "main" : NULL,
+            strcasecmp(name, "mcpe") == 0 ? "classicube" : NULL,
             strcasecmp(name, "qpsx") == 0 ? "ps1" : NULL, NULL };
         for (int n = 0; names[n]; n++)
             for (int i = 0; exts[i]; i++) {
