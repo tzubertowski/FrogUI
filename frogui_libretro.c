@@ -616,10 +616,10 @@ static void fb1_clear_all(void) {
  * clears cubevol's battery corner each call so its glyph stays hidden. Called by
  * render_header (every screen, every frame). */
 static int raw_to_pct(int raw) {
-    /* This ADC is too noisy and device-dependent for a truthful percentage.
-     * Use three broad states; give the full state a deliberately wide range. */
-    if (raw < 100) return 25;
-    if (raw < 145) return 50;
+    /* R36SX packs measure about 64 empty, 153 half and 180 full. */
+    if (raw <= 64) return 0;
+    if (raw <= 153) return (raw - 64) * 50 / (153 - 64);
+    if (raw < 180) return 50 + (raw - 153) * 50 / (180 - 153);
     return 100;
 }
 /* Persistent ADC fds, opened O_RDWR ONCE like cubevol (battery_adc_init) - these
