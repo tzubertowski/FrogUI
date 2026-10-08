@@ -2617,7 +2617,7 @@ static void write_picoarch_skin(void) {
 }
 
 static void request_game_launch(const char *core_path, const char *rom_path) {
-    fb1_clear_all();
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* game owns the audio path after exec */
     write_picoarch_skin();
     FILE *f = fopen(LAUNCH_FILE, "w");
@@ -2640,7 +2640,7 @@ static void request_game_launch(const char *core_path, const char *rom_path) {
 
 static void request_standalone_launch(const char *bin_path, const char *rom_path) {
     dbg("standalone_launch: start");
-    fb1_clear_all();
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* standalone app owns the audio path */
     write_picoarch_skin();
     FILE *f = fopen(LAUNCH_FILE, "w");
@@ -2673,7 +2673,7 @@ static void request_standalone_launch(const char *bin_path, const char *rom_path
  * therefore must not create Recents entries. */
 static void request_builtin_launch(const char *bin_path) {
     dbg("builtin_launch: start");
-    fb1_clear_all();
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* built-in standalone app may use audio */
     FILE *f = fopen(LAUNCH_FILE, "w");
     if (!f) { dbg("builtin_launch: fopen failed"); return; }
