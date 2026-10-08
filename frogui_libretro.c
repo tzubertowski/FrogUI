@@ -537,9 +537,9 @@ static bool usb_mode_raw_edge(FrogButton button, uint32_t raw) {
  * fb1 is rotated and/or double-buffered on SF3500-class devices, so physical
  * top-right is not reliably memory top-right and the active page is not always
  * page zero. Clear every memory corner on every virtual page. */
+static int frogui_stock_battery_indicator(void);
 static void fb1_clear_battery_zone(void) {
-    /* Temporary default: keep the stock cubevol battery glyph visible. */
-    return;
+    if (frogui_stock_battery_indicator()) return;
     /* Persistent mmap + cached geometry: open/mmap ONCE. The old per-frame
      * open+ioctl+mmap+munmap+close stalled the loop (visible input lag).
      * Do not latch a failed first attempt: early boot may reach FrogUI before
@@ -641,8 +641,7 @@ static int g_batt_charging = 0;
 int frogui_battery_charging(void) { return g_batt_charging; }
 int frogui_battery_color_mode(void);   /* defined after settings_battery_color */
 int frogui_battery_pct(void) {
-    /* Temporary default: disable the themed TreeFrogUI battery glyph. */
-    return -1;
+    if (frogui_stock_battery_indicator()) return -1;
     static int cached = -1, tick = 0;
     if (cached < 0 || (tick++ % 300) == 0) {
         int a1 = read_adc(0), a5 = read_adc(1);
@@ -897,6 +896,7 @@ static int settings_backgrounds = 1;     /* show per-system background images: 0
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
+static int settings_stock_battery = 1;   /* cubevol's original fb1 indicator */
 static int settings_language;
 
 /* Pastel themes are complete treatments, not palette-only options.  Pair
@@ -918,6 +918,7 @@ static void theme_sync_artwork_pack(void) {
 }
 
 int frogui_battery_color_mode(void) { return settings_battery_color; }
+static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
 static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
 enum { ROM_SOURCE_SD, ROM_SOURCE_OTG, ROM_SOURCE_COUNT };
@@ -948,7 +949,7 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
@@ -1336,6 +1337,8 @@ static void settings_load_file(void) {
             settings_file_cache = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "battery_color") == 0) {
             settings_battery_color = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "stock_battery") == 0) {
+            settings_stock_battery = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "disable_sleep") == 0) {
             settings_disable_sleep = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "game_switcher") == 0) {
@@ -1429,6 +1432,7 @@ static void settings_save_file(void) {
     fprintf(f, "background_dim=%d\n", settings_background_dim);
     fprintf(f, "file_cache=%s\n", onoff_names[settings_file_cache]);
     fprintf(f, "battery_color=%s\n", onoff_names[settings_battery_color]);
+    fprintf(f, "stock_battery=%s\n", onoff_names[settings_stock_battery]);
     fprintf(f, "game_switcher=%s\n", onoff_names[settings_game_switcher]);
     fprintf(f, "load_recents=%s\n", onoff_names[settings_load_recents]);
     fprintf(f, "rom_source=%s\n", rom_source_names[settings_rom_source]);
