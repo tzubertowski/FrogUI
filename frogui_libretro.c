@@ -4230,6 +4230,18 @@ void retro_init(void) {
     settings_load_file();
     i18n_init(i18n_language_code_at(settings_language));
     system_labels_refresh();
+    /* The selected background pack is deliberately prepared before the first
+     * interactive frame. Alternate packs remain lazy, but navigation in the
+     * active pack must never decode artwork on a scroll event. */
+    {
+        char active_theme_dir[512];
+        if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count)
+            snprintf(active_theme_dir, sizeof active_theme_dir,
+                     BANNER_DIR "/theme-packs/%s", theme_pack_files[settings_theme_pack_idx]);
+        else
+            snprintf(active_theme_dir, sizeof active_theme_dir, "%s", BANNER_DIR);
+        banner_preload_theme(active_theme_dir, settings_wallpaper_fit, COLOR_BG);
+    }
     settings_sections_load();   /* restore the user's collapsed sections */
     /* A language change requests a normal launcher restart. Consume the flag
      * once and reopen the same Settings row so the user can continue without
