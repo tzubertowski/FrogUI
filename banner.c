@@ -2,6 +2,8 @@
 #include "render.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <sys/stat.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -20,6 +22,43 @@ static uint16_t banner_pending_bg;
 static int banner_pending_light;
 static int banner_pending_row;
 static char banner_pending_key[600] = "";
+
+static unsigned banner_key_hash(const char *key) {
+    unsigned h = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)key; *p; p++) {
+        h ^= *p;
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static int banner_disk_cache_load(const char *key, uint16_t *dst, size_t bytes) {
+    char path[160];
+    snprintf(path, sizeof path, "/mnt/sdcard/frogui/.cache/banner-%08x.rgb565",
+             banner_key_hash(key));
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    size_t got = fread(dst, 1, bytes, f);
+    fclose(f);
+    return got == bytes;
+}
+
+static void banner_disk_cache_store(const char *key, const uint16_t *src, size_t bytes) {
+    char path[160], tmp[176];
+    snprintf(path, sizeof path, "/mnt/sdcard/frogui/.cache/banner-%08x.rgb565",
+             banner_key_hash(key));
+    mkdir("/mnt/sdcard/frogui/.cache", 0755);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    if (fwrite(src, 1, bytes, f) == bytes) {
+        fclose(f);
+        rename(tmp, path);
+    } else {
+        fclose(f);
+        remove(tmp);
+    }
+}
 #define FADE_FRAMES 20                /* ~330ms @ 60fps — slow, iPhone-like */
 static int fade_frame = FADE_FRAMES;  /* 0..FADE_FRAMES; FADE_FRAMES = done */
 
@@ -134,6 +173,14 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
         return;
     }
 
+    if (banner_disk_cache_load(key, banner_buf, (size_t)npix * 2)) {
+        banner_snapshot_for_fade(sw, sh);
+        banner_loaded = 1;
+        snprintf(banner_active_key, sizeof banner_active_key, "%s", key);
+        bcache_store(key, banner_buf, npix);
+        return;
+    }
+
     int w, h, ch;
     unsigned char *img = stbi_load(path, &w, &h, &ch, 3);
     if (!img || w <= 0 || h <= 0) {
@@ -223,6 +270,7 @@ void banner_render(uint16_t *framebuffer) {
             banner_loaded = 1;
             snprintf(banner_active_key, sizeof banner_active_key, "%s", banner_pending_key);
             bcache_store(banner_active_key, banner_buf, sw * sh);
+            banner_disk_cache_store(banner_active_key, banner_buf, (size_t)sw * sh * 2);
         }
     }
     if (!banner_loaded || !banner_buf || !framebuffer) return;
