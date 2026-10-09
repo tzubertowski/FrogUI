@@ -53,6 +53,7 @@
 /* The launcher may point FrogUI at a mounted USB disk. */
 static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define ROMS_PATH    g_roms_path
+#define PORTS_PATH   SDCARD_BASE "/ports" /* each subfolder is a port: <name>/<name>.sh or the first *.sh found */
 #define LAUNCH_FILE  "/tmp/frogui_launch.txt"
 #define LANGUAGE_RESTART_FLAG SDCARD_BASE "/frogui/language_restart.flag"
 #define PCSX4ALL_BIN SDCARD_BASE "/cubegm/pcsx4all"
@@ -64,6 +65,7 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define IMAGE_BIN    SDCARD_BASE "/cubegm/image_viewer" /* hardware-decoded image viewer */
 #define PPSSPP_BIN   SDCARD_BASE "/cubegm/ppsspp"       /* optional standalone SF3000 port */
 #define DSPERATE_BIN SDCARD_BASE "/cubegm/dsperate/run_sf3000.sh"
+#define MANICMINER_SDL1_BIN SDCARD_BASE "/ports/manicminer_sdl1/manicminer_sdl1.sh" /* Manic Miner, SDL1.2+HCGE (standalone) */
 #define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
@@ -162,6 +164,10 @@ static const ConsoleMapping console_mappings[] = {
     {"nds",    DSPERATE_BIN},                        /* Nintendo DS (DSperate standalone) */
     {"j2me",   J2ME_CORE},                           /* J2ME / MIDP 2.0 (.jar/.jad) */
     {"lgpt",   LGPT_BIN},                            /* LittleGPTracker (standalone, launched directly) */
+    /* Manic Miner no longer gets its own top-level console entry - it shows
+     * as a game inside the "ports" folder instead (per-game core_override,
+     * see frogui/core_overrides.txt), the same umbrella PortMaster itself
+     * uses for homebrew/community ports rather than one menu entry each. */
     {"rockbox", ROCKBOX_BIN},                        /* Rockbox music player (standalone) */
     {"Ebook",  EBOOK_BIN},                           /* ebook reader (epub/mobi/pdf, standalone) */
     {"ebook",  EBOOK_BIN},
@@ -418,6 +424,7 @@ static bool viewing_favourites = false;
 static bool viewing_apps = false;
 static bool apps_browsing = false;
 static bool viewing_activity = false;
+static bool viewing_ports = false;
 static char activity_paths[128][MAX_PATH_LEN];
 static long activity_seconds[128];
 static long activity_runs[128];
@@ -426,7 +433,7 @@ static int activity_has_dates = 0;
 static int activity_count = 0;
 static char apps_root_path[MAX_PATH_LEN] = "";
 static bool game_switcher_fullscreen = false;
-enum { MAIN_TAB_RECENTS, MAIN_TAB_GAMES, MAIN_TAB_APPS, MAIN_TAB_SETTINGS };
+enum { MAIN_TAB_RECENTS, MAIN_TAB_GAMES, MAIN_TAB_PORTS, MAIN_TAB_APPS, MAIN_TAB_SETTINGS };
 /* Keep view changes nearly immediate. Three blended frames provide a short,
  * consistent crossfade without making tab navigation wait for a panel slide. */
 #define VIEW_TRANSITION_FRAMES 2
@@ -1860,6 +1867,8 @@ static void scan_directory(const char *path) {
             if (isdir && at_root && is_psp_folder(e->d_name)) continue;
             /* Media libraries live under Apps, not in the Games tab. */
             if (isdir && at_root && is_app_folder_name(e->d_name)) continue;
+            /* Ports live under their own tab, not in the Games tab. */
+            if (isdir && at_root && !strcasecmp(e->d_name, "ports")) continue;
             /* Inside a filtered system, per-game folders with no whitelisted
              * file (e.g. a folder left behind after a dump was moved out) read
              * as broken rows; skip them for the same reason as hide-empty. */
@@ -1901,6 +1910,7 @@ static void scan_directory(const char *path) {
         for (int read = 0; read < entry_count; read++) {
             if (entries[read].is_dir &&
                 (strcasecmp(entries[read].name, "menu") == 0 ||
+                 strcasecmp(entries[read].name, "ports") == 0 ||
                  is_psp_folder(entries[read].name) ||
                  is_app_folder_name(entries[read].name))) continue;
             if (write != read) entries[write] = entries[read];
@@ -1932,6 +1942,7 @@ done:
     viewing_favourites = false;
     viewing_apps = false;
     viewing_activity = false;
+    viewing_ports = false;
     selected_index = 0;
     scroll_offset  = 0;
 }
@@ -2371,6 +2382,7 @@ static void render_activity_page(uint16_t *fb) {
 static int games_tab_selected = 0, games_tab_scroll = 0;
 static int recents_tab_selected = 0;
 static int apps_tab_selected = 0;
+static int ports_tab_selected = 0;
 static DirEntry *games_tab_entries = NULL;
 static int games_tab_entry_count = 0;
 
@@ -2457,6 +2469,78 @@ static const char *app_label(const char *key) {
     return key;
 }
 
+/* Ports tab: each subfolder of PORTS_PATH is a port. Its launch script is
+ * <folder>/<folder>.sh if present, else the first *.sh found inside - no
+ * registration file needed, dropping a new port folder in is enough. */
+static int ports_resolve_bin(const char *folder_name, char *out, size_t out_size) {
+    char dir[MAX_PATH_LEN];
+    snprintf(dir, sizeof(dir), "%s/%s", PORTS_PATH, folder_name);
+
+    char preferred[MAX_PATH_LEN];
+    snprintf(preferred, sizeof(preferred), "%s/%s.sh", dir, folder_name);
+    if (access(preferred, X_OK) == 0) {
+        strncpy(out, preferred, out_size - 1);
+        out[out_size - 1] = '\0';
+        return 1;
+    }
+
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while ((e = readdir(d)) != NULL) {
+        size_t nlen = strlen(e->d_name);
+        if (nlen > 3 && strcasecmp(e->d_name + nlen - 3, ".sh") == 0) {
+            snprintf(out, out_size, "%s/%s", dir, e->d_name);
+            if (access(out, X_OK) == 0) { found = 1; break; }
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+static void scan_ports_tab(void) {
+    /* Like the Apps tab, keep current_path pinned at ROMS_PATH as a sentinel
+     * ("at a tab root, not browsing a subfolder") - viewing_ports is what
+     * actually distinguishes this screen; PORTS_PATH is only used directly
+     * below and in ports_resolve_bin(), never stored in current_path. */
+    strncpy(current_path, ROMS_PATH, MAX_PATH_LEN - 1);
+    current_path[MAX_PATH_LEN - 1] = '\0';
+    entry_count = 0;
+    DIR *dir = opendir(PORTS_PATH);
+    struct dirent *e;
+    while (dir && (e = readdir(dir)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        int isdir = dirent_is_dir(PORTS_PATH, e);
+        if (isdir != 1) continue;
+        char bin[MAX_PATH_LEN];
+        if (!ports_resolve_bin(e->d_name, bin, sizeof(bin))) continue;
+        if (entry_count >= entry_capacity) {
+            entry_capacity = entry_capacity ? entry_capacity * 2 : INITIAL_ENTRIES_CAPACITY;
+            entries = realloc(entries, (size_t)entry_capacity * sizeof(*entries));
+            if (!entries) { entry_count = 0; break; }
+        }
+        strncpy(entries[entry_count].name, e->d_name, sizeof(entries[entry_count].name) - 1);
+        entries[entry_count].name[sizeof(entries[entry_count].name) - 1] = '\0';
+        entries[entry_count].is_dir = 1;
+        entry_count++;
+    }
+    if (dir) closedir(dir);
+    if (entry_count > 1) qsort(entries, entry_count, sizeof(DirEntry), direntry_cmp);
+
+    viewing_ports = true;
+    viewing_apps = false;
+    apps_browsing = false;
+    viewing_activity = false;
+    viewing_recents = false;
+    viewing_favourites = false;
+    viewing_search = false;
+    selected_index = ports_tab_selected;
+    if (selected_index >= entry_count) selected_index = entry_count > 0 ? entry_count - 1 : 0;
+    if (selected_index < 0) selected_index = 0;
+    scroll_offset = 0;
+}
+
 static void save_games_tab_entries(void) {
     if (!entries || entry_count <= 0) {
         games_tab_entry_count = 0;
@@ -2492,6 +2576,7 @@ static int main_tab_active(void) {
     if (settings_menu_active) return MAIN_TAB_SETTINGS;
     if (viewing_recents) return MAIN_TAB_RECENTS;
     if (viewing_apps || apps_browsing || viewing_activity) return MAIN_TAB_APPS;
+    if (viewing_ports) return MAIN_TAB_PORTS;
     return MAIN_TAB_GAMES;
 }
 
@@ -2509,6 +2594,8 @@ static void switch_main_tab(int target) {
         recents_tab_selected = selected_index;
     } else if (old == MAIN_TAB_APPS) {
         apps_tab_selected = selected_index;
+    } else if (old == MAIN_TAB_PORTS) {
+        ports_tab_selected = selected_index;
     } else {
         settings_save_file();
         settings_menu_active = false;
@@ -2519,6 +2606,7 @@ static void switch_main_tab(int target) {
         viewing_apps = false;
         apps_browsing = false;
         viewing_activity = false;
+        viewing_ports = false;
         viewing_favourites = false;
         viewing_search = false;
         enter_recents_view();
@@ -2534,6 +2622,7 @@ static void switch_main_tab(int target) {
         viewing_apps = false;
         apps_browsing = false;
         viewing_activity = false;
+        viewing_ports = false;
         viewing_search = false;
         strncpy(current_path, ROMS_PATH, MAX_PATH_LEN - 1);
         current_path[MAX_PATH_LEN - 1] = '\0';
@@ -2549,17 +2638,25 @@ static void switch_main_tab(int target) {
         }
     } else if (target == MAIN_TAB_APPS) {
         settings_menu_active = false;
+        viewing_ports = false;
         scan_apps_tab();
         if (entry_count > 0) {
             selected_index = apps_tab_selected;
             if (selected_index >= entry_count) selected_index = entry_count - 1;
             if (selected_index < 0) selected_index = 0;
         }
+    } else if (target == MAIN_TAB_PORTS) {
+        settings_menu_active = false;
+        viewing_recents = false;
+        viewing_favourites = false;
+        viewing_search = false;
+        scan_ports_tab();
     } else {
         viewing_recents = false;
         viewing_favourites = false;
         viewing_apps = false;
         apps_browsing = false;
+        viewing_ports = false;
         viewing_search = false;
         settings_menu_active = true;
         /* Headers are selectable now (they collapse/expand sections); just
@@ -2695,7 +2792,8 @@ static bool is_standalone_bin(const char *name) {
                     strcmp(name, VIDEO_BIN)    == 0 ||
                     strcmp(name, IMAGE_BIN)    == 0 ||
                     strcmp(name, PPSSPP_BIN)   == 0 ||
-                    strcmp(name, DSPERATE_BIN) == 0);
+                    strcmp(name, DSPERATE_BIN) == 0 ||
+                    strcmp(name, MANICMINER_SDL1_BIN) == 0);
 }
 
 /* ----------------------------- Search (X button) ----------------------------- */
@@ -2804,9 +2902,17 @@ static void launch_by_path(const char *path) {
     const char *ov = core_override_lookup(path, dir);
     const char *core = ov ? ov : get_core_for_folder(folder);
     if (!core) core = get_core_for_extension(path);
-    if (ov)
-        request_game_launch(ov, path);         /* explicit override → libretro */
-    else if (core) {
+    if (ov) {
+        /* An override used to always mean "explicit libretro core" - but a
+         * per-game override pointing at a standalone binary (e.g. a ports/
+         * folder entry resolving to a game-specific launch script) needs the
+         * same is_standalone_bin routing the generic path below already has,
+         * or it gets handed to picoarch as if it were a .so core and fails. */
+        if (is_standalone_bin(ov) && access(ov, F_OK) == 0)
+            request_standalone_launch(ov, path);
+        else
+            request_game_launch(ov, path);
+    } else if (core) {
         /* ps1 folder maps to pcsx_rearmed by default but we prefer the standalone
          * pcsx4all when present; every other standalone (pico286/lgpt/rockbox) is
          * caught generically by is_standalone_bin on the resolved core path. */
@@ -3275,14 +3381,14 @@ static bool horizontal_system_view(void) {
     return settings_style == STYLE_HORIZONTAL &&
            strcmp(current_path, ROMS_PATH) == 0 &&
            !viewing_recents && !viewing_favourites && !viewing_apps &&
-           !apps_browsing && !viewing_search;
+           !apps_browsing && !viewing_ports && !viewing_search;
 }
 
 static bool icon_system_view(void) {
     return settings_style == STYLE_SYSTEM &&
            strcmp(current_path, ROMS_PATH) == 0 &&
            !viewing_recents && !viewing_favourites && !viewing_apps &&
-           !apps_browsing && !viewing_search;
+           !apps_browsing && !viewing_ports && !viewing_search;
 }
 
 static void ui_toast_show(const char *text) {
@@ -3779,6 +3885,7 @@ static void handle_input(void) {
     {
         int tab = main_tab_active();
         bool at_tabs = settings_menu_active || viewing_recents || viewing_apps || apps_browsing ||
+                       viewing_ports ||
                        (!viewing_favourites && !viewing_search &&
                         strcmp(current_path, ROMS_PATH) == 0);
         bool prev = input_was_pressed(FROG_BTN_L1);
@@ -3981,6 +4088,10 @@ static void handle_input(void) {
                 scan_directory(current_path);
                 apps_browsing = true;
             }
+        } else if (viewing_ports) {
+            char bin[MAX_PATH_LEN];
+            if (ports_resolve_bin(entries[selected_index].name, bin, sizeof(bin)))
+                request_standalone_launch(bin, PORTS_PATH);
         } else if (strcmp(entries[selected_index].name, FAVOURITES_ENTRY_NAME) == 0) {
             /* Enter favourites view */
             ui_transition_start(1);
@@ -4779,7 +4890,7 @@ void retro_run(void) {
         } else {
             sig = sig*33u + (unsigned)selected_index;
             sig = sig*33u + (unsigned)scroll_offset;
-            sig = sig*33u + (unsigned)(viewing_recents*16 + viewing_favourites*8 + viewing_apps*4 + apps_browsing*2 + viewing_activity + viewing_search*32);
+            sig = sig*33u + (unsigned)(viewing_recents*16 + viewing_favourites*8 + viewing_apps*4 + apps_browsing*2 + viewing_activity + viewing_search*32 + viewing_ports*64);
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
@@ -4840,6 +4951,7 @@ void retro_run(void) {
             title = viewing_activity   ? app_label("activity") :
                     viewing_recents    ? "RECENT GAMES" :
                     viewing_apps       ? "APPS" :
+                    viewing_ports      ? "PORTS" :
                     viewing_favourites ? "FAVOURITES" :
                     (strcmp(current_path, ROMS_PATH) == 0)
                     ? "TREEFROGUI: SYSTEMS" : system_display_name(get_basename(current_path));
@@ -4850,6 +4962,8 @@ void retro_run(void) {
             render_tabs(framebuffer, MAIN_TAB_RECENTS, COLOR_BG);
         else if (viewing_apps)
             render_tabs(framebuffer, MAIN_TAB_APPS, COLOR_BG);
+        else if (viewing_ports)
+            render_tabs(framebuffer, MAIN_TAB_PORTS, COLOR_BG);
         else if (strcmp(current_path, ROMS_PATH) == 0 && !viewing_favourites && !viewing_search)
             render_tabs(framebuffer, MAIN_TAB_GAMES, COLOR_BG);
         else
@@ -4862,6 +4976,8 @@ void retro_run(void) {
                 char disp[256];
                 if (viewing_apps && entries[idx].is_dir)
                     shown = app_label(entries[idx].name);
+                else if (viewing_ports && entries[idx].is_dir)
+                    shown = entries[idx].name;
                 else if (entries[idx].is_dir && strcmp(current_path, ROMS_PATH) == 0)
                     shown = system_display_name(entries[idx].name);
                 /* Hide file extension (.gb/.gba/...) when enabled — display only,
