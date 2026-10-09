@@ -230,17 +230,36 @@ static int banner_image_name(const char *name) {
                    !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".bmp"));
 }
 
+static banner_preload_progress_cb preload_progress_cb;
+
+void banner_set_preload_progress_callback(banner_preload_progress_cb cb) {
+    preload_progress_cb = cb;
+}
+
 void banner_preload_theme(const char *directory, int mode, uint16_t bg) {
     DIR *dir;
     struct dirent *entry;
     char path[640];
+    int total = 0;
+    int done = 0;
 
     if (!directory || !(dir = opendir(directory))) return;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] != '.' && banner_image_name(entry->d_name))
+            total++;
+    }
+    closedir(dir);
+    if (preload_progress_cb) preload_progress_cb(0, total);
+
+    dir = opendir(directory);
+    if (!dir) return;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.' || !banner_image_name(entry->d_name)) continue;
         snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
         banner_load_fit(path, mode, bg);
         while (banner_is_animating()) banner_render(NULL);
+        done++;
+        if (preload_progress_cb) preload_progress_cb(done, total);
     }
     closedir(dir);
     banner_clear();
