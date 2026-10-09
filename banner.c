@@ -257,7 +257,10 @@ void banner_preload_theme(const char *directory, int mode, uint16_t bg) {
         if (entry->d_name[0] == '.' || !banner_image_name(entry->d_name)) continue;
         snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
         banner_load_fit(path, mode, bg);
-        while (banner_is_animating()) banner_render(NULL);
+        /* Preload has no displayed frame, so a crossfade cannot advance here.
+         * Wait only for the pending decode/transform; including the fade state
+         * makes this loop permanent after the first uncached image. */
+        while (banner_pending_img) banner_render(NULL);
         done++;
         if (preload_progress_cb) preload_progress_cb(done, total);
     }
