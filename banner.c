@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -211,6 +212,28 @@ void banner_load(const char *path) {
 }
 void banner_load_fit(const char *path, int mode, uint16_t bg) {
     banner_load_common(path, mode, bg);
+}
+
+static int banner_image_name(const char *name) {
+    const char *dot = strrchr(name, '.');
+    return dot && (!strcasecmp(dot, ".png") || !strcasecmp(dot, ".jpg") ||
+                   !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".bmp"));
+}
+
+void banner_preload_theme(const char *directory, int mode, uint16_t bg) {
+    DIR *dir;
+    struct dirent *entry;
+    char path[640];
+
+    if (!directory || !(dir = opendir(directory))) return;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.' || !banner_image_name(entry->d_name)) continue;
+        snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
+        banner_load_fit(path, mode, bg);
+        while (banner_is_animating()) banner_render(NULL);
+    }
+    closedir(dir);
+    banner_clear();
 }
 
 void banner_clear(void) {
