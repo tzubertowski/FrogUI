@@ -12,6 +12,14 @@ static int banner_loaded = 0;
 static char banner_active_key[600] = "";
 static int banner_anim = 1;           /* crossfade enabled */
 static int banner_dim = 0;            /* 0 = unchanged, 100 = black */
+#define BANNER_WORK_ROWS 24            /* keep SD/UI work below one frame */
+static unsigned char *banner_pending_img;
+static int banner_pending_w, banner_pending_h;
+static int banner_pending_mode;
+static uint16_t banner_pending_bg;
+static int banner_pending_light;
+static int banner_pending_row;
+static char banner_pending_key[600] = "";
 #define FADE_FRAMES 20                /* ~330ms @ 60fps — slow, iPhone-like */
 static int fade_frame = FADE_FRAMES;  /* 0..FADE_FRAMES; FADE_FRAMES = done */
 
@@ -105,6 +113,14 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
     if (banner_loaded && strcmp(key, banner_active_key) == 0)
         return;
 
+    if (banner_pending_img && strcmp(key, banner_pending_key) == 0)
+        return;
+
+    if (banner_pending_img) {
+        stbi_image_free(banner_pending_img);
+        banner_pending_img = NULL;
+    }
+
     if (!banner_buf) banner_buf = malloc(npix * sizeof(uint16_t));
     if (!banner_buf) { banner_loaded = 0; return; }
 
@@ -126,54 +142,18 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
         return;
     }
 
-    banner_snapshot_for_fade(sw, sh);
-
-    /* Placement: dst rect [dx0,dx0+dw) x [dy0,dy0+dh) that the (scaled) image
-     * covers; pixels outside it get bg. For FILL the rect exceeds the screen
-     * (crop); for FIT/CENTER it's inset (letterbox). */
-    int dx0 = 0, dy0 = 0, dw = sw, dh = sh;
-    if (mode == BANNER_FIT_FILL) {
-        /* cover: scale by the larger ratio, center, crop */
-        if ((long)w * sh > (long)h * sw) { dh = sh; dw = (int)((long)w * sh / h); }
-        else                             { dw = sw; dh = (int)((long)h * sw / w); }
-        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
-    } else if (mode == BANNER_FIT_FIT) {
-        /* contain: scale by the smaller ratio, center, letterbox */
-        if ((long)w * sh > (long)h * sw) { dw = sw; dh = (int)((long)h * sw / w); }
-        else                             { dh = sh; dw = (int)((long)w * sh / h); }
-        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
-    } else if (mode == BANNER_FIT_CENTER) {
-        dw = w; dh = h; dx0 = (sw - w) / 2; dy0 = (sh - h) / 2;
-    }
-    /* STRETCH: dst == screen. TILE handled inline below. */
-
-    int light = 100 - banner_dim;
-    for (int y = 0; y < sh; y++) {
-        for (int x = 0; x < sw; x++) {
-            int sx, sy;
-            if (mode == BANNER_FIT_TILE) {
-                sx = x % w; sy = y % h;
-            } else if (x < dx0 || x >= dx0 + dw || y < dy0 || y >= dy0 + dh) {
-                banner_buf[y * sw + x] = bg;      /* outside image (letterbox/center) */
-                continue;
-            } else {
-                sx = (int)((long)(x - dx0) * w / dw);
-                sy = (int)((long)(y - dy0) * h / dh);
-                if (sx < 0) sx = 0; if (sx >= w) sx = w - 1;
-                if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
-            }
-            unsigned char *p = img + (sy * w + sx) * 3;
-            banner_buf[y * sw + x] = rgb_to_565(
-                (unsigned char)(p[0] * light / 100),
-                (unsigned char)(p[1] * light / 100),
-                (unsigned char)(p[2] * light / 100));
-        }
-    }
-
-    stbi_image_free(img);
-    banner_loaded = 1;
-    snprintf(banner_active_key, sizeof banner_active_key, "%s", key);
-    bcache_store(key, banner_buf, npix);   /* cache the transformed result */
+    /* Decode once, then transform a small number of rows per frame. The old
+     * implementation did the full-screen rescale here, blocking input while
+     * scrolling through systems on the SF3000. */
+    banner_pending_img = img;
+    banner_pending_w = w;
+    banner_pending_h = h;
+    banner_pending_mode = mode;
+    banner_pending_bg = bg;
+    banner_pending_light = 100 - banner_dim;
+    banner_pending_row = 0;
+    snprintf(banner_pending_key, sizeof banner_pending_key, "%s", key);
+    fade_frame = FADE_FRAMES;
 }
 
 void banner_load(const char *path) {
@@ -187,12 +167,64 @@ void banner_load_fit(const char *path, int mode, uint16_t bg) {
 }
 
 void banner_clear(void) {
+    if (banner_pending_img) {
+        stbi_image_free(banner_pending_img);
+        banner_pending_img = NULL;
+    }
     banner_loaded = 0;
     banner_active_key[0] = '\0';
     fade_frame = FADE_FRAMES;
 }
 
 void banner_render(uint16_t *framebuffer) {
+    if (banner_pending_img) {
+        int sw = SCREEN_WIDTH, sh = SCREEN_HEIGHT;
+        int w = banner_pending_w, h = banner_pending_h;
+        int mode = banner_pending_mode;
+        int dx0 = 0, dy0 = 0, dw = sw, dh = sh;
+        if (mode == BANNER_FIT_FILL) {
+            if ((long)w * sh > (long)h * sw) { dh = sh; dw = (int)((long)w * sh / h); }
+            else                             { dw = sw; dh = (int)((long)h * sw / w); }
+            dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+        } else if (mode == BANNER_FIT_FIT) {
+            if ((long)w * sh > (long)h * sw) { dw = sw; dh = (int)((long)h * sw / w); }
+            else                             { dh = sh; dw = (int)((long)w * sh / h); }
+            dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+        } else if (mode == BANNER_FIT_CENTER) {
+            dw = w; dh = h; dx0 = (sw - w) / 2; dy0 = (sh - h) / 2;
+        }
+        int end = banner_pending_row + BANNER_WORK_ROWS;
+        if (end > sh) end = sh;
+        for (int y = banner_pending_row; y < end; y++) {
+            for (int x = 0; x < sw; x++) {
+                int sx, sy;
+                if (mode == BANNER_FIT_TILE) {
+                    sx = x % w; sy = y % h;
+                } else if (x < dx0 || x >= dx0 + dw || y < dy0 || y >= dy0 + dh) {
+                    banner_buf[y * sw + x] = banner_pending_bg;
+                    continue;
+                } else {
+                    sx = (int)((long)(x - dx0) * w / dw);
+                    sy = (int)((long)(y - dy0) * h / dh);
+                    if (sx < 0) sx = 0; if (sx >= w) sx = w - 1;
+                    if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
+                }
+                unsigned char *p = banner_pending_img + (sy * w + sx) * 3;
+                banner_buf[y * sw + x] = rgb_to_565(
+                    (unsigned char)(p[0] * banner_pending_light / 100),
+                    (unsigned char)(p[1] * banner_pending_light / 100),
+                    (unsigned char)(p[2] * banner_pending_light / 100));
+            }
+        }
+        banner_pending_row = end;
+        if (banner_pending_row >= sh) {
+            stbi_image_free(banner_pending_img);
+            banner_pending_img = NULL;
+            banner_loaded = 1;
+            snprintf(banner_active_key, sizeof banner_active_key, "%s", banner_pending_key);
+            bcache_store(banner_active_key, banner_buf, sw * sh);
+        }
+    }
     if (!banner_loaded || !banner_buf || !framebuffer) return;
     int n = SCREEN_WIDTH * SCREEN_HEIGHT;
 
