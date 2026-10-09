@@ -273,7 +273,7 @@ int banner_is_loaded(void) {
 
 /* True while a crossfade is in progress (background still changing each frame). */
 int banner_is_animating(void) {
-    return banner_anim && banner_prev && fade_frame < FADE_FRAMES;
+    return banner_pending_img || (banner_anim && banner_prev && fade_frame < FADE_FRAMES);
 }
 
 /* Repaint a rect with the current background: the banner image slice when one
