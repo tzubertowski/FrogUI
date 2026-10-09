@@ -227,8 +227,8 @@ void render_header(uint16_t *framebuffer, const char *title) {
 }
 
 void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
-  static const char *keys[] = {"tab.recents", "tab.games", "tab.apps",
-                               "tab.settings"};
+  static const char *keys[] = {"tab.recents", "tab.games", "tab.ports",
+                               "tab.apps", "tab.settings"};
   extern int frogui_battery_pct(void);
   if (!framebuffer)
     return;
@@ -237,7 +237,7 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
   int y = UI_S(5);
   int h = ITEM_HEIGHT - UI_S(5);
   int gap = UI_S(8);
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     int pad = UI_S(7);
     const char *label = tr(keys[i]);
     int tw = font_measure_text_ex(label, 1);
