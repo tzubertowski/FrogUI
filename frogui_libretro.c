@@ -2376,10 +2376,14 @@ static void render_activity_page(uint16_t *fb) {
         snprintf(detail, sizeof detail, "%ld runs   %ldh %02ldm total",
                  activity_runs[i], s / 3600, (s % 3600) / 60);
         font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y + UI_S(20), detail, COLOR_DISABLED);
-        int bx = SCREEN_WIDTH * 52 / 100, bw = SCREEN_WIDTH - bx - PADDING;
+        /* Keep the title and metadata at full width. The old right-hand bar
+         * occupied the title lane, so long names were painted underneath it.
+         * Put the play-time bar below the text instead. */
+        int bx = PADDING, bw = SCREEN_WIDTH - PADDING * 2;
         int fill = (int)((long)bw * s / max_seconds); if (fill < UI_S(3)) fill = UI_S(3);
-        render_fill_rect(fb, bx, y + UI_S(9), bw, UI_S(12), COLOR_LEGEND_BG);
-        render_fill_rect(fb, bx, y + UI_S(9), fill, UI_S(12), COLOR_SELECT_BG);
+        int bar_y = y + UI_S(43), bar_h = UI_S(7);
+        render_fill_rect(fb, bx, bar_y, bw, bar_h, COLOR_LEGEND_BG);
+        render_fill_rect(fb, bx, bar_y, fill, bar_h, COLOR_SELECT_BG);
     }
     if (activity_count > visible)
         font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH - UI_S(92), SCREEN_HEIGHT - UI_S(42),
