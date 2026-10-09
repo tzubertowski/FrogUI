@@ -67,6 +67,7 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
 #define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
 #define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
+#define CLAW_CORE CORES_PATH "/openclaw_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -78,6 +79,7 @@ static const ConsoleMapping console_mappings[] = {
     /* ClassiCube */
     {"classicube", CLASSICUBE_CORE},
     {"mcpe", MCPE_CORE},
+    {"claw", CLAW_CORE},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -233,6 +235,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".cw",   CLASSICUBE_CORE},
     {".classicube", CLASSICUBE_CORE},
     {".mcpe", MCPE_CORE},
+    {".claw", CLAW_CORE},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -1549,6 +1552,7 @@ static SystemLabel system_labels[] = {
     {"j2me", "Java Games"},
     {"classicube", "ClassiCube / Minecraft"},
     {"mcpe", "Minecraft PE"},
+    {"claw", "Captain Claw"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
