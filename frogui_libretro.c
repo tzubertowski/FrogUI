@@ -4839,7 +4839,9 @@ void retro_run(void) {
         render_clear_screen(framebuffer);
         render_game_switcher(framebuffer);
     } else {
-        if (banner_is_loaded())
+        /* Keep calling banner_render while a banner is being built in row
+         * batches; otherwise the first pending batch would never advance. */
+        if (banner_is_loaded() || banner_is_animating())
             banner_render(framebuffer);
         else
             render_clear_screen(framebuffer);
