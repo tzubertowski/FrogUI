@@ -17,6 +17,7 @@ static int banner_anim = 1;           /* crossfade enabled */
 static int banner_dim = 0;            /* 0 = unchanged, 100 = black */
 #define BANNER_WORK_ROWS 24            /* keep SD/UI work below one frame */
 static unsigned char *banner_pending_img;
+static uint16_t *banner_pending_buf;
 static int banner_pending_w, banner_pending_h;
 static int banner_pending_mode;
 static uint16_t banner_pending_bg;
@@ -160,6 +161,8 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
         stbi_image_free(banner_pending_img);
         banner_pending_img = NULL;
     }
+    free(banner_pending_buf);
+    banner_pending_buf = NULL;
 
     if (!banner_buf) banner_buf = malloc(npix * sizeof(uint16_t));
     if (!banner_buf) { banner_loaded = 0; return; }
@@ -194,6 +197,13 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
      * implementation did the full-screen rescale here, blocking input while
      * scrolling through systems on the SF3000. */
     banner_pending_img = img;
+    if (!banner_pending_buf)
+        banner_pending_buf = malloc((size_t)npix * sizeof(uint16_t));
+    if (!banner_pending_buf) {
+        stbi_image_free(banner_pending_img);
+        banner_pending_img = NULL;
+        return;
+    }
     banner_pending_w = w;
     banner_pending_h = h;
     banner_pending_mode = mode;
@@ -241,6 +251,8 @@ void banner_clear(void) {
         stbi_image_free(banner_pending_img);
         banner_pending_img = NULL;
     }
+    free(banner_pending_buf);
+    banner_pending_buf = NULL;
     banner_loaded = 0;
     banner_active_key[0] = '\0';
     fade_frame = FADE_FRAMES;
@@ -271,7 +283,7 @@ void banner_render(uint16_t *framebuffer) {
                 if (mode == BANNER_FIT_TILE) {
                     sx = x % w; sy = y % h;
                 } else if (x < dx0 || x >= dx0 + dw || y < dy0 || y >= dy0 + dh) {
-                    banner_buf[y * sw + x] = banner_pending_bg;
+                    banner_pending_buf[y * sw + x] = banner_pending_bg;
                     continue;
                 } else {
                     sx = (int)((long)(x - dx0) * w / dw);
@@ -280,7 +292,7 @@ void banner_render(uint16_t *framebuffer) {
                     if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
                 }
                 unsigned char *p = banner_pending_img + (sy * w + sx) * 3;
-                banner_buf[y * sw + x] = rgb_to_565(
+                banner_pending_buf[y * sw + x] = rgb_to_565(
                     (unsigned char)(p[0] * banner_pending_light / 100),
                     (unsigned char)(p[1] * banner_pending_light / 100),
                     (unsigned char)(p[2] * banner_pending_light / 100));
@@ -290,6 +302,9 @@ void banner_render(uint16_t *framebuffer) {
         if (banner_pending_row >= sh) {
             stbi_image_free(banner_pending_img);
             banner_pending_img = NULL;
+            free(banner_buf);
+            banner_buf = banner_pending_buf;
+            banner_pending_buf = NULL;
             banner_loaded = 1;
             snprintf(banner_active_key, sizeof banner_active_key, "%s", banner_pending_key);
             bcache_store(banner_active_key, banner_buf, sw * sh);
