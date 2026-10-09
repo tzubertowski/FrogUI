@@ -80,6 +80,7 @@ static const ConsoleMapping console_mappings[] = {
     {"classicube", CLASSICUBE_CORE},
     {"mcpe", MCPE_CORE},
     {"claw", CLAW_CORE},
+    {"openclaw", CLAW_CORE},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -1553,6 +1554,7 @@ static SystemLabel system_labels[] = {
     {"classicube", "ClassiCube / Minecraft"},
     {"mcpe", "Minecraft PE"},
     {"claw", "Captain Claw"},
+    {"openclaw", "Captain Claw"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
