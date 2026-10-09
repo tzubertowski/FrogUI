@@ -5,9 +5,6 @@
 enum { BANNER_FIT_FILL, BANNER_FIT_FIT, BANNER_FIT_STRETCH, BANNER_FIT_CENTER, BANNER_FIT_TILE };
 void banner_load(const char *path);                 /* stretch (system art) */
 void banner_load_fit(const char *path, int mode, uint16_t bg);  /* wallpaper */
-typedef void (*banner_preload_progress_cb)(int done, int total);
-void banner_set_preload_progress_callback(banner_preload_progress_cb cb);
-void banner_preload_theme(const char *directory, int mode, uint16_t bg);
 void banner_clear(void);
 void banner_render(uint16_t *framebuffer);
 /* Draw the currently loaded artwork into a contained card without decoding it

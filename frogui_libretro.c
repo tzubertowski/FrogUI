@@ -422,22 +422,6 @@ static int scroll_offset    = 0;
 static uint16_t *framebuffer = NULL;
 static bool shutdown_requested = false;
 
-static void theme_preload_progress(int done, int total) {
-    char text[64];
-    int tw;
-
-    if (!framebuffer || !video_cb) return;
-    render_clear_screen(framebuffer);
-    if (total > 0)
-        snprintf(text, sizeof text, "Loading theme %d/%d", done, total);
-    else
-        snprintf(text, sizeof text, "Loading theme...");
-    tw = font_measure_text(text);
-    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
-                   (SCREEN_WIDTH - tw) / 2, SCREEN_HEIGHT / 2,
-                   text, COLOR_TEXT);
-    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
-}
 static bool viewing_recents = false;
 static bool viewing_favourites = false;
 static bool viewing_apps = false;
@@ -4283,19 +4267,6 @@ void retro_init(void) {
     dbg("calloc done");
     render_init(framebuffer);
     dbg("render_init done");
-    /* Fully prepare the selected theme before interaction, but only after the
-     * framebuffer exists so slow SD decoding cannot present a black boot. */
-    {
-        char active_theme_dir[512];
-        if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count)
-            snprintf(active_theme_dir, sizeof active_theme_dir,
-                     BANNER_DIR "/theme-packs/%s", theme_pack_files[settings_theme_pack_idx]);
-        else
-            snprintf(active_theme_dir, sizeof active_theme_dir, "%s", BANNER_DIR);
-        banner_set_preload_progress_callback(theme_preload_progress);
-        banner_preload_theme(active_theme_dir, settings_wallpaper_fit, COLOR_BG);
-        banner_set_preload_progress_callback(NULL);
-    }
     /* Resolve the roms root before the first scan (see g_roms_path). */
     resolve_roms_root();
     if (strcmp(g_roms_path, ROMS_PATH_DEFAULT) == 0) {

@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
-#include <dirent.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -222,50 +221,6 @@ void banner_load(const char *path) {
 }
 void banner_load_fit(const char *path, int mode, uint16_t bg) {
     banner_load_common(path, mode, bg);
-}
-
-static int banner_image_name(const char *name) {
-    const char *dot = strrchr(name, '.');
-    return dot && (!strcasecmp(dot, ".png") || !strcasecmp(dot, ".jpg") ||
-                   !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".bmp"));
-}
-
-static banner_preload_progress_cb preload_progress_cb;
-
-void banner_set_preload_progress_callback(banner_preload_progress_cb cb) {
-    preload_progress_cb = cb;
-}
-
-void banner_preload_theme(const char *directory, int mode, uint16_t bg) {
-    DIR *dir;
-    struct dirent *entry;
-    char path[640];
-    int total = 0;
-    int done = 0;
-
-    if (!directory || !(dir = opendir(directory))) return;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] != '.' && banner_image_name(entry->d_name))
-            total++;
-    }
-    closedir(dir);
-    if (preload_progress_cb) preload_progress_cb(0, total);
-
-    dir = opendir(directory);
-    if (!dir) return;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.' || !banner_image_name(entry->d_name)) continue;
-        snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
-        banner_load_fit(path, mode, bg);
-        /* Preload has no displayed frame, so a crossfade cannot advance here.
-         * Wait only for the pending decode/transform; including the fade state
-         * makes this loop permanent after the first uncached image. */
-        while (banner_pending_img) banner_render(NULL);
-        done++;
-        if (preload_progress_cb) preload_progress_cb(done, total);
-    }
-    closedir(dir);
-    banner_clear();
 }
 
 void banner_clear(void) {
