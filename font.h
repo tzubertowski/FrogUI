@@ -15,6 +15,7 @@ void font_load_file(const char *font_filename);
 
 // Change the active UI font size and invalidate cached glyphs.
 void font_set_size(int pixels);
+void font_set_render_scale(int percent);
 
 // Retrieve current base UI font size in points/pixels.
 int font_get_size(void);
