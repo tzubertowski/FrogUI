@@ -387,18 +387,6 @@ const Theme themes[] = {
         .legend_bg = RGB565(53, 43, 70),
         .disabled = RGB565(150, 137, 171)
     },
-    {
-        .name = "Canvas Pastel",
-        .bg = RGB565(187, 187, 187),
-        .text = RGB565(119, 119, 119),
-        .select_bg = RGB565(167, 199, 231),
-        .select_text = RGB565(255, 255, 255),
-        .header = RGB565(167, 199, 231),
-        .folder = RGB565(119, 119, 119),
-        .legend = RGB565(119, 119, 119),
-        .legend_bg = RGB565(255, 255, 255),
-        .disabled = RGB565(160, 160, 160)
-    },
     /* Allium-Themes palettes; provenance and mapping: fonts/alium_README.md. */
     {
         .name = "alium_default",
@@ -495,18 +483,6 @@ const Theme themes[] = {
         .legend = RGB565(255, 255, 255),
         .legend_bg = RGB565(0, 0, 0),
         .disabled = RGB565(151, 151, 151)
-    },
-    {
-        .name = "alium_pastel",
-        .bg = RGB565(254, 249, 243),
-        .text = RGB565(74, 74, 74),
-        .select_bg = RGB565(180, 167, 214),
-        .select_text = RGB565(255, 255, 255),
-        .header = RGB565(74, 74, 74),
-        .folder = RGB565(74, 74, 74),
-        .legend = RGB565(74, 74, 74),
-        .legend_bg = RGB565(254, 249, 243),
-        .disabled = RGB565(212, 197, 199)
     },
     {
         .name = "alium_snes",
