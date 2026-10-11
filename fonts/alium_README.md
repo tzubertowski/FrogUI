@@ -12,9 +12,9 @@ Sources:
 - [Bundled Nunito font](https://github.com/goweiwen/Allium/blob/ee0dda979bc02649fdda48b277eaa60938273465/static/.allium/fonts/Nunito.ttf)
 - [Allium-Themes catalog](https://github.com/goweiwen/Allium-Themes/tree/05ed164e5e18628aa1e17acc1896a6c443045997/Themes)
 
-The 11 palettes are `alium_default` (Allium), `alium_alliumboy`, `alium_blue`,
+The 12 palettes are `alium_default` (Allium), `alium_alliumboy`, `alium_blue`,
 `alium_boxart`, `alium_brown`, `alium_bubblegum`, `alium_eva_01`, `alium_min`,
-`alium_snes`, `alium_spruceos`, and `alium_synthwave`.
+`alium_pastel`, `alium_snes`, `alium_spruceos`, and `alium_synthwave`.
 
 These are color ports, not layout or wallpaper ports. Source RGB components
 are converted to FrogUI's RGB565 format; alpha is omitted because the palette

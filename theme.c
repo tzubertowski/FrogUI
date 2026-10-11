@@ -485,6 +485,18 @@ const Theme themes[] = {
         .disabled = RGB565(151, 151, 151)
     },
     {
+        .name = "alium_pastel",
+        .bg = RGB565(254, 249, 243),
+        .text = RGB565(74, 74, 74),
+        .select_bg = RGB565(180, 167, 214),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(74, 74, 74),
+        .folder = RGB565(74, 74, 74),
+        .legend = RGB565(74, 74, 74),
+        .legend_bg = RGB565(254, 249, 243),
+        .disabled = RGB565(212, 197, 199)
+    },
+    {
         .name = "alium_snes",
         .bg = RGB565(84, 88, 90),
         .text = RGB565(255, 255, 255),
