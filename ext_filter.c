@@ -107,6 +107,16 @@ static void apply_builtin_defaults(void) {
     for (int f = 0; folders[f]; f++)
         for (int e = 0; disc_exts[e]; e++)
             ext_filter_add_builtin(folders[f], disc_exts[e]);
+
+    /* The NDS folder contains saves and sidecars alongside ROMs. */
+    ext_filter_add_builtin("nds", "nds");
+
+    /* Captain Claw keeps its real game archive and runtime assets beside the
+     * tiny .claw launcher; only the launcher belongs in the ROM browser. */
+    ext_filter_add_builtin("openclaw", "claw");
+    ext_filter_add_builtin("picante8", "p8");
+    ext_filter_add_builtin("picante8", "png");
+    ext_filter_add_builtin("diablo", "diablo");
 }
 
 void ext_filter_load(void) {
@@ -141,7 +151,7 @@ void ext_filter_load(void) {
                 /* re-resolve the built-in marker for persisted entries */
                 static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
                 static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", "qpsx", NULL };
-                int is_builtin = 0;
+                int is_builtin = strcasecmp(line, "diablo") == 0 && strcmp(norm, "diablo") == 0;
                 for (int fi = 0; folders[fi]; fi++)
                     if (strcasecmp(folders[fi], line) == 0) {
                         for (int ei = 0; disc_exts[ei]; ei++)

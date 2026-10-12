@@ -53,7 +53,9 @@
 /* The launcher may point FrogUI at a mounted USB disk. */
 static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define ROMS_PATH    g_roms_path
-#define LAUNCH_FILE  "/tmp/frogui_launch.txt"
+/* FrogUI and zhijack do not share /tmp on R36HD. Keep the handoff on the
+ * shared SD mount so the launcher can see it after FrogUI exits. */
+#define LAUNCH_FILE  "/mnt/sdcard/cubegm/frogui_launch.txt"
 #define LANGUAGE_RESTART_FLAG SDCARD_BASE "/frogui/language_restart.flag"
 #define PCSX4ALL_BIN SDCARD_BASE "/cubegm/pcsx4all"
 #define PICO286_BIN  SDCARD_BASE "/cubegm/pico286"
@@ -64,10 +66,12 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define IMAGE_BIN    SDCARD_BASE "/cubegm/image_viewer" /* hardware-decoded image viewer */
 #define PPSSPP_BIN   SDCARD_BASE "/cubegm/ppsspp"       /* optional standalone SF3000 port */
 #define DSPERATE_BIN SDCARD_BASE "/cubegm/dsperate/run_sf3000.sh"
+#define DIABLO_BIN   SDCARD_BASE "/cubegm/devilutionx.sh" /* wrapper sets Diablo's cwd */
 #define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
 #define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
 #define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
 #define CLAW_CORE CORES_PATH "/openclaw_libretro.so"
+#define PICANTE8_CORE CORES_PATH "/picante8_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -80,6 +84,8 @@ static const ConsoleMapping console_mappings[] = {
     {"classicube", CLASSICUBE_CORE},
     {"mcpe", MCPE_CORE},
     {"openclaw", CLAW_CORE},
+    {"picante8", PICANTE8_CORE},
+    {"diablo", DIABLO_BIN},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -1550,13 +1556,14 @@ static SystemLabel system_labels[] = {
     {"classicube", "ClassiCube / Minecraft"},
     {"mcpe", "Minecraft PE"},
     {"openclaw", "Captain Claw"},
+    {"diablo", "Diablo 1"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
     {"flashback", "Flashback"}, {"xrick", "Rick Dangerous"},
     {"jnb", "Jump 'n Bump"}, {"gw", "Game & Watch"},
     {"tic80", "TIC-80"}, {"pico8", "PICO-8"}, {"fake08", "PICO-8"},
-    {"retro8", "PICO-8 - Retro8"}, {"lowres-nx", "LowRes NX"},
+    {"retro8", "PICO-8 - Retro8"}, {"picante8", "PICO-8 - Picante8"}, {"lowres-nx", "LowRes NX"},
     {"pokem", "Pokemon Mini"}, {"int", "Intellivision"},
     {"fcf", "Fairchild Channel F"}, {"cdg", "CD+G Karaoke"},
     {"chip8", "CHIP-8"}, {"arduboy", "Arduboy"},
@@ -1628,7 +1635,8 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         if (!name || !*name) name = "main";
         /* Theme packs historically used m2k/gb names. Keep those assets
          * working for the canonical arcade and Game Boy Color folders too. */
-        const char *names[] = { name,
+        const char *names[] = {
+            name,
             strcasecmp(name, "arcade") == 0 ? "m2k" : NULL,
             strcasecmp(name, "gbc") == 0 ? "gb" : NULL,
             /* Java Games has no dedicated artwork; use the active theme's
@@ -1726,7 +1734,7 @@ static int folder_has_games(const char *path, int depth) {
  * then rewrites the cache. Cache lives in frogui/.cache/, never in the rom dirs,
  * and the whole feature is behind settings_file_cache so it can be turned off. */
 #define CACHE_DIR   SETTINGS_DIR "/.cache"
-#define CACHE_MAGIC 0x33435546u    /* "FUC3" — bumped when the listing content
+#define CACHE_MAGIC 0x34435546u    /* "FUC4" — bumped when the listing content
                                      * changes WITHOUT the dir mtime moving
                                      * (e.g. extension-whitelist edits). */
 #define CACHE_MAX_ENTRIES 100000   /* sanity cap to reject a corrupt count */
@@ -2714,6 +2722,9 @@ static void request_game_launch(const char *core_path, const char *rom_path) {
 
 static void request_standalone_launch(const char *bin_path, const char *rom_path) {
     dbg("standalone_launch: start");
+    /* Standalone apps own the whole screen. Match PicoArch/PCSX4ALL and hide
+     * the stock fb1 OSD while they run; FrogUI re-enables it in retro_init. */
+    fb1_set_visible(0);
     if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* standalone app owns the audio path */
     write_picoarch_skin();
@@ -2786,7 +2797,8 @@ static bool is_standalone_bin(const char *name) {
                     strcmp(name, VIDEO_BIN)    == 0 ||
                     strcmp(name, IMAGE_BIN)    == 0 ||
                     strcmp(name, PPSSPP_BIN)   == 0 ||
-                    strcmp(name, DSPERATE_BIN) == 0);
+                    strcmp(name, DSPERATE_BIN) == 0 ||
+                    strcmp(name, DIABLO_BIN)   == 0);
 }
 
 /* ----------------------------- Search (X button) ----------------------------- */
@@ -2887,6 +2899,16 @@ static void run_search(void) {
  * pcsx4all preference (a ps1 favourite booted pcsx_rearmed instead). */
 static void launch_by_path(const char *path) {
     const char *folder = get_console_folder(path);
+    /* Runtime assets are kept beside the launcher, but are not games. This
+     * guard also protects stale favourites/recents created before the
+     * openclaw extension whitelist was added. */
+    if (folder && strcasecmp(folder, "openclaw") == 0) {
+        const char *dot = strrchr(path, '.');
+        if (!dot || strcasecmp(dot, ".claw") != 0) {
+            dbg("launch: ignored non-launcher openclaw asset");
+            return;
+        }
+    }
     char dir[MAX_PATH_LEN];
     strncpy(dir, path, sizeof(dir) - 1);
     dir[sizeof(dir) - 1] = '\0';
@@ -2895,6 +2917,12 @@ static void launch_by_path(const char *path) {
     const char *ov = core_override_lookup(path, dir);
     const char *core = ov ? ov : get_core_for_folder(folder);
     if (!core) core = get_core_for_extension(path);
+    {
+        char msg[768];
+        snprintf(msg, sizeof msg, "launch resolved folder=%s core=%s rom=%s",
+                 folder ? folder : "(none)", core ? core : "(none)", path);
+        dbg(msg);
+    }
     if (ov)
         request_game_launch(ov, path);         /* explicit override → libretro */
     else if (core) {

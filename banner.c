@@ -145,7 +145,19 @@ static void banner_snapshot_for_fade(int sw, int sh) {
 static void banner_load_common(const char *path, int mode, uint16_t bg) {
     int sw = SCREEN_WIDTH, sh = SCREEN_HEIGHT, npix = sw * sh;
     char key[600];
-    snprintf(key, sizeof key, "%s|%d|%u|dim=%d", path, mode, (unsigned)bg, banner_dim);
+    /* Include the source identity and target geometry.  The old cache key only
+     * used the pathname, so replacing theme assets or switching between the
+     * 854x480 and 640x480 panels kept displaying stale/blank renders. */
+    struct stat source_st;
+    long long source_mtime = 0;
+    long long source_size = 0;
+    if (stat(path, &source_st) == 0) {
+        source_mtime = (long long)source_st.st_mtime;
+        source_size = (long long)source_st.st_size;
+    }
+    snprintf(key, sizeof key, "%s|%d|%u|dim=%d|panel=%dx%d|src=%lld:%lld",
+             path, mode, (unsigned)bg, banner_dim, sw, sh,
+             source_mtime, source_size);
 
     /* Several systems can fall back to the same main image. Do not start a
      * pointless full-screen fade, or even memcpy, when the resolved art did
