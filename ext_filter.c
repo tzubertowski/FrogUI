@@ -111,9 +111,18 @@ static void apply_builtin_defaults(void) {
     /* The NDS folder contains saves and sidecars alongside ROMs. */
     ext_filter_add_builtin("nds", "nds");
 
+    /* Bundled ports keep runtime data beside a small launch marker. Only the
+     * marker belongs in the browser; hide packaged support files. */
+    ext_filter_add_builtin("j2me", "jar");
+    ext_filter_add_builtin("j2me", "jad");
+    ext_filter_add_builtin("classicube", "cw");
+    ext_filter_add_builtin("classicube", "classicube");
+    ext_filter_add_builtin("mcpe", "mcpe");
+
     /* Captain Claw keeps its real game archive and runtime assets beside the
      * tiny .claw launcher; only the launcher belongs in the ROM browser. */
     ext_filter_add_builtin("openclaw", "claw");
+    ext_filter_add_builtin("openclaw", "openclaw");
     ext_filter_add_builtin("picante8", "p8");
     ext_filter_add_builtin("picante8", "png");
     ext_filter_add_builtin("diablo", "diablo");

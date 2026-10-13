@@ -242,6 +242,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".classicube", CLASSICUBE_CORE},
     {".mcpe", MCPE_CORE},
     {".claw", CLAW_CORE},
+    {".openclaw", CLAW_CORE},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -902,7 +903,7 @@ static int settings_menu_sounds = 0;    /* short navigation tick: 0=off, 1=on */
 enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_COUNT };
 static int settings_style = STYLE_VERTICAL;
 static int settings_center_text = 0;   /* center labels in the vertical system list */
-static int settings_friendly_names = 0; /* expand system folder codes in either style */
+static int settings_friendly_names = 1; /* expand system folder codes in either style */
 static int settings_hide_empty = 1;     /* hide rom folders with no games: 0=off, 1=on */
 static int settings_hide_extensions = 1; /* hide file extensions in the browser: 0=off, 1=on */
 static int settings_backgrounds = 1;     /* show per-system background images: 0=off (solid theme bg), 1=on */
