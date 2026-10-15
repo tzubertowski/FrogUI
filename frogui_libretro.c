@@ -3,8 +3,8 @@
  *
  * Picoarch loads this core and handles ALL display/input/SDL init.
  * FrogUI renders its menu into a RGB565 buffer and passes it to video_cb.
- * When user picks a game, write /tmp/frogui_launch.txt and signal SHUTDOWN.
- * icube reads that file and launches picoarch with the real game core.
+ * When user picks a game, atomically publish the shared SD launch request and
+ * signal SHUTDOWN. zhijack reads it and launches picoarch or a standalone app.
  */
 
 #include <stdio.h>
@@ -24,6 +24,8 @@
 #include <math.h>
 #include <stdbool.h>
 #include <time.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 #include "libretro.h"
 #include "font.h"
@@ -40,6 +42,7 @@
 #include "common/i18n.h"
 
 #define SDCARD_BASE  "/mnt/sdcard"
+#define PORT_ERROR_FILE SDCARD_BASE "/cubegm/port_error.txt"
 #define CORES_PATH   SDCARD_BASE "/cubegm/cores"
 /* Core audio rate (single source of truth: av_info AND the menu-tick length
  * are both derived from this - see ui_menu_tick). */
@@ -53,6 +56,20 @@
 /* The launcher may point FrogUI at a mounted USB disk. */
 static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define ROMS_PATH    g_roms_path
+
+typedef struct { const char *slug, *name; bool pending; } PortMigration;
+static PortMigration port_migrations[] = {
+    {"diablo", "Diablo 1", false},
+    {"duke3d", "Duke Nukem 3D", false},
+    {"mcpe", "Minecraft PE", false},
+    {"openclaw", "Captain Claw", false},
+    {"undertale", "Undertale", false},
+    {"classicube", "ClassiCube", false}
+};
+static int port_migration_count, port_migration_index, port_migration_failures;
+static int port_migration_finish_frames, port_migration_result_frames;
+static bool port_migration_active;
+static bool port_migration_current_ok;
 /* FrogUI and zhijack do not share /tmp on R36HD. Keep the handoff on the
  * shared SD mount so the launcher can see it after FrogUI exits. */
 #define LAUNCH_FILE  "/mnt/sdcard/cubegm/frogui_launch.txt"
@@ -72,6 +89,8 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
 #define CLAW_CORE CORES_PATH "/openclaw_libretro.so"
 #define PICANTE8_CORE CORES_PATH "/picante8_libretro.so"
+#define DUKE3D_CORE CORES_PATH "/duke3d_libretro.so"
+#define BUTTERSCOTCH_CORE CORES_PATH "/butterscotch_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -85,6 +104,8 @@ static const ConsoleMapping console_mappings[] = {
     {"mcpe", MCPE_CORE},
     {"openclaw", CLAW_CORE},
     {"picante8", PICANTE8_CORE},
+    {"duke3d", DUKE3D_CORE},
+    {"undertale", BUTTERSCOTCH_CORE},
     {"diablo", DIABLO_BIN},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
@@ -243,6 +264,8 @@ static const ExtensionMapping ext_mappings[] = {
     {".mcpe", MCPE_CORE},
     {".claw", CLAW_CORE},
     {".openclaw", CLAW_CORE},
+    {".duke3d", DUKE3D_CORE},
+    {".butterscotch", BUTTERSCOTCH_CORE},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -467,6 +490,14 @@ static bool usb_mode_initiated_active = false;
 static bool usb_mode_wait_for_release = false;
 static long long usb_mode_initiated_at_ms = 0;
 static uint32_t usb_mode_prev_raw = 0;
+static bool port_error_active = false;
+static bool port_error_wait_release = false;
+static char port_error_name[48];
+static char port_error_url[256];
+static char port_error_qr_path[MAX_PATH_LEN];
+static char port_error_files[6][128];
+static int port_error_file_count = 0;
+static Thumbnail port_error_qr;
 static void ui_toast_show(const char *text);
 static void ui_transition_start(int direction);
 static void system_labels_refresh(void);
@@ -1475,6 +1506,8 @@ static const char* get_console_folder(const char *path) {
         if (*sub == '/') {
             sub++;
         }
+        if (strncasecmp(sub, "ports/", 6) == 0 && sub[6])
+            sub += 6;
         static char console[64];
         int i = 0;
         while (sub[i] != '\0' && sub[i] != '/' && i < 63) {
@@ -1558,6 +1591,9 @@ static SystemLabel system_labels[] = {
     {"mcpe", "Minecraft PE"},
     {"openclaw", "Captain Claw"},
     {"diablo", "Diablo 1"},
+    {"duke3d", "Duke Nukem 3D"},
+    {"undertale", "Undertale"},
+    {"ports", "Ports"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
@@ -1631,6 +1667,19 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
             if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
         }
     } else {
+        char ports_root[512];
+        snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
+        if (path && strncmp(path, ports_root, strlen(ports_root)) == 0) {
+            for (int i = 0; exts[i]; i++) {
+                snprintf(img, sizeof(img), "%s/main.%s", banner_dir, exts[i]);
+                if (access(img, R_OK) == 0) {
+                    banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                    return;
+                }
+            }
+            banner_clear();
+            return;
+        }
         const char *base = (path && *path) ? strrchr(path, '/') : NULL;
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
@@ -1735,7 +1784,7 @@ static int folder_has_games(const char *path, int depth) {
  * then rewrites the cache. Cache lives in frogui/.cache/, never in the rom dirs,
  * and the whole feature is behind settings_file_cache so it can be turned off. */
 #define CACHE_DIR   SETTINGS_DIR "/.cache"
-#define CACHE_MAGIC 0x34435546u    /* "FUC4" — bumped when the listing content
+#define CACHE_MAGIC 0x35435546u    /* "FUC5" — bumped when the listing content
                                      * changes WITHOUT the dir mtime moving
                                      * (e.g. extension-whitelist edits). */
 #define CACHE_MAX_ENTRIES 100000   /* sanity cap to reject a corrupt count */
@@ -1847,6 +1896,13 @@ static void scan_directory(const char *path) {
      * NULL deref (SIGBUS addr=0) and a boot crash-loop on cards without roms/. */
     entry_count = 0;
     int at_root = strcmp(path, ROMS_PATH) == 0;
+    char ports_root[MAX_PATH_LEN];
+    snprintf(ports_root, sizeof ports_root, "%s/ports", ROMS_PATH);
+    int in_ports = strncmp(path, ports_root, strlen(ports_root)) == 0 &&
+                   (path[strlen(ports_root)] == '\0' ||
+                    path[strlen(ports_root)] == '/');
+    int at_ports_root = strcmp(path, ports_root) == 0;
+    int have_ports = access(ports_root, F_OK) == 0;
 
     /* Cache fast path: if the dir is unchanged (mtime match), load the sorted
      * listing from disk and skip readdir/stat/empty-check/sort entirely. */
@@ -1869,8 +1925,13 @@ static void scan_directory(const char *path) {
             if (e->d_name[0] == '.') continue;
             int isdir = dirent_is_dir(path, e);   /* d_type, stat() only if unknown */
             if (isdir < 0) continue;
+            /* Ports lists launchers only. Port data stays in hidden folders. */
+            if (in_ports && at_ports_root && isdir) continue;
+            if (isdir && in_ports && !at_ports_root) continue;
             if (!isdir) {
                 const char *ext = strrchr(e->d_name, '.');
+                if (in_ports &&
+                    (!ext || strcasecmp(ext, ".sh") != 0)) continue;
                 /* PICO-8 carts are .p8.png — keep them; only skip plain .png artwork. */
                 size_t nlen = strlen(e->d_name);
                 int is_p8png = nlen >= 7 && strcasecmp(e->d_name + nlen - 7, ".p8.png") == 0;
@@ -1883,11 +1944,18 @@ static void scan_directory(const char *path) {
                  * other system shows everything as before. The extension was
                  * already isolated once above (review: normalize per entry,
                  * never per API call) - pass it, or "" when there is none. */
-                if (ext_filter_should_hide(sys_folder[0] ? sys_folder : NULL,
+                if (!in_ports && ext_filter_should_hide(sys_folder[0] ? sys_folder : NULL,
                                            ext ? ext + 1 : "")) continue;
             }
             /* Always hide the internal "menu" folder at the root. */
             if (isdir && at_root && strcasecmp(e->d_name, "menu") == 0) continue;
+            if (isdir && at_root && have_ports &&
+                (strcasecmp(e->d_name, "diablo") == 0 ||
+                 strcasecmp(e->d_name, "duke3d") == 0 ||
+                 strcasecmp(e->d_name, "mcpe") == 0 ||
+                 strcasecmp(e->d_name, "openclaw") == 0 ||
+                 strcasecmp(e->d_name, "undertale") == 0 ||
+                 strcasecmp(e->d_name, "classicube") == 0)) continue;
             if (isdir && at_root && is_psp_folder(e->d_name)) continue;
             /* Media libraries live under Apps, not in the Games tab. */
             if (isdir && at_root && is_app_folder_name(e->d_name)) continue;
@@ -2900,6 +2968,15 @@ static void run_search(void) {
  * pcsx4all preference (a ps1 favourite booted pcsx_rearmed instead). */
 static void launch_by_path(const char *path) {
     const char *folder = get_console_folder(path);
+    const char *extension = strrchr(path, '.');
+    char ports_root[MAX_PATH_LEN];
+    snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
+    if (strncmp(path, ports_root, strlen(ports_root)) == 0 && folder &&
+        extension &&
+        strcasecmp(extension, ".sh") == 0) {
+        request_standalone_launch(path, path);
+        return;
+    }
     /* Runtime assets are kept beside the launcher, but are not games. This
      * guard also protects stale favourites/recents created before the
      * openclaw extension whitelist was added. */
@@ -3620,6 +3697,7 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) key = "favourites";
     else if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) key = "recents";
     else if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) key = "settings";
+    else if (strcasecmp(folder, "ports") == 0) key = "menu";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";
@@ -3826,6 +3904,19 @@ static void render_system_grid(uint16_t *fb) {
 
 static void handle_input(void) {
     input_update();
+
+    if (port_error_active) {
+        if (port_error_wait_release) {
+            if (input_get_raw_state() == 0) port_error_wait_release = false;
+        } else if (input_was_pressed(FROG_BTN_A) ||
+                   input_was_pressed(FROG_BTN_B) ||
+                   input_was_pressed(FROG_BTN_START)) {
+            port_error_active = false;
+            unlink(PORT_ERROR_FILE);
+            free_thumbnail(&port_error_qr);
+        }
+        return;
+    }
 
     /* A modal action must not fall through to the browser while its physical
      * button is still held.  In particular, B previously cancelled the modal
@@ -4299,6 +4390,218 @@ void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb){ audio_batch_cb
 void retro_set_input_poll(retro_input_poll_t cb)                { input_poll_cb = cb; }
 void retro_set_input_state(retro_input_state_t cb)              { input_state_cb = cb; }
 
+static void port_error_load(void) {
+    static const struct { const char *slug, *name; } ports[] = {
+        {"diablo", "Diablo 1"}, {"duke3d", "Duke Nukem 3D"},
+        {"mcpe", "Minecraft PE"}, {"openclaw", "Captain Claw"},
+        {"undertale", "Undertale"}, {NULL, NULL}
+    };
+    FILE *f = fopen(PORT_ERROR_FILE, "r");
+    char slug[32], qr_path[MAX_PATH_LEN];
+    if (!f) return;
+    if (!fgets(slug, sizeof slug, f)) { fclose(f); return; }
+    slug[strcspn(slug, "\r\n")] = '\0';
+    for (int i = 0; ports[i].slug; i++) {
+        if (strcmp(slug, ports[i].slug) == 0) {
+            strncpy(port_error_name, ports[i].name, sizeof port_error_name - 1);
+            break;
+        }
+    }
+    if (!port_error_name[0] || !fgets(port_error_url, sizeof port_error_url, f) ||
+        !fgets(qr_path, sizeof qr_path, f)) { fclose(f); return; }
+    port_error_url[strcspn(port_error_url, "\r\n")] = '\0';
+    qr_path[strcspn(qr_path, "\r\n")] = '\0';
+    snprintf(port_error_qr_path, sizeof port_error_qr_path,
+             "%s/frogui/port-help/%s.png", SDCARD_BASE, slug);
+    if (strcmp(qr_path, port_error_qr_path) != 0 ||
+        strncmp(port_error_url, "https://github.com/", 19) != 0) {
+        fclose(f);
+        port_error_name[0] = '\0';
+        return;
+    }
+    while (port_error_file_count < 6 &&
+           fgets(port_error_files[port_error_file_count],
+                 sizeof port_error_files[0], f)) {
+        char *line = port_error_files[port_error_file_count];
+        line[strcspn(line, "\r\n")] = '\0';
+        if (*line) port_error_file_count++;
+    }
+    fclose(f);
+    if (port_error_file_count == 0) return;
+    port_error_qr_path[strlen(port_error_qr_path) - 4] = '\0';
+    load_thumbnail(port_error_qr_path, &port_error_qr);
+    port_error_wait_release = true;
+    port_error_active = true;
+}
+
+static void port_migration_detect(void) {
+    char path[512];
+    port_migration_count = port_migration_index = port_migration_failures = 0;
+    port_migration_finish_frames = port_migration_result_frames = 0;
+    port_migration_active = false;
+    for (size_t i = 0; i < sizeof(port_migrations) / sizeof(port_migrations[0]); i++) {
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", ROMS_PATH_DEFAULT,
+                 port_migrations[i].slug);
+        port_migrations[i].pending = stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+        if (port_migrations[i].pending) port_migration_count++;
+    }
+    port_migration_active = port_migration_count > 0;
+}
+
+static int port_migration_command(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static bool port_migration_move_entry(const char *src, const char *dst) {
+    struct stat src_st, dst_st;
+    if (lstat(src, &src_st) != 0) return false;
+    if (lstat(dst, &dst_st) == 0) {
+        if (S_ISDIR(src_st.st_mode) && S_ISDIR(dst_st.st_mode)) {
+            DIR *dir = opendir(src);
+            if (!dir) return false;
+            struct dirent *entry;
+            char src_child[1024], dst_child[1024];
+            bool ok = true;
+            errno = 0;
+            while ((entry = readdir(dir)) != NULL) {
+                const char *name = entry->d_name;
+                if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+                if (snprintf(src_child, sizeof src_child, "%s/%s", src, name) >=
+                        (int)sizeof src_child ||
+                    snprintf(dst_child, sizeof dst_child, "%s/%s", dst, name) >=
+                        (int)sizeof dst_child ||
+                    !port_migration_move_entry(src_child, dst_child)) {
+                    ok = false;
+                    break;
+                }
+                errno = 0;
+            }
+            if (errno != 0) ok = false;
+            closedir(dir);
+            return ok;
+        }
+        return true; /* the release-provided file wins */
+    }
+    if (errno != ENOENT) return false;
+    if (rename(src, dst) == 0) return true;
+    if (!S_ISDIR(src_st.st_mode) || errno != EXDEV) return false;
+    if (mkdir(dst, src_st.st_mode & 0777) != 0 && errno != EEXIST) return false;
+    return port_migration_move_entry(src, dst);
+}
+
+static bool port_migration_move(PortMigration *port) {
+    char src[512], dst[512], src_item[1024], dst_item[1024];
+    snprintf(src, sizeof src, "%s/%s", ROMS_PATH_DEFAULT, port->slug);
+    snprintf(dst, sizeof dst, "%s/ports/%s", ROMS_PATH_DEFAULT, port->slug);
+    if (mkdir(ROMS_PATH_DEFAULT "/ports", 0777) != 0 && errno != EEXIST)
+        return false;
+    if (mkdir(dst, 0777) != 0 && errno != EEXIST) return false;
+    DIR *dir = opendir(src);
+    if (!dir) return false;
+    struct dirent *entry;
+    bool ok = true;
+    errno = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        /* Release supplies current launchers/art; preserve user game data only. */
+        if (strncasecmp(name, "Start ", 6) == 0 ||
+            (strcmp(port->slug, "classicube") == 0 &&
+             strcmp(name, "Start_Here.cw") == 0) ||
+            (len >= 3 && strcasecmp(name + len - 3, ".sh") == 0)) continue;
+        if (snprintf(src_item, sizeof src_item, "%s/%s", src, name) >=
+                (int)sizeof src_item ||
+            snprintf(dst_item, sizeof dst_item, "%s/%s", dst, name) >=
+                (int)sizeof dst_item ||
+            !port_migration_move_entry(src_item, dst_item)) {
+            ok = false;
+            break;
+        }
+        errno = 0;
+    }
+    if (errno != 0) ok = false;
+    closedir(dir);
+    if (!ok) return false;
+    char *remove[] = {"rm", "-rf", src, NULL};
+    return port_migration_command(remove) == 0;
+}
+
+static void draw_migration_line(const char *text, int y, uint16_t color) {
+    int x = (SCREEN_WIDTH - font_measure_text(text, 1)) / 2;
+    if (x < PADDING) x = PADDING;
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text, color, 1);
+}
+
+static void render_port_migration(const PortMigration *port, int index,
+                                  int result) {
+    render_clear_screen(framebuffer);
+    int card_w = SCREEN_WIDTH - UI_S(40);
+    int card_h = UI_S(240);
+    int x = (SCREEN_WIDTH - card_w) / 2;
+    int y = (SCREEN_HEIGHT - card_h + UI_S(28)) / 2;
+    render_rounded_rect(framebuffer, x, y, card_w, card_h, UI_S(12),
+                        theme_select_bg());
+    render_header(framebuffer, "Migrating ports");
+    const uint16_t text_color = theme_select_text();
+    if (result == 2) {
+        draw_migration_line(port_migration_failures
+                            ? "Some old folders were kept safe."
+                            : "All done! Your ports are ready!",
+                            y + UI_S(44), text_color);
+    } else if (result == 1 || result == -1) {
+        char line[96];
+        if (result == 1)
+            snprintf(line, sizeof line, "%s moved successfully!", port->name);
+        else
+            snprintf(line, sizeof line, "%s stayed in its old folder.", port->name);
+        draw_migration_line(line, y + UI_S(44), text_color);
+        draw_migration_line("Moving on to the next port...",
+                            y + UI_S(78), text_color);
+    } else {
+        char progress[48];
+        draw_migration_line("Currently migrating", y + UI_S(18), text_color);
+        draw_migration_line(port->name, y + UI_S(46), text_color);
+        draw_migration_line("to the new Ports system.", y + UI_S(74), text_color);
+        draw_migration_line("Please wait...", y + UI_S(102), text_color);
+        draw_migration_line("This may take a little while.",
+                            y + UI_S(130), text_color);
+        draw_migration_line("Thanks for your patience!",
+                            y + UI_S(158), text_color);
+        snprintf(progress, sizeof progress, "Port %d of %d",
+                 index + 1, port_migration_count);
+        draw_migration_line(progress, y + UI_S(206), text_color);
+    }
+
+    int bar_x = x + UI_S(20);
+    int bar_y = y + UI_S(180);
+    int bar_w = card_w - UI_S(40);
+    int bar_h = UI_S(10);
+    int completed = result == 2 ? port_migration_count : index;
+    if (result == 1 || result == -1) completed++;
+    if (completed < 0) completed = 0;
+    if (completed > port_migration_count) completed = port_migration_count;
+    render_rounded_rect(framebuffer, bar_x, bar_y, bar_w, bar_h,
+                        bar_h / 2, COLOR_LEGEND_BG);
+    int fill_w = port_migration_count > 0
+               ? (bar_w - UI_S(4)) * completed / port_migration_count : bar_w;
+    if (fill_w > 0)
+        render_rounded_rect(framebuffer, bar_x + UI_S(2), bar_y + UI_S(2),
+                            fill_w, bar_h - UI_S(4),
+                            (bar_h - UI_S(4)) / 2, theme_header());
+}
+
 
 void retro_init(void) {
     dbg("retro_init start");
@@ -4382,13 +4685,22 @@ void retro_init(void) {
     }
     strncpy(current_path, g_roms_path, MAX_PATH_LEN - 1);
     current_path[MAX_PATH_LEN - 1] = '\0';
-    scan_directory(current_path);
-    dbg("scan_directory done");
-    /* Recents reuses entries[] for its own rows. Keep the freshly-built Games
-     * root in RAM so switching tabs never re-walks the FAT filesystem. */
-    save_games_tab_entries();
-    if (settings_load_recents && recent_games_get_count() > 0)
-        enter_recents_view();   /* "Start in Recents" setting */
+    port_migration_detect();
+    if (!port_migration_active) {
+        scan_directory(current_path);
+        dbg("scan_directory done");
+        /* Recents reuses entries[] for its own rows. Keep the freshly-built
+         * Games root in RAM so switching tabs never re-walks the FAT filesystem. */
+        save_games_tab_entries();
+        if (settings_load_recents && recent_games_get_count() > 0)
+            enter_recents_view();
+    }
+    port_error_active = false;
+    port_error_wait_release = false;
+    port_error_name[0] = port_error_url[0] = port_error_qr_path[0] = '\0';
+    port_error_file_count = 0;
+    free_thumbnail(&port_error_qr);
+    port_error_load();
     shutdown_requested = false;
     dbg("retro_init complete");
 }
@@ -4407,6 +4719,7 @@ void retro_deinit(void) {
     free(view_transition_out); view_transition_out = NULL;
     free(games_tab_entries); games_tab_entries = NULL;
     games_tab_entry_count = 0;
+    free_thumbnail(&port_error_qr);
     free(entries);     entries = NULL;
     entry_count = entry_capacity = 0;
 }
@@ -4687,7 +5000,94 @@ static void render_usb_confirm(void) {
     }
 }
 
+static void render_port_error(void) {
+    const uint16_t panel = 0x1082, red = 0xF800, white = 0xFFFF;
+    int margin = UI_S(12), x = margin, y = margin;
+    int w = SCREEN_WIDTH - margin * 2, h = SCREEN_HEIGHT - margin * 2;
+    render_clear_screen(framebuffer);
+    render_fill_rect(framebuffer, x, y, w, h, panel);
+    render_fill_rect(framebuffer, x, y, w, UI_S(56), panel);
+
+    int cross = UI_S(38), thick = UI_S(5), cx = x + UI_S(12), cy = y + UI_S(8);
+    for (int py = 0; py < cross; py++) {
+        for (int px = 0; px < cross; px++) {
+            if (abs(px - py) <= thick || abs(px - (cross - 1 - py)) <= thick)
+                framebuffer[(cy + py) * SCREEN_WIDTH + cx + px] = red;
+        }
+    }
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(62), y + UI_S(18), "REQUIRED FILES MISSING", white, 1);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + UI_S(76), port_error_name, white, 1);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + UI_S(110), "Missing:", white, 1);
+    for (int i = 0; i < port_error_file_count; i++) {
+        char line[136];
+        snprintf(line, sizeof line, "- %s", port_error_files[i]);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       x + UI_S(18), y + UI_S(140 + i * 27), line, white);
+    }
+    if (port_error_qr.data) {
+        render_thumbnail(framebuffer, &port_error_qr);
+        const char *caption = "SCAN FOR INSTALL GUIDE";
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       SCREEN_WIDTH - THUMBNAIL_MAX_WIDTH +
+                           (THUMBNAIL_MAX_WIDTH - font_measure_text(caption)) / 2,
+                       (SCREEN_HEIGHT + port_error_qr.height) / 2 + UI_S(12),
+                       caption, white, 1);
+    }
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + h - UI_S(38), "Press A or B to return", white);
+}
+
 void retro_run(void) {
+    if (port_migration_active) {
+        if (port_migration_index < port_migration_count) {
+            PortMigration *port = NULL;
+            int seen = 0;
+            for (size_t i = 0; i < sizeof(port_migrations) / sizeof(port_migrations[0]); i++) {
+                if (!port_migrations[i].pending) continue;
+                if (seen++ == port_migration_index) {
+                    port = &port_migrations[i];
+                    break;
+                }
+            }
+            if (port_migration_result_frames > 0) {
+                render_port_migration(port, port_migration_index,
+                                      port_migration_current_ok ? 1 : -1);
+                if (video_cb)
+                    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                             SCREEN_WIDTH * sizeof(uint16_t));
+                if (--port_migration_result_frames == 0)
+                    port_migration_index++;
+            } else {
+                render_port_migration(port, port_migration_index, 0);
+                if (video_cb)
+                    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                             SCREEN_WIDTH * sizeof(uint16_t));
+                port_migration_current_ok = port_migration_move(port);
+                if (!port_migration_current_ok) port_migration_failures++;
+                port_migration_result_frames = 30;
+            }
+            return;
+        }
+
+        render_port_migration(NULL, port_migration_index, 2);
+        if (video_cb)
+            video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                     SCREEN_WIDTH * sizeof(uint16_t));
+        if (++port_migration_finish_frames >= 60) {
+            port_migration_active = false;
+            scan_directory(current_path);
+            save_games_tab_entries();
+            if (settings_load_recents && recent_games_get_count() > 0)
+                enter_recents_view();
+            if (port_migration_failures)
+                ui_toast_show("Some port folders stayed safe in Games");
+        }
+        return;
+    }
+
     /* Take input from the libretro frontend (rkgame feeds cores this way; the
      * cubevol joy_key shm isn't updated when rkgame owns evdev). Build FrogUI's
      * raw bit layout from the joypad → input_set_ext_raw (OR'd with shm). */
@@ -4879,6 +5279,7 @@ void retro_run(void) {
          * an unrelated navigation key happened to invalidate it. */
         sig = sig*33u + (unsigned)usb_mode_confirm_active;
         sig = sig*33u + (unsigned)usb_mode_initiated_active;
+        sig = sig*33u + (unsigned)port_error_active;
         sig = sig*33u + (unsigned)settings_menu_active;
         if (settings_menu_active) {
             sig = sig*33u + (unsigned)settings_menu_idx;
@@ -4926,7 +5327,9 @@ void retro_run(void) {
      * popup remains available. */
     fb1_clear_battery_zone();
 
-    if (usb_mode_confirm_active || usb_mode_initiated_active) {
+    if (port_error_active) {
+        render_port_error();
+    } else if (usb_mode_confirm_active || usb_mode_initiated_active) {
         render_usb_confirm();
     } else if (search_kbd_active) {
         render_search_kbd();
@@ -4989,7 +5392,10 @@ void retro_run(void) {
                     shown = system_display_name(entries[idx].name);
                 /* Hide file extension (.gb/.gba/...) when enabled — display only,
                  * the real name in entries[] is still used to launch. Files only. */
-                if (settings_hide_extensions && !entries[idx].is_dir) {
+                if ((settings_hide_extensions ||
+                     (strncmp(current_path, ROMS_PATH, strlen(ROMS_PATH)) == 0 &&
+                      strcmp(current_path + strlen(ROMS_PATH), "/ports") == 0)) &&
+                    !entries[idx].is_dir) {
                     strncpy(disp, entries[idx].name, sizeof disp - 1);
                     disp[sizeof disp - 1] = '\0';
                     char *dot = strrchr(disp, '.');
@@ -5085,7 +5491,7 @@ void retro_run(void) {
         }
     }
 
-    if (ui_toast_frames > 0) {
+    if (ui_toast_frames > 0 && !port_error_active) {
         render_toast(framebuffer, ui_toast_text);
         ui_toast_frames--;
     }

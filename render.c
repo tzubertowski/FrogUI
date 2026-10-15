@@ -594,6 +594,15 @@ int load_game_artwork(const char *game_path, ArtworkKind kind,
   char base[1024];
   if (!game_path || !thumb)
     return 0;
+  /* Port launchers live at ports/ root; data is in a hidden sibling folder. */
+  const char *slash = strrchr(game_path, '/');
+  const char *dot = strrchr(game_path, '.');
+  if (kind == ARTWORK_BOXART && slash && dot && strcasecmp(dot, ".sh") == 0) {
+    int n = snprintf(base, sizeof base, "%.*s.png", (int)(dot - game_path),
+                     game_path);
+    if (n > 0 && (size_t)n < sizeof base && load_thumbnail(base, thumb))
+      return 1;
+  }
   uint64_t game_hash = artwork_hash(game_path);
   uint64_t folder_sig = artwork_folder_signature(game_path);
   if (artwork_miss_contains(game_hash, folder_sig, kind)) {
