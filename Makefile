@@ -39,6 +39,7 @@ OBJS := $(APP_OUTDIR)/frogui_libretro.lo \
         $(APP_OUTDIR)/banner.lo \
         $(APP_OUTDIR)/backlight.lo \
         $(APP_OUTDIR)/input.lo \
+        $(APP_OUTDIR)/screenshot.lo \
         $(APP_OUTDIR)/core_override.lo \
         $(APP_OUTDIR)/ext_filter.lo \
         $(APP_OUTDIR)/i18n.lo \

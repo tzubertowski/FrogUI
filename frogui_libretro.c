@@ -37,6 +37,7 @@
 #include "banner.h"
 #include "backlight.h"
 #include "input.h"
+#include "screenshot.h"
 #include "core_override.h"
 #include "ext_filter.h"
 #include "common/i18n.h"
@@ -482,6 +483,7 @@ static int is_app_folder_name(const char *name);
 static bool is_psp_folder(const char *folder);
 static char ui_toast_text[96] = "";
 static int ui_toast_frames = 0;
+static bool screenshot_pending = false;
 /* The UI's idle path polls input at about 1 kHz.  These must not be frame
  * counters: a 240-frame confirmation used to disappear in a fraction of a
  * second, before a deliberately held face button had even passed debounce. */
@@ -3489,6 +3491,33 @@ static void ui_toast_show(const char *text) {
     ui_toast_frames = 90;   /* about 1.5 seconds at the presented 60 fps */
 }
 
+static bool save_ui_screenshot(const uint16_t *pixels) {
+    char path[128];
+    if (mkdir(SDCARD_BASE "/screenshots", 0777) != 0 && errno != EEXIST)
+        return false;
+
+    int fd = -1;
+    for (unsigned i = 0; i < 10000; i++) {
+        snprintf(path, sizeof path, SDCARD_BASE "/screenshots/frogui_%04u.bmp", i);
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+        if (fd >= 0 || errno != EEXIST) break;
+    }
+    if (fd < 0) return false;
+
+    FILE *file = fdopen(fd, "wb");
+    if (!file) {
+        close(fd);
+        unlink(path);
+        return false;
+    }
+    bool ok = screenshot_write_bmp(file, pixels, SCREEN_WIDTH, SCREEN_HEIGHT,
+                                   SCREEN_WIDTH * sizeof(*pixels)) == 0 &&
+              fflush(file) == 0 && fsync(fd) == 0;
+    if (fclose(file) != 0) ok = false;
+    if (!ok) unlink(path);
+    return ok;
+}
+
 /* Measured on the R36SX amp: the speaker line needs several ms live before
  * the amp reproduces, and the SF-class frontend feeds ~100 ms of silence
  * runway before the first real chunk (see the picoarch speaker gate).  The
@@ -3904,6 +3933,14 @@ static void render_system_grid(uint16_t *fb) {
 
 static void handle_input(void) {
     input_update();
+
+    static bool screenshot_chord_held;
+    if (input_is_pressed(FROG_BTN_SELECT) && input_is_pressed(FROG_BTN_L1)) {
+        if (!screenshot_chord_held) screenshot_pending = true;
+        screenshot_chord_held = true;
+        return;
+    }
+    screenshot_chord_held = false;
 
     if (port_error_active) {
         if (port_error_wait_release) {
@@ -5497,6 +5534,10 @@ void retro_run(void) {
     }
 
     const uint16_t *present = ui_transition_compose();
+    if (screenshot_pending) {
+        screenshot_pending = false;
+        ui_toast_show(save_ui_screenshot(present) ? "Screenshot saved" : "Screenshot failed");
+    }
     if (video_cb)
         video_cb(present, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
 }
