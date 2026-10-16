@@ -65,6 +65,7 @@ static PortMigration port_migrations[] = {
     {"mcpe", "Minecraft PE", false},
     {"openclaw", "Captain Claw", false},
     {"undertale", "Undertale", false},
+    {"vvvvvv", "VVVVVV", false},
     {"classicube", "ClassiCube", false}
 };
 static int port_migration_count, port_migration_index, port_migration_failures;
@@ -4431,7 +4432,8 @@ static void port_error_load(void) {
     static const struct { const char *slug, *name; } ports[] = {
         {"diablo", "Diablo 1"}, {"duke3d", "Duke Nukem 3D"},
         {"mcpe", "Minecraft PE"}, {"openclaw", "Captain Claw"},
-        {"undertale", "Undertale"}, {NULL, NULL}
+        {"undertale", "Undertale"}, {"openlara", "OpenLara"},
+        {"vvvvvv", "VVVVVV"}, {NULL, NULL}
     };
     FILE *f = fopen(PORT_ERROR_FILE, "r");
     char slug[32], qr_path[MAX_PATH_LEN];
