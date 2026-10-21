@@ -93,6 +93,7 @@ static bool port_migration_current_ok;
 #define PICANTE8_CORE CORES_PATH "/picante8_libretro.so"
 #define DUKE3D_CORE CORES_PATH "/duke3d_libretro.so"
 #define BUTTERSCOTCH_CORE CORES_PATH "/butterscotch_libretro.so"
+#define OPENBOR_CORE CORES_PATH "/openbor_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
@@ -108,6 +109,7 @@ static const ConsoleMapping console_mappings[] = {
     {"picante8", PICANTE8_CORE},
     {"duke3d", DUKE3D_CORE},
     {"undertale", BUTTERSCOTCH_CORE},
+    {"openbor", OPENBOR_CORE},
     {"diablo", DIABLO_BIN},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
@@ -564,6 +566,50 @@ static void dbg(const char *msg) {
     fprintf(stderr, "FROGUI_DBG: %s\n", msg);
 }
 
+#define INPUT_LOG_PATH "/mnt/sdcard/cubegm/logs/frogui-input.log"
+#define INPUT_LOG_PREV INPUT_LOG_PATH ".prev"
+#define INPUT_LOG_MAX (128 * 1024)
+static long long monotonic_ms(void);
+
+static void input_log(const char *event, const char *details) {
+    struct stat st;
+    char line[1400];
+    int len = snprintf(line, sizeof(line), "%lld %s %s\n", monotonic_ms(),
+                       event, details ? details : "");
+    if (len < 0 || (size_t)len >= sizeof(line)) return;
+    if (stat(INPUT_LOG_PATH, &st) == 0 && st.st_size + len > INPUT_LOG_MAX) return;
+    FILE *f = fopen(INPUT_LOG_PATH, "a");
+    if (!f) return;
+    fputs(line, f);
+    fclose(f);
+}
+
+static void input_log_start(void) {
+    mkdir(SDCARD_BASE "/cubegm/logs", 0777);
+    unlink(INPUT_LOG_PREV);
+    rename(INPUT_LOG_PATH, INPUT_LOG_PREV);
+    FILE *f = fopen(INPUT_LOG_PATH, "w");
+    if (f) {
+        fputs("FrogUI input diagnostics\n", f);
+        fclose(f);
+    }
+}
+
+static void input_log_activation(void) {
+    char details[1200];
+    const char *view = viewing_search ? "search" : viewing_activity ? "activity" :
+        viewing_favourites ? "favourites" : viewing_recents ? "recents" :
+        viewing_apps ? "apps" : apps_browsing ? "apps-browsing" : "games";
+    const char *name = selected_index >= 0 && selected_index < entry_count
+        ? entries[selected_index].name : "(out-of-range)";
+    int is_dir = selected_index >= 0 && selected_index < entry_count
+        ? entries[selected_index].is_dir : -1;
+    snprintf(details, sizeof(details),
+             "view=%s path=\"%s\" selected=%d entry=\"%s\" is_dir=%d raw=0x%08x",
+             view, current_path, selected_index, name, is_dir, input_get_raw_state());
+    input_log("A-activate", details);
+}
+
 static long long monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -717,6 +763,7 @@ int frogui_battery_pct(void) {
 static char font_files[MAX_FONTS][FONT_STR_MAX];
 static char font_disp[MAX_FONTS][FONT_STR_MAX];
 static int  font_count = 0;
+static int settings_font_idx = 0;
 
 static int font_has_ext(const char *name) {
     const char *dot = strrchr(name, '.');
@@ -901,6 +948,12 @@ static void font_scan(void) {
         }
         strncpy(font_files[j + 1], key, FONT_STR_MAX);
     }
+    for (int i = 0; i < font_count; i++) {
+        if (strcasecmp(font_files[i], "alium_Nunito.ttf") == 0) {
+            settings_font_idx = i;
+            break;
+        }
+    }
     /* Build display names = filename minus extension. */
     for (int i = 0; i < font_count; i++) {
         strncpy(font_disp[i], font_files[i], FONT_STR_MAX - 1);
@@ -916,7 +969,6 @@ static bool settings_menu_active = false;
  * presenting its last frame. */
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
-static int settings_font_idx = 0;
 static int settings_font_size = 23;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
@@ -1596,6 +1648,7 @@ static SystemLabel system_labels[] = {
     {"diablo", "Diablo 1"},
     {"duke3d", "Duke Nukem 3D"},
     {"undertale", "Undertale"},
+    {"openbor", "OpenBor"},
     {"ports", "Ports"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
@@ -2771,6 +2824,10 @@ static void write_picoarch_skin(void) {
 }
 
 static void request_game_launch(const char *core_path, const char *rom_path) {
+    char details[MAX_PATH_LEN * 2 + 32];
+    snprintf(details, sizeof(details), "core=\"%s\" rom=\"%s\"",
+             core_path ? core_path : "(null)", rom_path ? rom_path : "(null)");
+    input_log("launch-request", details);
     if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* game owns the audio path after exec */
     write_picoarch_skin();
@@ -3935,13 +3992,17 @@ static void render_system_grid(uint16_t *fb) {
 static void handle_input(void) {
     input_update();
 
-    static bool screenshot_chord_held;
+    static bool screenshot_chord_down;
+    static bool select_pending;
+    static bool l1_tab_pending;
     if (input_is_pressed(FROG_BTN_SELECT) && input_is_pressed(FROG_BTN_L1)) {
-        if (!screenshot_chord_held) screenshot_pending = true;
-        screenshot_chord_held = true;
+        if (!screenshot_chord_down) screenshot_pending = true;
+        screenshot_chord_down = true;
+        select_pending = false;
+        l1_tab_pending = false;
         return;
     }
-    screenshot_chord_held = false;
+    screenshot_chord_down = false;
 
     if (port_error_active) {
         if (port_error_wait_release) {
@@ -4030,7 +4091,9 @@ static void handle_input(void) {
         bool at_tabs = settings_menu_active || viewing_recents || viewing_apps || apps_browsing ||
                        (!viewing_favourites && !viewing_search &&
                         strcmp(current_path, ROMS_PATH) == 0);
-        bool prev = input_was_pressed(FROG_BTN_L1);
+        if (input_was_pressed(FROG_BTN_L1)) l1_tab_pending = true;
+        bool prev = l1_tab_pending && !input_is_pressed(FROG_BTN_L1);
+        if (prev) l1_tab_pending = false;
         bool next = input_was_pressed(FROG_BTN_R1);
         if (at_tabs && prev && tab > MAIN_TAB_RECENTS) {
             switch_main_tab(tab - 1);
@@ -4059,7 +4122,10 @@ static void handle_input(void) {
 
     /* SELECT: open core picker. On a ROM file → per-game override; on a system
      * folder → per-folder override. Not available in recents/favourites views. */
-    if (input_was_pressed(FROG_BTN_SELECT) && !viewing_recents && !viewing_favourites && !viewing_search &&
+    if (input_was_pressed(FROG_BTN_SELECT)) select_pending = true;
+    bool select_action = select_pending && !input_is_pressed(FROG_BTN_SELECT);
+    if (select_action) select_pending = false;
+    if (select_action && !viewing_recents && !viewing_favourites && !viewing_search &&
         selected_index < entry_count &&
         strcmp(entries[selected_index].name, SETTINGS_ENTRY_NAME) != 0 &&
         strcmp(entries[selected_index].name, RECENTS_ENTRY_NAME) != 0 &&
@@ -4175,6 +4241,7 @@ static void handle_input(void) {
     }
 
     if (input_was_pressed(FROG_BTN_A) && selected_index < entry_count) {
+        input_log_activation();
         if (viewing_search) {
             search_launch(selected_index);
         } else if (viewing_favourites) {
@@ -4644,6 +4711,7 @@ static void render_port_migration(const PortMigration *port, int index,
 
 void retro_init(void) {
     dbg("retro_init start");
+    input_log_start();
     /* Runtime panel geometry from picoarch (device-detected). Must run before
      * font_init / any layout use. Falls back to render.c defaults if env unset. */
     {
