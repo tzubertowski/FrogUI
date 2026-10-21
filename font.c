@@ -351,7 +351,7 @@ void font_load_from_settings(const char *font_name) {
   } else if (strcmp(font_name, "GamePocket") == 0) {
     font_filename = "GamePocket-Regular-ZeroKern.ttf";
   } else {
-    font_filename = "BPreplayBold.otf";
+    font_filename = "alium_Nunito.ttf";
   }
   load_font_file(font_filename);
 }
@@ -361,7 +361,7 @@ void font_init(void) {
     return;
   hb_buf = hb_buffer_create();
 
-  if (!load_font_file("BPreplayBold.otf")) {
+  if (!load_font_file("alium_Nunito.ttf")) {
     font_load_from_settings("GamePocket");
   }
 

@@ -36,6 +36,7 @@
 #include "core_override.h"
 #include "ext_filter.h"
 #include "common/i18n.h"
+#include "screenshot.h"
 
 #define SDCARD_BASE  "/mnt/sdcard"
 #define CORES_PATH   SDCARD_BASE "/cubegm/cores"
@@ -427,6 +428,7 @@ static int is_app_folder_name(const char *name);
 static bool is_psp_folder(const char *folder);
 static char ui_toast_text[96] = "";
 static int ui_toast_frames = 0;
+static bool screenshot_requested = false;
 /* The UI's idle path polls input at about 1 kHz.  These must not be frame
  * counters: a 240-frame confirmation used to disappear in a fraction of a
  * second, before a deliberately held face button had even passed debounce. */
@@ -653,6 +655,7 @@ int frogui_battery_pct(void) {
 static char font_files[MAX_FONTS][FONT_STR_MAX];
 static char font_disp[MAX_FONTS][FONT_STR_MAX];
 static int  font_count = 0;
+static int settings_font_idx = 0;
 
 static int font_has_ext(const char *name) {
     const char *dot = strrchr(name, '.');
@@ -837,6 +840,12 @@ static void font_scan(void) {
         }
         strncpy(font_files[j + 1], key, FONT_STR_MAX);
     }
+    for (int i = 0; i < font_count; i++) {
+        if (strcasecmp(font_files[i], "alium_Nunito.ttf") == 0) {
+            settings_font_idx = i;
+            break;
+        }
+    }
     /* Build display names = filename minus extension. */
     for (int i = 0; i < font_count; i++) {
         strncpy(font_disp[i], font_files[i], FONT_STR_MAX - 1);
@@ -852,7 +861,6 @@ static bool settings_menu_active = false;
  * presenting its last frame. */
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
-static int settings_font_idx = 0;
 static int settings_font_size = 21;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
@@ -2706,9 +2714,9 @@ static void search_walk(const char *dir, int depth) {
         if (e->d_name[0] == '.') continue;
         char p[MAX_PATH_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
-        struct stat st;
-        if (stat(p, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) {
+        int isdir = dirent_is_dir(dir, e);
+        if (isdir < 0) continue;
+        if (isdir) {
             if (!is_psp_folder(e->d_name) && depth < 3) search_walk(p, depth + 1);
         } else if (str_icontains(e->d_name, search_query)) {
             /* Same per-system whitelist as the browser, so search results never
@@ -3653,6 +3661,20 @@ static void render_system_grid(uint16_t *fb) {
 static void handle_input(void) {
     input_update();
 
+    static bool screenshot_chord_down = false;
+    static bool select_pending = false;
+    static bool l1_tab_pending = false;
+    bool screenshot_chord = input_is_pressed(FROG_BTN_SELECT) &&
+                            input_is_pressed(FROG_BTN_L1);
+    if (screenshot_chord) {
+        if (!screenshot_chord_down) screenshot_requested = true;
+        screenshot_chord_down = true;
+        select_pending = false;
+        l1_tab_pending = false;
+        return;
+    }
+    screenshot_chord_down = false;
+
     /* A modal action must not fall through to the browser while its physical
      * button is still held.  In particular, B previously cancelled the modal
      * and then immediately performed a second, unrelated browser action. */
@@ -3727,7 +3749,9 @@ static void handle_input(void) {
         bool at_tabs = settings_menu_active || viewing_recents || viewing_apps || apps_browsing ||
                        (!viewing_favourites && !viewing_search &&
                         strcmp(current_path, ROMS_PATH) == 0);
-        bool prev = input_was_pressed(FROG_BTN_L1);
+        if (input_was_pressed(FROG_BTN_L1)) l1_tab_pending = true;
+        bool prev = l1_tab_pending && !input_is_pressed(FROG_BTN_L1);
+        if (prev) l1_tab_pending = false;
         bool next = input_was_pressed(FROG_BTN_R1);
         if (at_tabs && prev && tab > MAIN_TAB_RECENTS) {
             switch_main_tab(tab - 1);
@@ -3756,7 +3780,10 @@ static void handle_input(void) {
 
     /* SELECT: open core picker. On a ROM file → per-game override; on a system
      * folder → per-folder override. Not available in recents/favourites views. */
-    if (input_was_pressed(FROG_BTN_SELECT) && !viewing_recents && !viewing_favourites && !viewing_search &&
+    if (input_was_pressed(FROG_BTN_SELECT)) select_pending = true;
+    bool select_action = select_pending && !input_is_pressed(FROG_BTN_SELECT);
+    if (select_action) select_pending = false;
+    if (select_action && !viewing_recents && !viewing_favourites && !viewing_search &&
         selected_index < entry_count &&
         strcmp(entries[selected_index].name, SETTINGS_ENTRY_NAME) != 0 &&
         strcmp(entries[selected_index].name, RECENTS_ENTRY_NAME) != 0 &&
@@ -4692,7 +4719,7 @@ void retro_run(void) {
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
-        redraw = first || sig != last_sig || banner_is_animating() ||
+        redraw = first || sig != last_sig || screenshot_requested || banner_is_animating() ||
                  system_carousel_is_animating() ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
@@ -4877,6 +4904,14 @@ void retro_run(void) {
     }
 
     const uint16_t *present = ui_transition_compose();
+    if (screenshot_requested) {
+        char path[512];
+        screenshot_requested = false;
+        ui_toast_show(screenshot_save_rgb565("/mnt/sdcard/screenshots", present,
+                                             SCREEN_WIDTH, SCREEN_HEIGHT,
+                                             path, sizeof(path)) == 0
+                      ? "Screenshot saved" : "Screenshot failed");
+    }
     if (video_cb)
         video_cb(present, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
 }

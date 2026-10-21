@@ -72,7 +72,7 @@ LDFLAGS="-mips32r2 -mhard-float -mfp32 -EL -fPIC -shared -nostdlib -Wl,--no-unde
 LDLIBS="-lfreetype -lm -lc -ldl -lpthread -lstdc++ -lgcc"
 
 # Compile Application Objects
-APP_SRCS="frogui_libretro.c render.c font.c recent_games.c theme.c favorites.c banner.c backlight.c input.c core_override.c ext_filter.c common/i18n.c"
+APP_SRCS="frogui_libretro.c render.c font.c recent_games.c theme.c favorites.c banner.c backlight.c input.c core_override.c ext_filter.c common/i18n.c screenshot.c"
 OBJS=""
 
 for src in $APP_SRCS; do
