@@ -90,7 +90,6 @@ static bool port_migration_current_ok;
 #define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
 #define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
 #define CLAW_CORE CORES_PATH "/openclaw_libretro.so"
-#define PICANTE8_CORE CORES_PATH "/picante8_libretro.so"
 #define DUKE3D_CORE CORES_PATH "/duke3d_libretro.so"
 #define BUTTERSCOTCH_CORE CORES_PATH "/butterscotch_libretro.so"
 #define OPENBOR_CORE CORES_PATH "/openbor_libretro.so"
@@ -106,7 +105,7 @@ static const ConsoleMapping console_mappings[] = {
     {"classicube", CLASSICUBE_CORE},
     {"mcpe", MCPE_CORE},
     {"openclaw", CLAW_CORE},
-    {"picante8", PICANTE8_CORE},
+    {"picante8", CORES_PATH "/picante8_libretro.so"}, /* existing carts */
     {"duke3d", DUKE3D_CORE},
     {"undertale", BUTTERSCOTCH_CORE},
     {"openbor", OPENBOR_CORE},
@@ -195,7 +194,7 @@ static const ConsoleMapping console_mappings[] = {
     {"gw",     CORES_PATH "/gw_libretro.so"},
     {"jnb",    CORES_PATH "/jumpnbump_libretro.so"},
     /* Misc */
-    {"pico8",  CORES_PATH "/fake08_libretro.so"},   /* PICO-8 (fake08 core) */
+    {"pico8",  CORES_PATH "/picante8_libretro.so"}, /* PICO-8 (Picante8) */
     {"pico286", PICO286_BIN},                        /* DOS PC (standalone, launched directly) */
     {"nds",    DSPERATE_BIN},                        /* Nintendo DS (DSperate standalone) */
     {"j2me",   J2ME_CORE},                           /* J2ME / MIDP 2.0 (.jar/.jad) */
@@ -210,7 +209,7 @@ static const ConsoleMapping console_mappings[] = {
     {"frogshell", FROGSHELL_CORE},
     {"images", IMAGE_BIN},                          /* JPG/PNG/BMP/GIF/etc. (standalone) */
     {"photos", IMAGE_BIN},
-    {"fake08", CORES_PATH "/fake08_libretro.so"},   /* legacy folder name */
+    {"fake08", CORES_PATH "/fake08_libretro.so"},
     {"lowres-nx", CORES_PATH "/lowresnx_libretro.so"},
     {"tic80",  CORES_PATH "/tic80_libretro.so"},   /* TIC-80 fantasy console (.tic carts) */
     {"gme",    CORES_PATH "/gme_libretro.so"},
@@ -1655,7 +1654,7 @@ static SystemLabel system_labels[] = {
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
     {"flashback", "Flashback"}, {"xrick", "Rick Dangerous"},
     {"jnb", "Jump 'n Bump"}, {"gw", "Game & Watch"},
-    {"tic80", "TIC-80"}, {"pico8", "PICO-8"}, {"fake08", "PICO-8"},
+    {"tic80", "TIC-80"}, {"pico8", "PICO-8"}, {"fake08", "PICO-8 - Fake-08"},
     {"retro8", "PICO-8 - Retro8"}, {"picante8", "PICO-8 - Picante8"}, {"lowres-nx", "LowRes NX"},
     {"pokem", "Pokemon Mini"}, {"int", "Intellivision"},
     {"fcf", "Fairchild Channel F"}, {"cdg", "CD+G Karaoke"},
@@ -1739,6 +1738,9 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         const char *base = (path && *path) ? strrchr(path, '/') : NULL;
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
+        if (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "retro8") == 0 ||
+            strcasecmp(name, "picante8") == 0)
+            name = "pico8";
         /* Theme packs historically used m2k/gb names. Keep those assets
          * working for the canonical arcade and Game Boy Color folders too. */
         const char *names[] = {
@@ -3576,12 +3578,8 @@ static bool save_ui_screenshot(const uint16_t *pixels) {
     return ok;
 }
 
-/* Measured on the R36SX amp: the speaker line needs several ms live before
- * the amp reproduces, and the SF-class frontend feeds ~100 ms of silence
- * runway before the first real chunk (see the picoarch speaker gate).  The
- * minimum AUDIBLE tick measured on-device was ~60 ms of content; the stock
- * firmware's own navigation blip is ~74 ms.  Anything shorter is swallowed
- * by the ramp-up; anything much longer stops reading as a discrete click.
+/* The minimum audible tick measured on R36SX was ~60 ms of content; the stock
+ * firmware's navigation blip is ~74 ms. Keep the click short and distinct.
  * Frames are derived from the core's ACTIVE sample rate so a different
  * audio backend/rate keeps the same 60 ms duration. */
 #define UI_TICK_MS 60
@@ -3785,6 +3783,8 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     else if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) key = "recents";
     else if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) key = "settings";
     else if (strcasecmp(folder, "ports") == 0) key = "menu";
+    else if (strcasecmp(folder, "fake08") == 0 || strcasecmp(folder, "retro8") == 0 ||
+             strcasecmp(folder, "picante8") == 0) key = "pico8";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";

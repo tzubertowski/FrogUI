@@ -125,6 +125,8 @@ static void apply_builtin_defaults(void) {
     ext_filter_add_builtin("openclaw", "claw");
     ext_filter_add_builtin("openclaw", "openclaw");
     ext_filter_add_builtin("openclaw", "sh");
+    ext_filter_add_builtin("pico8", "p8");
+    ext_filter_add_builtin("pico8", "png");
     ext_filter_add_builtin("picante8", "p8");
     ext_filter_add_builtin("picante8", "png");
     ext_filter_add_builtin("diablo", "diablo");

@@ -84,9 +84,9 @@ FrogUI is a modern file browser interface for the SF2000/GB300 that provides acc
 | `vec` | Vectrex | vecx | `.vec`, `.bin` |
 | **Fantasy Consoles** ||||
 | `chip8` | CHIP-8 | JAXE | `.ch8` |
-| `retro8` | PICO-8 | Retro8 | `.p8`, `.png` |
+| `pico8` | PICO-8 | Picante8 | `.p8`, `.png` |
 | `fake08` | PICO-8 (alt) | Fake-08 | `.p8`, `.png` |
-| `picante8` | PICO-8 (Picante8) | Picante8 | `.p8`, `.png` |
+| `retro8` | PICO-8 (alt) | Retro8 | `.p8`, `.png` |
 | `lowres-nx` | LowRes NX | LowRes NX | `.nx` |
 | `vapor` | VaporSpec | VaporSpec | `.vaporbin` |
 | **Ports & Games** ||||
