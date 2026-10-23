@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -24,6 +26,16 @@ static int banner_pending_light;
 static int banner_pending_row;
 static char banner_pending_key[600] = "";
 
+#define BANNER_PREFETCH_N 256
+typedef struct { char path[512]; int mode; uint16_t bg; int dim; unsigned generation; } BannerPrefetch;
+static BannerPrefetch prefetch_queue[BANNER_PREFETCH_N];
+static unsigned prefetch_head, prefetch_count, prefetch_generation;
+static pthread_mutex_t prefetch_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t prefetch_cond = PTHREAD_COND_INITIALIZER;
+static pthread_t prefetch_thread;
+static int prefetch_started;
+static inline uint16_t rgb_to_565(unsigned char r, unsigned char g, unsigned char b);
+
 static unsigned banner_key_hash(const char *key) {
     unsigned h = 2166136261u;
     for (const unsigned char *p = (const unsigned char *)key; *p; p++) {
@@ -31,6 +43,18 @@ static unsigned banner_key_hash(const char *key) {
         h *= 16777619u;
     }
     return h;
+}
+
+static void banner_make_key(const char *path, int mode, uint16_t bg, int dim,
+                            int sw, int sh, char *key, size_t size) {
+    struct stat st;
+    long long mtime = 0, source_size = 0;
+    if (stat(path, &st) == 0) {
+        mtime = (long long)st.st_mtime;
+        source_size = (long long)st.st_size;
+    }
+    snprintf(key, size, "%s|%d|%u|dim=%d|panel=%dx%d|src=%lld:%lld",
+             path, mode, (unsigned)bg, dim, sw, sh, mtime, source_size);
 }
 
 static int banner_disk_cache_load(const char *key, uint16_t *dst, size_t bytes) {
@@ -49,7 +73,7 @@ static void banner_disk_cache_store(const char *key, const uint16_t *src, size_t
     snprintf(path, sizeof path, "/mnt/sdcard/frogui/.cache/banner-%08x.rgb565",
              banner_key_hash(key));
     mkdir("/mnt/sdcard/frogui/.cache", 0755);
-    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    snprintf(tmp, sizeof tmp, "%s.%lu.tmp", path, (unsigned long)pthread_self());
     FILE *f = fopen(tmp, "wb");
     if (!f) return;
     if (fwrite(src, 1, bytes, f) == bytes) {
@@ -59,6 +83,128 @@ static void banner_disk_cache_store(const char *key, const uint16_t *src, size_t
         fclose(f);
         remove(tmp);
     }
+}
+
+static int prefetch_is_current(unsigned generation) {
+    int current;
+    pthread_mutex_lock(&prefetch_mutex);
+    current = generation == prefetch_generation;
+    pthread_mutex_unlock(&prefetch_mutex);
+    return current;
+}
+
+static void banner_prefetch_one(const BannerPrefetch *job) {
+    int sw = SCREEN_WIDTH, sh = SCREEN_HEIGHT;
+    char key[600], cache_path[160];
+    banner_make_key(job->path, job->mode, job->bg, job->dim, sw, sh, key, sizeof key);
+    snprintf(cache_path, sizeof cache_path,
+             "/mnt/sdcard/frogui/.cache/banner-%08x.rgb565", banner_key_hash(key));
+    struct stat st;
+    if (stat(cache_path, &st) == 0 && st.st_size == (off_t)sw * sh * 2) return;
+
+    int w, h, ch;
+    unsigned char *img = stbi_load(job->path, &w, &h, &ch, 3);
+    if (!img || w <= 0 || h <= 0) { if (img) stbi_image_free(img); return; }
+    uint16_t *out = malloc((size_t)sw * sh * sizeof(*out));
+    if (!out) { stbi_image_free(img); return; }
+
+    int dx0 = 0, dy0 = 0, dw = sw, dh = sh;
+    if (job->mode == BANNER_FIT_FILL) {
+        if ((long)w * sh > (long)h * sw) { dh = sh; dw = (int)((long)w * sh / h); }
+        else                             { dw = sw; dh = (int)((long)h * sw / w); }
+        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+    } else if (job->mode == BANNER_FIT_FIT) {
+        if ((long)w * sh > (long)h * sw) { dw = sw; dh = (int)((long)h * sw / w); }
+        else                             { dh = sh; dw = (int)((long)w * sh / h); }
+        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+    } else if (job->mode == BANNER_FIT_CENTER) {
+        dw = w; dh = h; dx0 = (sw - w) / 2; dy0 = (sh - h) / 2;
+    }
+    int light = 100 - job->dim;
+    for (int y = 0; y < sh; y++) {
+        if ((y % BANNER_WORK_ROWS) == 0 && !prefetch_is_current(job->generation)) goto done;
+        for (int x = 0; x < sw; x++) {
+            int sx, sy;
+            if (job->mode == BANNER_FIT_TILE) { sx = x % w; sy = y % h; }
+            else if (x < dx0 || x >= dx0 + dw || y < dy0 || y >= dy0 + dh) {
+                out[y * sw + x] = job->bg;
+                continue;
+            } else {
+                sx = (int)((long)(x - dx0) * w / dw);
+                sy = (int)((long)(y - dy0) * h / dh);
+                if (sx < 0) sx = 0;
+                if (sx >= w) sx = w - 1;
+                if (sy < 0) sy = 0;
+                if (sy >= h) sy = h - 1;
+            }
+            unsigned char *p = img + (sy * w + sx) * 3;
+            out[y * sw + x] = rgb_to_565(
+                (unsigned char)(p[0] * light / 100),
+                (unsigned char)(p[1] * light / 100),
+                (unsigned char)(p[2] * light / 100));
+        }
+        if ((y % BANNER_WORK_ROWS) == BANNER_WORK_ROWS - 1) usleep(5000);
+    }
+    if (prefetch_is_current(job->generation))
+        banner_disk_cache_store(key, out, (size_t)sw * sh * 2);
+done:
+    free(out);
+    stbi_image_free(img);
+}
+
+static void *banner_prefetch_worker(void *unused) {
+    (void)unused;
+    for (;;) {
+        BannerPrefetch job;
+        pthread_mutex_lock(&prefetch_mutex);
+        while (!prefetch_count) pthread_cond_wait(&prefetch_cond, &prefetch_mutex);
+        job = prefetch_queue[prefetch_head];
+        prefetch_head = (prefetch_head + 1) % BANNER_PREFETCH_N;
+        prefetch_count--;
+        pthread_mutex_unlock(&prefetch_mutex);
+        if (prefetch_is_current(job.generation)) banner_prefetch_one(&job);
+    }
+    return NULL;
+}
+
+void banner_prefetch_clear(void) {
+    pthread_mutex_lock(&prefetch_mutex);
+    prefetch_generation++;
+    prefetch_head = prefetch_count = 0;
+    pthread_mutex_unlock(&prefetch_mutex);
+}
+
+void banner_prefetch(const char *path, int mode, uint16_t bg) {
+    if (!path || !*path) return;
+    pthread_mutex_lock(&prefetch_mutex);
+    if (!prefetch_started) {
+        if (pthread_create(&prefetch_thread, NULL, banner_prefetch_worker, NULL) != 0) {
+            pthread_mutex_unlock(&prefetch_mutex);
+            return;
+        }
+        pthread_detach(prefetch_thread);
+        prefetch_started = 1;
+    }
+    for (unsigned i = 0; i < prefetch_count; i++) {
+        BannerPrefetch *queued = &prefetch_queue[(prefetch_head + i) % BANNER_PREFETCH_N];
+        if (queued->generation == prefetch_generation && queued->mode == mode &&
+            queued->bg == bg && queued->dim == banner_dim && strcmp(queued->path, path) == 0) {
+            pthread_mutex_unlock(&prefetch_mutex);
+            return;
+        }
+    }
+    /* shortcut: queue caps at 256 images; raise it if a theme pack exceeds that. */
+    if (prefetch_count < BANNER_PREFETCH_N) {
+        unsigned tail = (prefetch_head + prefetch_count) % BANNER_PREFETCH_N;
+        snprintf(prefetch_queue[tail].path, sizeof prefetch_queue[tail].path, "%s", path);
+        prefetch_queue[tail].mode = mode;
+        prefetch_queue[tail].bg = bg;
+        prefetch_queue[tail].dim = banner_dim;
+        prefetch_queue[tail].generation = prefetch_generation;
+        prefetch_count++;
+        pthread_cond_signal(&prefetch_cond);
+    }
+    pthread_mutex_unlock(&prefetch_mutex);
 }
 #define FADE_FRAMES 20                /* ~330ms @ 60fps — slow, iPhone-like */
 static int fade_frame = FADE_FRAMES;  /* 0..FADE_FRAMES; FADE_FRAMES = done */
@@ -148,16 +294,7 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
     /* Include the source identity and target geometry.  The old cache key only
      * used the pathname, so replacing theme assets or switching between the
      * 854x480 and 640x480 panels kept displaying stale/blank renders. */
-    struct stat source_st;
-    long long source_mtime = 0;
-    long long source_size = 0;
-    if (stat(path, &source_st) == 0) {
-        source_mtime = (long long)source_st.st_mtime;
-        source_size = (long long)source_st.st_size;
-    }
-    snprintf(key, sizeof key, "%s|%d|%u|dim=%d|panel=%dx%d|src=%lld:%lld",
-             path, mode, (unsigned)bg, banner_dim, sw, sh,
-             source_mtime, source_size);
+    banner_make_key(path, mode, bg, banner_dim, sw, sh, key, sizeof key);
 
     /* Several systems can fall back to the same main image. Do not start a
      * pointless full-screen fade, or even memcpy, when the resolved art did

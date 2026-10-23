@@ -1768,6 +1768,52 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
     banner_clear();
 }
 
+static int is_banner_image(const char *name) {
+    const char *dot = strrchr(name, '.');
+    return dot && (!strcasecmp(dot, ".png") || !strcasecmp(dot, ".jpg") ||
+                   !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".bmp"));
+}
+
+static int prefetch_last_bg = -1, prefetch_last_wp = -1;
+static int prefetch_last_wpfit = -1, prefetch_last_pack = -1;
+static int prefetch_last_dim = -1, prefetch_last_theme = -1;
+
+static void prefetch_banner_directory(const char *directory) {
+    DIR *dp = opendir(directory);
+    if (!dp) return;
+    struct dirent *e;
+    while ((e = readdir(dp))) {
+        if (!is_banner_image(e->d_name)) continue;
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", directory, e->d_name);
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
+            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
+    }
+    closedir(dp);
+}
+
+static void prefetch_active_theme(void) {
+    banner_prefetch_clear();
+    if (!settings_backgrounds) return;
+    if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
+        char path[512];
+        snprintf(path, sizeof path, "/mnt/sdcard/frogui/wallpapers/%s",
+                 wallpaper_files[settings_wallpaper_idx]);
+        if (access(path, R_OK) == 0) {
+            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
+            return;
+        }
+    }
+    prefetch_banner_directory(BANNER_DIR);
+    if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count) {
+        char directory[512];
+        snprintf(directory, sizeof directory, BANNER_DIR "/theme-packs/%s",
+                 theme_pack_files[settings_theme_pack_idx]);
+        prefetch_banner_directory(directory);
+    }
+}
+
 /* True if `path` contains at least one game (any file that isn't artwork/metadata),
  * recursing into subfolders. Used to hide empty rom folders. Bounded depth. */
 /* Directory test without a stat() syscall where the filesystem already knows the
@@ -4813,6 +4859,9 @@ void retro_init(void) {
 }
 
 void retro_deinit(void) {
+    banner_prefetch_clear();
+    prefetch_last_bg = prefetch_last_wp = prefetch_last_wpfit = -1;
+    prefetch_last_pack = prefetch_last_dim = prefetch_last_theme = -1;
     for (int i = 0; i < SYSTEM_ICON_CACHE_N; i++) {
         free(system_icons[i].pixels);
         free(system_icons[i].alpha);
@@ -5299,6 +5348,20 @@ void retro_run(void) {
     static int  banner_last_pack = -1;  /* reload when the background pack changes */
     static int  banner_last_dim = -1;   /* reload when background dim changes */
     {
+        if (settings_backgrounds != prefetch_last_bg ||
+            settings_wallpaper_idx != prefetch_last_wp ||
+            settings_wallpaper_fit != prefetch_last_wpfit ||
+            settings_theme_pack_idx != prefetch_last_pack ||
+            settings_background_dim != prefetch_last_dim ||
+            settings_theme_idx != prefetch_last_theme) {
+            prefetch_active_theme();
+            prefetch_last_bg = settings_backgrounds;
+            prefetch_last_wp = settings_wallpaper_idx;
+            prefetch_last_wpfit = settings_wallpaper_fit;
+            prefetch_last_pack = settings_theme_pack_idx;
+            prefetch_last_dim = settings_background_dim;
+            prefetch_last_theme = settings_theme_idx;
+        }
         const char *banner_path = current_path;
         char sel_path[MAX_PATH_LEN];
         if (settings_menu_active) {

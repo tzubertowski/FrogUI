@@ -13,5 +13,7 @@ void banner_draw_card(uint16_t *framebuffer, int x, int y, int w, int h);
 int  banner_is_loaded(void);
 int  banner_is_animating(void);
 void banner_set_anim(int enabled);
+void banner_prefetch_clear(void);
+void banner_prefetch(const char *path, int mode, uint16_t bg);
 void banner_set_dim(int percent);
 void banner_fill_region(uint16_t *fb, int x, int y, int w, int h, uint16_t fallback);
