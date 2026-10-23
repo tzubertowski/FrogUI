@@ -79,6 +79,7 @@ static const ConsoleMapping console_mappings[] = {
     /* SNES */
     {"snes",   CORES_PATH "/snes9x2005_plus_libretro.so"},
     {"snes02", CORES_PATH "/snes9x2002_libretro.so"},
+    {"snesz",  CORES_PATH "/snes9x-Z_libretro.so"},
     {"SFC",    CORES_PATH "/snes9x2005_plus_libretro.so"},
     /* Game Boy */
     {"gb",     CORES_PATH "/gambatte_libretro.so"},
@@ -1474,6 +1475,7 @@ static SystemLabel system_labels[] = {
     {"nes", "Nintendo Entertainment System"}, {"nesq", "NES - QuickNES"},
     {"nest", "NES - Nestopia"}, {"fds", "Famicom Disk System"},
     {"sfc", "Super Nintendo"}, {"snes", "Super Nintendo"},
+    {"snesz", "Super Nintendo - Snes9x-Z"},
     {"snes02", "SNES - Fast"},
     {"gb", "Game Boy"}, {"gbc", "Game Boy Color"},
     {"gbgb", "Game Boy - Gearboy"},
@@ -3512,6 +3514,10 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) key = "favourites";
     else if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) key = "recents";
     else if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) key = "settings";
+    else if (strcasecmp(folder, "ports") == 0) key = "menu";
+    else if (strcasecmp(folder, "fake08") == 0 || strcasecmp(folder, "retro8") == 0 ||
+             strcasecmp(folder, "picante8") == 0) key = "pico8";
+    else if (strcasecmp(folder, "snesz") == 0) key = "snes";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";
