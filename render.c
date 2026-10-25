@@ -308,9 +308,22 @@ void render_toast(uint16_t *framebuffer, const char *text) {
                    tx, ty, text, COLOR_SELECT_TEXT);
 }
 
+static void render_text_pillbox_moving(uint16_t *framebuffer, int x, int text_y,
+                                       int pill_y, const char *text) {
+    int baseline, cap_h;
+    font_cap_metrics(&baseline, &cap_h);
+    int width = font_measure_text(text) + 14;
+    int height = cap_h + 14;
+    render_rounded_rect(framebuffer, x - 7, pill_y + (baseline - cap_h) - 7,
+                        width, height, 6, COLOR_SELECT_BG);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x, text_y, text, COLOR_SELECT_TEXT);
+}
+
 /* Draw one row at an explicit pixel y (used by the animated list). */
 void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
-                     int is_selected, int is_favorited, int y) {
+                     int is_selected, int is_favorited, int y,
+                     int selected_pill_y) {
     if (!framebuffer || !name) return;
 
     int text_x = PADDING;
@@ -321,7 +334,7 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
     }
 
     if (is_selected) {
-        render_text_pillbox(framebuffer, text_x, y, name, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+        render_text_pillbox_moving(framebuffer, text_x, y, selected_pill_y, name);
     } else {
         uint16_t text_color = is_dir ? COLOR_FOLDER : COLOR_DISABLED;
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name, text_color);
@@ -329,18 +342,20 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
 }
 
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,
-                     int is_selected, int scroll_offset, int is_favorited) {
+                     int is_selected, int scroll_offset, int is_favorited,
+                     int selected_pill_y) {
     if (!framebuffer || !name) return;
 
     int visible_index = index - scroll_offset;
     if (visible_index < 0 || visible_index >= VISIBLE_ENTRIES) return;
 
     render_menu_row(framebuffer, name, is_dir, is_selected, is_favorited,
-                    START_Y + visible_index * ITEM_HEIGHT);
+                    START_Y + visible_index * ITEM_HEIGHT, selected_pill_y);
 }
 
 void render_menu_item_centered(uint16_t *framebuffer, int index, const char *name,
-                               int is_dir, int is_selected, int scroll_offset) {
+                               int is_dir, int is_selected, int scroll_offset,
+                               int selected_pill_y) {
     if (!framebuffer || !name) return;
 
     int visible_index = index - scroll_offset;
@@ -350,8 +365,7 @@ void render_menu_item_centered(uint16_t *framebuffer, int index, const char *nam
     int text_x = (SCREEN_WIDTH - font_measure_text(name)) / 2;
     if (text_x < PADDING) text_x = PADDING;
     if (is_selected) {
-        render_text_pillbox(framebuffer, text_x, y, name,
-                            COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+        render_text_pillbox_moving(framebuffer, text_x, y, selected_pill_y, name);
     } else {
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name,
                        is_dir ? COLOR_FOLDER : COLOR_DISABLED);

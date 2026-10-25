@@ -98,13 +98,16 @@ void render_toast(uint16_t *framebuffer, const char *text);
 
 // Draw a menu item (file or folder)
 void render_menu_item(uint16_t *framebuffer, int index, const char *name, int is_dir,
-                     int is_selected, int scroll_offset, int is_favorited);
+                     int is_selected, int scroll_offset, int is_favorited,
+                     int selected_pill_y);
 /* Draw a vertical-list item with its label centered on the screen. */
 void render_menu_item_centered(uint16_t *framebuffer, int index, const char *name,
-                               int is_dir, int is_selected, int scroll_offset);
+                               int is_dir, int is_selected, int scroll_offset,
+                               int selected_pill_y);
 // Draw a row at an explicit pixel y (animated list)
 void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
-                     int is_selected, int is_favorited, int y);
+                     int is_selected, int is_favorited, int y,
+                     int selected_pill_y);
 
 // Thumbnail functions
 typedef struct {

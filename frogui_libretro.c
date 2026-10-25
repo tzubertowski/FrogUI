@@ -444,6 +444,10 @@ static void system_labels_refresh(void);
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
+#define MENU_PILL_FRAMES 3
+static int menu_pill_from_y, menu_pill_to_y, menu_pill_y;
+static int menu_pill_frame = MENU_PILL_FRAMES;
+static bool menu_pill_active, menu_pill_initialized;
 
 /* Search (X button): on-screen keyboard → filtered results.
  * Scope = the folder you were in (ROMS_PATH root = search everything). */
@@ -3289,6 +3293,29 @@ static bool icon_system_view(void) {
            !apps_browsing && !viewing_search;
 }
 
+static bool menu_pill_view(void) {
+    return !settings_menu_active && !viewing_activity &&
+           !(viewing_recents && settings_game_switcher) &&
+           !horizontal_system_view() && !icon_system_view();
+}
+
+static int menu_row_y(int index, int offset) {
+    int row = index - offset;
+    if (row < 0) row = 0;
+    if (row >= VISIBLE_ENTRIES) row = VISIBLE_ENTRIES - 1;
+    return START_Y + row * ITEM_HEIGHT;
+}
+
+static int menu_pill_draw_y(void) {
+    if (!menu_pill_active) return menu_pill_y;
+    float p = (float)(menu_pill_frame + 1) / MENU_PILL_FRAMES;
+    float ease = p * p * (3.0f - 2.0f * p);
+    menu_pill_y = menu_pill_from_y +
+                  (int)((menu_pill_to_y - menu_pill_from_y) * ease);
+    if (++menu_pill_frame >= MENU_PILL_FRAMES) menu_pill_active = false;
+    return menu_pill_y;
+}
+
 static void ui_toast_show(const char *text) {
     if (!text) return;
     strncpy(ui_toast_text, text, sizeof ui_toast_text - 1);
@@ -4588,13 +4615,41 @@ void retro_run(void) {
         input_set_ext_raw(raw);
     }
     int old_selected = selected_index;
+    int old_scroll = scroll_offset;
     int old_settings_row = settings_menu_idx;
     bool old_settings_active = settings_menu_active;
     bool old_recents = viewing_recents, old_favourites = viewing_favourites;
+    bool old_apps = viewing_apps, old_activity = viewing_activity;
+    bool old_search = viewing_search;
+    bool old_pill_view = menu_pill_view();
     char old_path[MAX_PATH_LEN];
     strncpy(old_path, current_path, sizeof old_path - 1);
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
+    bool same_menu = old_settings_active == settings_menu_active &&
+                     old_recents == viewing_recents &&
+                     old_favourites == viewing_favourites &&
+                     old_apps == viewing_apps && old_activity == viewing_activity &&
+                     old_search == viewing_search &&
+                     strcmp(old_path, current_path) == 0;
+    if (!menu_pill_view()) {
+        menu_pill_active = false;
+        menu_pill_initialized = false;
+    } else {
+        int target_y = menu_row_y(selected_index, scroll_offset);
+        if (!menu_pill_initialized || !old_pill_view || !same_menu) {
+            menu_pill_y = target_y;
+            menu_pill_active = false;
+            menu_pill_initialized = true;
+        } else if (old_selected != selected_index || old_scroll != scroll_offset) {
+            menu_pill_from_y = menu_pill_active
+                             ? menu_pill_y : menu_row_y(old_selected, old_scroll);
+            menu_pill_to_y = target_y;
+            menu_pill_frame = 0;
+            menu_pill_active = settings_anim && menu_pill_from_y != menu_pill_to_y;
+            if (!menu_pill_active) menu_pill_y = target_y;
+        }
+    }
     if (old_selected != selected_index || old_settings_row != settings_menu_idx ||
         old_settings_active != settings_menu_active || old_recents != viewing_recents ||
         old_favourites != viewing_favourites || strcmp(old_path, current_path) != 0)
@@ -4755,6 +4810,7 @@ void retro_run(void) {
         }
         redraw = first || sig != last_sig || screenshot_requested || banner_is_animating() ||
                  system_carousel_is_animating() ||
+                 menu_pill_active ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
         last_sig = sig; first = 0;
@@ -4774,6 +4830,7 @@ void retro_run(void) {
      * Only the top-right battery zone is touched; cubevol's centered volume
      * popup remains available. */
     fb1_clear_battery_zone();
+    int selected_pill_y = menu_pill_draw_y();
 
     if (usb_mode_confirm_active || usb_mode_initiated_active) {
         render_usb_confirm();
@@ -4845,10 +4902,12 @@ void retro_run(void) {
                 if (settings_center_text && settings_style == STYLE_VERTICAL &&
                     strcmp(current_path, ROMS_PATH) == 0)
                     render_menu_item_centered(framebuffer, idx, shown, entries[idx].is_dir,
-                                              (idx == selected_index), scroll_offset);
+                                              (idx == selected_index), scroll_offset,
+                                              selected_pill_y);
                 else
                     render_menu_item(framebuffer, idx, shown, entries[idx].is_dir,
-                                     (idx == selected_index), scroll_offset, 0);
+                                     (idx == selected_index), scroll_offset, 0,
+                                     selected_pill_y);
             }
             render_scroll_indicator(framebuffer, entry_count, selected_index, VISIBLE_ENTRIES);
         }
