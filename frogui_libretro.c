@@ -4695,6 +4695,7 @@ void retro_run(void) {
     static int  banner_last_wpfit = -1; /* reload when the wallpaper fit mode changes */
     static int  banner_last_pack = -1;  /* reload when the background pack changes */
     static int  banner_last_dim = -1;   /* reload when background dim changes */
+    bool banner_updated = false;
     {
         const char *banner_path = current_path;
         char sel_path[MAX_PATH_LEN];
@@ -4750,6 +4751,7 @@ void retro_run(void) {
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
             load_banner_for_view(banner_path, viewing_recents, viewing_favourites);
+            banner_updated = true;
             banner_last_recents = viewing_recents;
             banner_last_favourites = viewing_favourites;
             banner_last_sel = selected_index;
@@ -4808,7 +4810,8 @@ void retro_run(void) {
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
-        redraw = first || sig != last_sig || screenshot_requested || banner_is_animating() ||
+        redraw = first || sig != last_sig || screenshot_requested || banner_updated ||
+                 banner_is_animating() ||
                  system_carousel_is_animating() ||
                  menu_pill_active ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
