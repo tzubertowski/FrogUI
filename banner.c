@@ -12,7 +12,7 @@ static int banner_loaded = 0;
 static char banner_active_key[600] = "";
 static int banner_anim = 1;           /* crossfade enabled */
 static int banner_dim = 0;            /* 0 = unchanged, 100 = black */
-#define FADE_FRAMES 20                /* ~330ms @ 60fps — slow, iPhone-like */
+#define FADE_FRAMES 3                 /* brief handoff without a costly long software blend */
 static int fade_frame = FADE_FRAMES;  /* 0..FADE_FRAMES; FADE_FRAMES = done */
 
 static inline uint16_t rgb_to_565(unsigned char r, unsigned char g, unsigned char b) {

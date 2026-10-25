@@ -440,7 +440,7 @@ static uint32_t usb_mode_prev_raw = 0;
 static void ui_toast_show(const char *text);
 static void ui_transition_start(int direction);
 static void system_labels_refresh(void);
-#define SYSTEM_CAROUSEL_FRAMES 12
+#define SYSTEM_CAROUSEL_FRAMES 3
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
@@ -1591,6 +1591,39 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         }
     }
     banner_clear();
+}
+
+/* Wait until navigation settles before doing a cold image decode on the UI
+ * thread. Repeated D-pad changes replace this pending target without work. */
+static bool banner_reload_after_idle(const char *path, bool is_recents,
+                                     bool is_favourites) {
+    static char pending_path[MAX_PATH_LEN] = "";
+    static bool pending_recents, pending_favourites;
+    static int pending_bg = -1, pending_wp = -1, pending_fit = -1;
+    static int pending_pack = -1, pending_dim = -1;
+    static long long pending_since;
+    long long now = monotonic_ms();
+    bool changed = strcmp(path, pending_path) != 0 ||
+                   is_recents != pending_recents ||
+                   is_favourites != pending_favourites ||
+                   settings_backgrounds != pending_bg ||
+                   settings_wallpaper_idx != pending_wp ||
+                   settings_wallpaper_fit != pending_fit ||
+                   settings_theme_pack_idx != pending_pack ||
+                   settings_background_dim != pending_dim;
+    if (changed) {
+        snprintf(pending_path, sizeof(pending_path), "%s", path);
+        pending_recents = is_recents;
+        pending_favourites = is_favourites;
+        pending_bg = settings_backgrounds;
+        pending_wp = settings_wallpaper_idx;
+        pending_fit = settings_wallpaper_fit;
+        pending_pack = settings_theme_pack_idx;
+        pending_dim = settings_background_dim;
+        pending_since = now;
+        return false;
+    }
+    return now - pending_since >= 160;
 }
 
 /* True if `path` contains at least one game (any file that isn't artwork/metadata),
@@ -4656,7 +4689,8 @@ void retro_run(void) {
                            settings_theme_pack_idx != banner_last_pack ||
                            settings_background_dim != banner_last_dim);
         }
-        if (need_reload && !(viewing_recents && settings_game_switcher)) {
+        if (need_reload && !(viewing_recents && settings_game_switcher) &&
+            banner_reload_after_idle(banner_path, viewing_recents, viewing_favourites)) {
             /* GameSwitcher paints its own full panel. Leave the Games banner
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
