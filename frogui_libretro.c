@@ -1578,11 +1578,15 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         const char *base = (path && *path) ? strrchr(path, '/') : NULL;
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
-        /* Theme packs historically used m2k/gb names. Keep those assets
-         * working for the canonical arcade and Game Boy Color folders too. */
+        /* Keep legacy theme-pack names working across equivalent ROM folders. */
         const char *names[] = { name,
             strcasecmp(name, "arcade") == 0 ? "m2k" : NULL,
-            strcasecmp(name, "gbc") == 0 ? "gb" : NULL, NULL };
+            strcasecmp(name, "gbc") == 0 ? "gb" : NULL,
+            (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "fake-08") == 0)
+                ? "pico8" : NULL,
+            (strcasecmp(name, "pico8") == 0 || strcasecmp(name, "pico-8") == 0)
+                ? "fake08" : NULL,
+            NULL };
         for (int n = 0; names[n]; n++)
             for (int i = 0; exts[i]; i++) {
                 snprintf(img, sizeof(img), "%s/%s.%s", banner_dir, names[n], exts[i]);
