@@ -200,8 +200,10 @@ static const ConsoleMapping console_mappings[] = {
      * is missing.  ps1r runs the pcsx_rearmed libretro core directly. */
     {"ps1",    CORES_PATH "/pcsx_rearmed_libretro.so"},
     {"psx",    CORES_PATH "/pcsx_rearmed_libretro.so"},
+    {"pokket", CORES_PATH "/pokket_libretro.so"},
     {"PS",     CORES_PATH "/pcsx_rearmed_libretro.so"},
     {"ps1r",   CORES_PATH "/pcsx_rearmed_libretro.so"},
+    {"qpsx",   CORES_PATH "/qpsx_libretro.so"},
     /* PSP: PPSSPP libretro core (software renderer, IR interpreter) */
     {"psp",    CORES_PATH "/ppsspp_libretro.so"},
     {"PSP",    CORES_PATH "/ppsspp_libretro.so"},
@@ -491,7 +493,8 @@ static const char *extf_pool[] = {
     "zip", "7z", "cue", "bin", "m3u", "pbp", "iso", "chd",
     "img", "mdf", "sbi", "ccd", "ecm", "gba", "gb", "gbc", "nes",
     "smc", "sfc", "md", "gen", "sms", "gg", "pce", "a26", "a78",
-    "lnx", "ws", "wsc", "nds", "cia", "love", "p8", "p8.png", NULL
+    "lnx", "ws", "wsc", "nds", "cia", "love", "mcd", "gme", "mcs",
+    "pss", "p8", "p8.png", NULL
 };
 
 static void dbg(const char *msg) {
@@ -1492,7 +1495,8 @@ static SystemLabel system_labels[] = {
     {"wswan", "WonderSwan"}, {"wsv", "WonderSwan - Potator"},
     {"vb", "Virtual Boy"}, {"pcfx", "PC-FX"},
     {"ps", "PlayStation"}, {"psx", "PlayStation"},
-    {"ps1", "PlayStation"}, {"ps1r", "PlayStation - ReARMed"},
+    {"pokket", "PocketStation"},
+    {"ps1", "PlayStation"}, {"ps1r", "PlayStation - ReARMed"}, {"qpsx", "PlayStation - QPSX"},
     {"psp", "PlayStation Portable"}, {"nds", "Nintendo DS"},
     {"arcade", "Arcade"}, {"m2k", "Arcade - MAME 2000"}, {"cps1", "Arcade - Capcom CPS-1"},
     {"cps2", "Arcade - Capcom CPS-2"}, {"cps3", "Arcade - Capcom CPS-3"},
@@ -3518,6 +3522,7 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     else if (strcasecmp(folder, "fake08") == 0 || strcasecmp(folder, "retro8") == 0 ||
              strcasecmp(folder, "picante8") == 0) key = "pico8";
     else if (strcasecmp(folder, "snesz") == 0) key = "snes";
+    else if (strcasecmp(folder, "pokket") == 0) key = "ps1";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";
