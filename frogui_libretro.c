@@ -921,7 +921,7 @@ static void theme_sync_artwork_pack(void) {
 int frogui_battery_color_mode(void) { return settings_battery_color; }
 static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
-static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
+static int settings_load_recents = 1;   /* start FrogUI in the recents view: 0=off, 1=on */
 enum { ROM_SOURCE_SD, ROM_SOURCE_OTG, ROM_SOURCE_COUNT };
 static int settings_rom_source = ROM_SOURCE_SD;
 static const char *rom_source_names[ROM_SOURCE_COUNT] = {"SD", "OTG"};
