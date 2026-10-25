@@ -27,6 +27,7 @@
 #include "libretro.h"
 #include "font.h"
 #include "render.h"
+#include "common/pill_animation.h"
 #include "theme.h"
 #include "recent_games.h"
 #include "favorites.h"
@@ -444,10 +445,9 @@ static void system_labels_refresh(void);
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
-#define MENU_PILL_FRAMES 3
-static int menu_pill_from_y, menu_pill_to_y, menu_pill_y;
-static int menu_pill_frame = MENU_PILL_FRAMES;
-static bool menu_pill_active, menu_pill_initialized;
+static pill_animation menu_pill_animation;
+static bool menu_pill_initialized;
+static bool startup_bg_override;
 
 /* Search (X button): on-screen keyboard → filtered results.
  * Scope = the folder you were in (ROMS_PATH root = search everything). */
@@ -1579,14 +1579,14 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
         /* Keep legacy theme-pack names working across equivalent ROM folders. */
-        const char *names[] = { name,
-            strcasecmp(name, "arcade") == 0 ? "m2k" : NULL,
-            strcasecmp(name, "gbc") == 0 ? "gb" : NULL,
-            (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "fake-08") == 0)
-                ? "pico8" : NULL,
-            (strcasecmp(name, "pico8") == 0 || strcasecmp(name, "pico-8") == 0)
-                ? "fake08" : NULL,
-            NULL };
+        const char *alias = NULL;
+        if (strcasecmp(name, "arcade") == 0) alias = "m2k";
+        else if (strcasecmp(name, "gbc") == 0) alias = "gb";
+        else if (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "fake-08") == 0)
+            alias = "pico8";
+        else if (strcasecmp(name, "pico8") == 0 || strcasecmp(name, "pico-8") == 0)
+            alias = "fake08";
+        const char *names[] = { name, alias, NULL };
         for (int n = 0; names[n]; n++)
             for (int i = 0; exts[i]; i++) {
                 snprintf(img, sizeof(img), "%s/%s.%s", banner_dir, names[n], exts[i]);
@@ -3311,13 +3311,7 @@ static int menu_row_y(int index, int offset) {
 }
 
 static int menu_pill_draw_y(void) {
-    if (!menu_pill_active) return menu_pill_y;
-    float p = (float)(menu_pill_frame + 1) / MENU_PILL_FRAMES;
-    float ease = p * p * (3.0f - 2.0f * p);
-    menu_pill_y = menu_pill_from_y +
-                  (int)((menu_pill_to_y - menu_pill_from_y) * ease);
-    if (++menu_pill_frame >= MENU_PILL_FRAMES) menu_pill_active = false;
-    return menu_pill_y;
+	return pill_animation_step(&menu_pill_animation);
 }
 
 static void ui_toast_show(const char *text) {
@@ -4247,6 +4241,8 @@ void retro_init(void) {
     theme_init();
     dbg("theme_init done");
     settings_load_file();
+    startup_bg_override = settings_backgrounds != 0;
+    theme_set_bg_override(startup_bg_override, 0x0000);
     i18n_init(language_codes[settings_language]);
     system_labels_refresh();
     settings_sections_load();   /* restore the user's collapsed sections */
@@ -4637,21 +4633,19 @@ void retro_run(void) {
                      old_search == viewing_search &&
                      strcmp(old_path, current_path) == 0;
     if (!menu_pill_view()) {
-        menu_pill_active = false;
+        pill_animation_reset(&menu_pill_animation, 0);
         menu_pill_initialized = false;
     } else {
         int target_y = menu_row_y(selected_index, scroll_offset);
         if (!menu_pill_initialized || !old_pill_view || !same_menu) {
-            menu_pill_y = target_y;
-            menu_pill_active = false;
+            pill_animation_reset(&menu_pill_animation, target_y);
             menu_pill_initialized = true;
         } else if (old_selected != selected_index || old_scroll != scroll_offset) {
-            menu_pill_from_y = menu_pill_active
-                             ? menu_pill_y : menu_row_y(old_selected, old_scroll);
-            menu_pill_to_y = target_y;
-            menu_pill_frame = 0;
-            menu_pill_active = settings_anim && menu_pill_from_y != menu_pill_to_y;
-            if (!menu_pill_active) menu_pill_y = target_y;
+            int from_y = pill_animation_active(&menu_pill_animation)
+                       ? menu_pill_animation.current_y
+                       : menu_row_y(old_selected, old_scroll);
+            pill_animation_start(&menu_pill_animation, from_y, target_y,
+                                 settings_anim ? 3 : 0);
         }
     }
     if (old_selected != selected_index || old_settings_row != settings_menu_idx ||
@@ -4755,6 +4749,10 @@ void retro_run(void) {
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
             load_banner_for_view(banner_path, viewing_recents, viewing_favourites);
+            if (startup_bg_override) {
+                theme_set_bg_override(0, 0);
+                startup_bg_override = false;
+            }
             banner_updated = true;
             banner_last_recents = viewing_recents;
             banner_last_favourites = viewing_favourites;
@@ -4817,7 +4815,7 @@ void retro_run(void) {
         redraw = first || sig != last_sig || screenshot_requested || banner_updated ||
                  banner_is_animating() ||
                  system_carousel_is_animating() ||
-                 menu_pill_active ||
+                 pill_animation_active(&menu_pill_animation) ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
         last_sig = sig; first = 0;
