@@ -17,10 +17,12 @@ static char banner_active_key[600] = "";
 static int banner_anim = 1;           /* crossfade enabled */
 static int banner_dim = 0;            /* 0 = unchanged, 100 = black */
 #define BANNER_WORK_ROWS 24            /* keep SD/UI work below one frame */
+#define BANNER_MAP_MAX 1024
+static int banner_xmap[BANNER_MAP_MAX], banner_ymap[BANNER_MAP_MAX];
+static unsigned char banner_dim_lut[256];
 static unsigned char *banner_pending_img;
 static uint16_t *banner_pending_buf;
-static int banner_pending_w, banner_pending_h;
-static int banner_pending_mode;
+static int banner_pending_w;
 static uint16_t banner_pending_bg;
 static int banner_pending_light;
 static int banner_pending_row;
@@ -206,7 +208,7 @@ void banner_prefetch(const char *path, int mode, uint16_t bg) {
     }
     pthread_mutex_unlock(&prefetch_mutex);
 }
-#define FADE_FRAMES 20                /* ~330ms @ 60fps — slow, iPhone-like */
+#define FADE_FRAMES 3                 /* Keep software blending brief on MIPS. */
 static int fade_frame = FADE_FRAMES;  /* 0..FADE_FRAMES; FADE_FRAMES = done */
 
 static inline uint16_t rgb_to_565(unsigned char r, unsigned char g, unsigned char b) {
@@ -290,6 +292,7 @@ static void banner_snapshot_for_fade(int sw, int sh) {
 
 static void banner_load_common(const char *path, int mode, uint16_t bg) {
     int sw = SCREEN_WIDTH, sh = SCREEN_HEIGHT, npix = sw * sh;
+    if (sw > BANNER_MAP_MAX || sh > BANNER_MAP_MAX) return;
     char key[600];
     /* Include the source identity and target geometry.  The old cache key only
      * used the pathname, so replacing theme assets or switching between the
@@ -353,10 +356,44 @@ static void banner_load_common(const char *path, int mode, uint16_t bg) {
         return;
     }
     banner_pending_w = w;
-    banner_pending_h = h;
-    banner_pending_mode = mode;
     banner_pending_bg = bg;
     banner_pending_light = 100 - banner_dim;
+    int dx0 = 0, dy0 = 0, dw = sw, dh = sh;
+    if (mode == BANNER_FIT_FILL) {
+        if ((long)w * sh > (long)h * sw) { dh = sh; dw = (int)((long)w * sh / h); }
+        else                             { dw = sw; dh = (int)((long)h * sw / w); }
+        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+    } else if (mode == BANNER_FIT_FIT) {
+        if ((long)w * sh > (long)h * sw) { dw = sw; dh = (int)((long)h * sw / w); }
+        else                             { dh = sh; dw = (int)((long)w * sh / h); }
+        dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
+    } else if (mode == BANNER_FIT_CENTER) {
+        dw = w; dh = h; dx0 = (sw - w) / 2; dy0 = (sh - h) / 2;
+    }
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    for (int x = 0; x < sw; x++) {
+        if (mode == BANNER_FIT_TILE) banner_xmap[x] = x % w;
+        else if (x < dx0 || x >= dx0 + dw) banner_xmap[x] = -1;
+        else {
+            int sx = (int)((long)(x - dx0) * w / dw);
+            if (sx < 0) sx = 0;
+            if (sx >= w) sx = w - 1;
+            banner_xmap[x] = sx;
+        }
+    }
+    for (int y = 0; y < sh; y++) {
+        if (mode == BANNER_FIT_TILE) banner_ymap[y] = y % h;
+        else if (y < dy0 || y >= dy0 + dh) banner_ymap[y] = -1;
+        else {
+            int sy = (int)((long)(y - dy0) * h / dh);
+            if (sy < 0) sy = 0;
+            if (sy >= h) sy = h - 1;
+            banner_ymap[y] = sy;
+        }
+    }
+    for (int i = 0; i < 256; i++)
+        banner_dim_lut[i] = (unsigned char)(i * banner_pending_light / 100);
     banner_pending_row = 0;
     snprintf(banner_pending_key, sizeof banner_pending_key, "%s", key);
     fade_frame = FADE_FRAMES;
@@ -387,41 +424,27 @@ void banner_clear(void) {
 void banner_render(uint16_t *framebuffer) {
     if (banner_pending_img) {
         int sw = SCREEN_WIDTH, sh = SCREEN_HEIGHT;
-        int w = banner_pending_w, h = banner_pending_h;
-        int mode = banner_pending_mode;
-        int dx0 = 0, dy0 = 0, dw = sw, dh = sh;
-        if (mode == BANNER_FIT_FILL) {
-            if ((long)w * sh > (long)h * sw) { dh = sh; dw = (int)((long)w * sh / h); }
-            else                             { dw = sw; dh = (int)((long)h * sw / w); }
-            dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
-        } else if (mode == BANNER_FIT_FIT) {
-            if ((long)w * sh > (long)h * sw) { dw = sw; dh = (int)((long)h * sw / w); }
-            else                             { dh = sh; dw = (int)((long)w * sh / h); }
-            dx0 = (sw - dw) / 2; dy0 = (sh - dh) / 2;
-        } else if (mode == BANNER_FIT_CENTER) {
-            dw = w; dh = h; dx0 = (sw - w) / 2; dy0 = (sh - h) / 2;
-        }
+        int w = banner_pending_w;
         int end = banner_pending_row + BANNER_WORK_ROWS;
         if (end > sh) end = sh;
         for (int y = banner_pending_row; y < end; y++) {
+            int sy = banner_ymap[y];
+            uint16_t *dst = banner_pending_buf + y * sw;
+            if (sy < 0) {
+                for (int x = 0; x < sw; x++) dst[x] = banner_pending_bg;
+                continue;
+            }
+            unsigned char *src = banner_pending_img + (size_t)sy * w * 3;
             for (int x = 0; x < sw; x++) {
-                int sx, sy;
-                if (mode == BANNER_FIT_TILE) {
-                    sx = x % w; sy = y % h;
-                } else if (x < dx0 || x >= dx0 + dw || y < dy0 || y >= dy0 + dh) {
-                    banner_pending_buf[y * sw + x] = banner_pending_bg;
+                int sx = banner_xmap[x];
+                if (sx < 0) {
+                    dst[x] = banner_pending_bg;
                     continue;
-                } else {
-                    sx = (int)((long)(x - dx0) * w / dw);
-                    sy = (int)((long)(y - dy0) * h / dh);
-                    if (sx < 0) sx = 0; if (sx >= w) sx = w - 1;
-                    if (sy < 0) sy = 0; if (sy >= h) sy = h - 1;
                 }
-                unsigned char *p = banner_pending_img + (sy * w + sx) * 3;
-                banner_pending_buf[y * sw + x] = rgb_to_565(
-                    (unsigned char)(p[0] * banner_pending_light / 100),
-                    (unsigned char)(p[1] * banner_pending_light / 100),
-                    (unsigned char)(p[2] * banner_pending_light / 100));
+                unsigned char *p = src + sx * 3;
+                dst[x] = rgb_to_565(banner_dim_lut[p[0]],
+                                    banner_dim_lut[p[1]],
+                                    banner_dim_lut[p[2]]);
             }
         }
         banner_pending_row = end;

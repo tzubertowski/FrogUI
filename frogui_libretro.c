@@ -509,7 +509,7 @@ static Thumbnail port_error_qr;
 static void ui_toast_show(const char *text);
 static void ui_transition_start(int direction);
 static void system_labels_refresh(void);
-#define SYSTEM_CAROUSEL_FRAMES 12
+#define SYSTEM_CAROUSEL_FRAMES 3
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
@@ -1025,7 +1025,7 @@ static void theme_sync_artwork_pack(void) {
 int frogui_battery_color_mode(void) { return settings_battery_color; }
 static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
-static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
+static int settings_load_recents = 1;   /* start FrogUI in the recents view: 0=off, 1=on */
 enum { ROM_SOURCE_SD, ROM_SOURCE_OTG, ROM_SOURCE_COUNT };
 static int settings_rom_source = ROM_SOURCE_SD;
 static const char *rom_source_names[ROM_SOURCE_COUNT] = {"SD", "OTG"};
@@ -1780,6 +1780,37 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         }
     }
     banner_clear();
+}
+
+static bool banner_reload_after_idle(const char *path, bool is_recents,
+                                     bool is_favourites) {
+    static char pending_path[MAX_PATH_LEN] = "";
+    static bool pending_recents, pending_favourites;
+    static int pending_bg = -1, pending_wp = -1, pending_fit = -1;
+    static int pending_pack = -1, pending_dim = -1;
+    static long long pending_since;
+    long long now = monotonic_ms();
+    bool changed = strcmp(path, pending_path) != 0 ||
+                   is_recents != pending_recents ||
+                   is_favourites != pending_favourites ||
+                   settings_backgrounds != pending_bg ||
+                   settings_wallpaper_idx != pending_wp ||
+                   settings_wallpaper_fit != pending_fit ||
+                   settings_theme_pack_idx != pending_pack ||
+                   settings_background_dim != pending_dim;
+    if (changed) {
+        snprintf(pending_path, sizeof(pending_path), "%s", path);
+        pending_recents = is_recents;
+        pending_favourites = is_favourites;
+        pending_bg = settings_backgrounds;
+        pending_wp = settings_wallpaper_idx;
+        pending_fit = settings_wallpaper_fit;
+        pending_pack = settings_theme_pack_idx;
+        pending_dim = settings_background_dim;
+        pending_since = now;
+        return false;
+    }
+    return now - pending_since >= 160;
 }
 
 static int is_banner_image(const char *name) {
@@ -5409,6 +5440,7 @@ void retro_run(void) {
     static int  banner_last_wpfit = -1; /* reload when the wallpaper fit mode changes */
     static int  banner_last_pack = -1;  /* reload when the background pack changes */
     static int  banner_last_dim = -1;   /* reload when background dim changes */
+    bool banner_updated = false;
     {
         if (settings_backgrounds != prefetch_last_bg ||
             settings_wallpaper_idx != prefetch_last_wp ||
@@ -5472,11 +5504,13 @@ void retro_run(void) {
                            settings_theme_pack_idx != banner_last_pack ||
                            settings_background_dim != banner_last_dim);
         }
-        if (need_reload && !(viewing_recents && settings_game_switcher)) {
+        if (need_reload && !(viewing_recents && settings_game_switcher) &&
+            banner_reload_after_idle(banner_path, viewing_recents, viewing_favourites)) {
             /* GameSwitcher paints its own full panel. Leave the Games banner
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
             load_banner_for_view(banner_path, viewing_recents, viewing_favourites);
+            banner_updated = true;
             if (startup_bg_override) {
                 theme_set_bg_override(0, 0);
                 startup_bg_override = false;
@@ -5540,7 +5574,7 @@ void retro_run(void) {
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
-        redraw = first || sig != last_sig || banner_is_animating() ||
+        redraw = first || sig != last_sig || banner_updated || banner_is_animating() ||
                  system_carousel_is_animating() ||
                  pill_animation_active(&menu_pill_animation) ||
                  activity_marquee_active() ||
