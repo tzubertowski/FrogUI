@@ -121,6 +121,7 @@ static const ConsoleMapping console_mappings[] = {
     {"snes",   CORES_PATH "/snes9x2005_plus_libretro.so"},
     {"snes02", CORES_PATH "/snes9x2002_libretro.so"},
     {"snesz",  CORES_PATH "/snes9x-Z_libretro.so"},
+    {"zsnes",  CORES_PATH "/snes9x-Z_libretro.so"},
     {"SFC",    CORES_PATH "/snes9x2005_plus_libretro.so"},
     /* Game Boy */
     {"gb",     CORES_PATH "/gambatte_libretro.so"},
@@ -1616,6 +1617,7 @@ static SystemLabel system_labels[] = {
     {"nest", "NES - Nestopia"}, {"fds", "Famicom Disk System"},
     {"sfc", "Super Nintendo"}, {"snes", "Super Nintendo"},
     {"snesz", "Super Nintendo - Snes9x-Z"},
+    {"zsnes", "Super Nintendo - Snes9x-Z"},
     {"snes02", "SNES - Fast"},
     {"gb", "Game Boy"}, {"gbc", "Game Boy Color"},
     {"gbgb", "Game Boy - Gearboy"},
@@ -1743,6 +1745,8 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         const char *base = (path && *path) ? strrchr(path, '/') : NULL;
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
+        if (strcasecmp(name, "snesz") == 0 || strcasecmp(name, "zsnes") == 0)
+            name = "snes";
         if (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "retro8") == 0 ||
             strcasecmp(name, "picante8") == 0)
             name = "pico8";
@@ -3836,7 +3840,8 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     else if (strcasecmp(folder, "ports") == 0) key = "menu";
     else if (strcasecmp(folder, "fake08") == 0 || strcasecmp(folder, "retro8") == 0 ||
              strcasecmp(folder, "picante8") == 0) key = "pico8";
-    else if (strcasecmp(folder, "snesz") == 0) key = "snes";
+    else if (strcasecmp(folder, "snesz") == 0 || strcasecmp(folder, "zsnes") == 0)
+        key = "snes";
     else if (strcasecmp(folder, "pokket") == 0) key = "ps1";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
