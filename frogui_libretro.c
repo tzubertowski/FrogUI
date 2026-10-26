@@ -30,6 +30,7 @@
 #include "libretro.h"
 #include "font.h"
 #include "render.h"
+#include "common/pill_animation.h"
 #include "theme.h"
 #include "recent_games.h"
 #include "favorites.h"
@@ -512,6 +513,10 @@ static void system_labels_refresh(void);
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
+#define MENU_PILL_FRAMES 3
+static pill_animation menu_pill_animation;
+static bool menu_pill_initialized;
+static bool startup_bg_override;
 
 /* Search (X button): on-screen keyboard → filtered results.
  * Scope = the folder you were in (ROMS_PATH root = search everything). */
@@ -3599,6 +3604,23 @@ static bool icon_system_view(void) {
            !apps_browsing && !viewing_search;
 }
 
+static bool menu_pill_view(void) {
+    return !settings_menu_active && !viewing_activity &&
+           !(viewing_recents && settings_game_switcher) &&
+           !horizontal_system_view() && !icon_system_view();
+}
+
+static int menu_row_y(int index, int offset) {
+    int row = index - offset;
+    if (row < 0) row = 0;
+    if (row >= VISIBLE_ENTRIES) row = VISIBLE_ENTRIES - 1;
+    return START_Y + row * ITEM_HEIGHT;
+}
+
+static int menu_pill_draw_y(void) {
+    return pill_animation_step(&menu_pill_animation);
+}
+
 static void ui_toast_show(const char *text) {
     if (!text) return;
     strncpy(ui_toast_text, text, sizeof ui_toast_text - 1);
@@ -4799,6 +4821,8 @@ void retro_init(void) {
     theme_init();
     dbg("theme_init done");
     settings_load_file();
+    startup_bg_override = settings_backgrounds != 0;
+    theme_set_bg_override(startup_bg_override, 0x0000);
     i18n_init(i18n_language_code_at(settings_language));
     system_labels_refresh();
     settings_sections_load();   /* restore the user's collapsed sections */
@@ -5273,13 +5297,39 @@ void retro_run(void) {
         input_set_ext_raw(raw);
     }
     int old_selected = selected_index;
+    int old_scroll = scroll_offset;
     int old_settings_row = settings_menu_idx;
     bool old_settings_active = settings_menu_active;
     bool old_recents = viewing_recents, old_favourites = viewing_favourites;
+    bool old_apps = viewing_apps, old_activity = viewing_activity;
+    bool old_search = viewing_search;
+    bool old_pill_view = menu_pill_view();
     char old_path[MAX_PATH_LEN];
     strncpy(old_path, current_path, sizeof old_path - 1);
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
+    bool same_menu = old_settings_active == settings_menu_active &&
+                     old_recents == viewing_recents &&
+                     old_favourites == viewing_favourites &&
+                     old_apps == viewing_apps && old_activity == viewing_activity &&
+                     old_search == viewing_search &&
+                     strcmp(old_path, current_path) == 0;
+    if (!menu_pill_view()) {
+        pill_animation_reset(&menu_pill_animation, 0);
+        menu_pill_initialized = false;
+    } else {
+        int target_y = menu_row_y(selected_index, scroll_offset);
+        if (!menu_pill_initialized || !old_pill_view || !same_menu) {
+            pill_animation_reset(&menu_pill_animation, target_y);
+            menu_pill_initialized = true;
+        } else if (old_selected != selected_index || old_scroll != scroll_offset) {
+            int from_y = pill_animation_active(&menu_pill_animation)
+                       ? menu_pill_animation.current_y
+                       : menu_row_y(old_selected, old_scroll);
+            pill_animation_start(&menu_pill_animation, from_y, target_y,
+                                 settings_anim ? MENU_PILL_FRAMES : 0);
+        }
+    }
     if (old_selected != selected_index || old_settings_row != settings_menu_idx ||
         old_settings_active != settings_menu_active || old_recents != viewing_recents ||
         old_favourites != viewing_favourites || strcmp(old_path, current_path) != 0)
@@ -5427,6 +5477,10 @@ void retro_run(void) {
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
             load_banner_for_view(banner_path, viewing_recents, viewing_favourites);
+            if (startup_bg_override) {
+                theme_set_bg_override(0, 0);
+                startup_bg_override = false;
+            }
             banner_last_recents = viewing_recents;
             banner_last_favourites = viewing_favourites;
             banner_last_sel = selected_index;
@@ -5488,6 +5542,7 @@ void retro_run(void) {
         }
         redraw = first || sig != last_sig || banner_is_animating() ||
                  system_carousel_is_animating() ||
+                 pill_animation_active(&menu_pill_animation) ||
                  activity_marquee_active() ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
@@ -5508,6 +5563,7 @@ void retro_run(void) {
      * Only the top-right battery zone is touched; cubevol's centered volume
      * popup remains available. */
     fb1_clear_battery_zone();
+    int selected_pill_y = menu_pill_draw_y();
 
     if (port_error_active) {
         render_port_error();
@@ -5586,10 +5642,12 @@ void retro_run(void) {
                 if (settings_center_text && settings_style == STYLE_VERTICAL &&
                     strcmp(current_path, ROMS_PATH) == 0)
                     render_menu_item_centered(framebuffer, idx, shown, entries[idx].is_dir,
-                                              (idx == selected_index), scroll_offset);
+                                              (idx == selected_index), scroll_offset,
+                                              selected_pill_y);
                 else
                     render_menu_item(framebuffer, idx, shown, entries[idx].is_dir,
-                                     (idx == selected_index), scroll_offset, 0);
+                                     (idx == selected_index), scroll_offset, 0,
+                                     selected_pill_y);
             }
             render_scroll_indicator(framebuffer, entry_count, selected_index, VISIBLE_ENTRIES);
         }

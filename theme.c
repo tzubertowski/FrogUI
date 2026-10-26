@@ -538,10 +538,13 @@ const int theme_count = sizeof(themes) / sizeof(themes[0]);
 
 static int current_theme_index = 0;
 static const Theme* current_theme = &themes[0];
+static int bg_override_active;
+static uint16_t bg_override_color;
 
 void theme_init(void) {
     current_theme_index = 0;
     current_theme = &themes[0];
+    bg_override_active = 0;
 }
 
 int theme_load_from_settings(const char* theme_name) {
@@ -583,7 +586,11 @@ const char* theme_get_name(int index) {
 }
 
 // Color accessors
-uint16_t theme_bg(void) { return current_theme->bg; }
+uint16_t theme_bg(void) { return bg_override_active ? bg_override_color : current_theme->bg; }
+void theme_set_bg_override(int enabled, uint16_t color) {
+    bg_override_active = enabled;
+    bg_override_color = color;
+}
 uint16_t theme_text(void) { return current_theme->text; }
 uint16_t theme_select_bg(void) { return current_theme->select_bg; }
 uint16_t theme_select_text(void) { return current_theme->select_text; }
