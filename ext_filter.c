@@ -107,6 +107,7 @@ static void apply_builtin_defaults(void) {
     for (int f = 0; folders[f]; f++)
         for (int e = 0; disc_exts[e]; e++)
             ext_filter_add_builtin(folders[f], disc_exts[e]);
+    ext_filter_add_builtin("scummvm", "scummvm");
 }
 
 void ext_filter_load(void) {
@@ -142,6 +143,8 @@ void ext_filter_load(void) {
                 static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
                 static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", NULL };
                 int is_builtin = 0;
+                if (strcasecmp(line, "scummvm") == 0 && strcmp(norm, "scummvm") == 0)
+                    is_builtin = 1;
                 for (int fi = 0; folders[fi]; fi++)
                     if (strcasecmp(folders[fi], line) == 0) {
                         for (int ei = 0; disc_exts[ei]; ei++)
