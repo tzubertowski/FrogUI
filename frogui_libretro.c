@@ -3,8 +3,8 @@
  *
  * Picoarch loads this core and handles ALL display/input/SDL init.
  * FrogUI renders its menu into a RGB565 buffer and passes it to video_cb.
- * When user picks a game, write /tmp/frogui_launch.txt and signal SHUTDOWN.
- * icube reads that file and launches picoarch with the real game core.
+ * When user picks a game, atomically publish the shared SD launch request and
+ * signal SHUTDOWN. zhijack reads it and launches picoarch or a standalone app.
  */
 
 #include <stdio.h>
@@ -24,10 +24,13 @@
 #include <math.h>
 #include <stdbool.h>
 #include <time.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 #include "libretro.h"
 #include "font.h"
 #include "render.h"
+#include "common/pill_animation.h"
 #include "theme.h"
 #include "recent_games.h"
 #include "favorites.h"
@@ -35,12 +38,17 @@
 #include "banner.h"
 #include "backlight.h"
 #include "input.h"
+#include "screenshot.h"
 #include "core_override.h"
 #include "ext_filter.h"
 #include "common/i18n.h"
 
 #define SDCARD_BASE  "/mnt/sdcard"
+#define PORT_ERROR_FILE SDCARD_BASE "/cubegm/port_error.txt"
 #define CORES_PATH   SDCARD_BASE "/cubegm/cores"
+/* Core audio rate (single source of truth: av_info AND the menu-tick length
+ * are both derived from this - see ui_menu_tick). */
+#define SAMPLE_RATE  44100
 /* roms root: resolved at init. Prefer roms/, accept ROMS/ (exfat-mounted cards
  * are case-sensitive on this kernel), create roms/ if neither exists, so the
  * menu ALWAYS has a valid root instead of NULL entries → SIGBUS addr=0. */
@@ -50,7 +58,24 @@
 /* The launcher may point FrogUI at a mounted USB disk. */
 static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define ROMS_PATH    g_roms_path
-#define LAUNCH_FILE  "/tmp/frogui_launch.txt"
+
+typedef struct { const char *slug, *name; bool pending; } PortMigration;
+static PortMigration port_migrations[] = {
+    {"diablo", "Diablo 1", false},
+    {"duke3d", "Duke Nukem 3D", false},
+    {"mcpe", "Minecraft PE", false},
+    {"openclaw", "Captain Claw", false},
+    {"undertale", "Undertale", false},
+    {"vvvvvv", "VVVVVV", false},
+    {"classicube", "ClassiCube", false}
+};
+static int port_migration_count, port_migration_index, port_migration_failures;
+static int port_migration_finish_frames, port_migration_result_frames;
+static bool port_migration_active;
+static bool port_migration_current_ok;
+/* FrogUI and zhijack do not share /tmp on R36HD. Keep the handoff on the
+ * shared SD mount so the launcher can see it after FrogUI exits. */
+#define LAUNCH_FILE  "/mnt/sdcard/cubegm/frogui_launch.txt"
 #define LANGUAGE_RESTART_FLAG SDCARD_BASE "/frogui/language_restart.flag"
 #define PCSX4ALL_BIN SDCARD_BASE "/cubegm/pcsx4all"
 #define PICO286_BIN  SDCARD_BASE "/cubegm/pico286"
@@ -60,13 +85,32 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define VIDEO_BIN    SDCARD_BASE "/cubegm/video_player" /* hardware-decoded video player */
 #define IMAGE_BIN    SDCARD_BASE "/cubegm/image_viewer" /* hardware-decoded image viewer */
 #define PPSSPP_BIN   SDCARD_BASE "/cubegm/ppsspp"       /* optional standalone SF3000 port */
+#define DSPERATE_BIN SDCARD_BASE "/cubegm/dsperate/run_sf3000.sh"
+#define DIABLO_BIN   SDCARD_BASE "/cubegm/devilutionx.sh" /* wrapper sets Diablo's cwd */
+#define J2ME_CORE    CORES_PATH "/j2me_libretro.so"
+#define CLASSICUBE_CORE CORES_PATH "/classicube_libretro.so"
+#define MCPE_CORE CORES_PATH "/mcpe_libretro.so"
+#define CLAW_CORE CORES_PATH "/openclaw_libretro.so"
+#define DUKE3D_CORE CORES_PATH "/duke3d_libretro.so"
+#define BUTTERSCOTCH_CORE CORES_PATH "/butterscotch_libretro.so"
+#define OPENBOR_CORE CORES_PATH "/openbor_libretro.so"
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
+#define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
 
 /* Console → core mapping (folder name → libretro .so)
  * Folder names match /mnt/sdcard/roms/ subdirectories (gb300_multicore convention). */
 typedef struct { const char *console_name; const char *core_path; } ConsoleMapping;
 static const ConsoleMapping console_mappings[] = {
+    /* ClassiCube */
+    {"classicube", CLASSICUBE_CORE},
+    {"mcpe", MCPE_CORE},
+    {"openclaw", CLAW_CORE},
+    {"picante8", CORES_PATH "/picante8_libretro.so"}, /* existing carts */
+    {"duke3d", DUKE3D_CORE},
+    {"undertale", BUTTERSCOTCH_CORE},
+    {"openbor", OPENBOR_CORE},
+    {"diablo", DIABLO_BIN},
     /* NES */
     {"nes",    CORES_PATH "/fceumm_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
@@ -77,6 +121,8 @@ static const ConsoleMapping console_mappings[] = {
     /* SNES */
     {"snes",   CORES_PATH "/snes9x2005_plus_libretro.so"},
     {"snes02", CORES_PATH "/snes9x2002_libretro.so"},
+    {"snesz",  CORES_PATH "/snes9x-Z_libretro.so"},
+    {"zsnes",  CORES_PATH "/snes9x-Z_libretro.so"},
     {"SFC",    CORES_PATH "/snes9x2005_plus_libretro.so"},
     /* Game Boy */
     {"gb",     CORES_PATH "/gambatte_libretro.so"},
@@ -151,8 +197,10 @@ static const ConsoleMapping console_mappings[] = {
     {"gw",     CORES_PATH "/gw_libretro.so"},
     {"jnb",    CORES_PATH "/jumpnbump_libretro.so"},
     /* Misc */
-    {"pico8",  CORES_PATH "/fake08_libretro.so"},   /* PICO-8 (fake08 core) */
+    {"pico8",  CORES_PATH "/picante8_libretro.so"}, /* PICO-8 (Picante8) */
     {"pico286", PICO286_BIN},                        /* DOS PC (standalone, launched directly) */
+    {"nds",    DSPERATE_BIN},                        /* Nintendo DS (DSperate standalone) */
+    {"j2me",   J2ME_CORE},                           /* J2ME / MIDP 2.0 (.jar/.jad) */
     {"lgpt",   LGPT_BIN},                            /* LittleGPTracker (standalone, launched directly) */
     {"rockbox", ROCKBOX_BIN},                        /* Rockbox music player (standalone) */
     {"Ebook",  EBOOK_BIN},                           /* ebook reader (epub/mobi/pdf, standalone) */
@@ -164,7 +212,7 @@ static const ConsoleMapping console_mappings[] = {
     {"frogshell", FROGSHELL_CORE},
     {"images", IMAGE_BIN},                          /* JPG/PNG/BMP/GIF/etc. (standalone) */
     {"photos", IMAGE_BIN},
-    {"fake08", CORES_PATH "/fake08_libretro.so"},   /* legacy folder name */
+    {"fake08", CORES_PATH "/fake08_libretro.so"},
     {"lowres-nx", CORES_PATH "/lowresnx_libretro.so"},
     {"tic80",  CORES_PATH "/tic80_libretro.so"},   /* TIC-80 fantasy console (.tic carts) */
     {"gme",    CORES_PATH "/gme_libretro.so"},
@@ -196,8 +244,10 @@ static const ConsoleMapping console_mappings[] = {
      * is missing.  ps1r runs the pcsx_rearmed libretro core directly. */
     {"ps1",    CORES_PATH "/pcsx_rearmed_libretro.so"},
     {"psx",    CORES_PATH "/pcsx_rearmed_libretro.so"},
+    {"pokket", CORES_PATH "/pokket_libretro.so"},
     {"PS",     CORES_PATH "/pcsx_rearmed_libretro.so"},
     {"ps1r",   CORES_PATH "/pcsx_rearmed_libretro.so"},
+    {"qpsx",   CORES_PATH "/qpsx_libretro.so"},
     /* PSP: PPSSPP libretro core (software renderer, IR interpreter) */
     {"psp",    CORES_PATH "/ppsspp_libretro.so"},
     {"PSP",    CORES_PATH "/ppsspp_libretro.so"},
@@ -216,6 +266,13 @@ static const char* get_core_for_folder(const char *folder) {
  * pick a core based on the ROM file extension. */
 typedef struct { const char *ext; const char *core_path; } ExtensionMapping;
 static const ExtensionMapping ext_mappings[] = {
+    {".cw",   CLASSICUBE_CORE},
+    {".classicube", CLASSICUBE_CORE},
+    {".mcpe", MCPE_CORE},
+    {".claw", CLAW_CORE},
+    {".openclaw", CLAW_CORE},
+    {".duke3d", DUKE3D_CORE},
+    {".butterscotch", BUTTERSCOTCH_CORE},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -258,6 +315,8 @@ static const ExtensionMapping ext_mappings[] = {
     {".rom",  CORES_PATH "/o2em_libretro.so"},
     {".adf",  CORES_PATH "/uae_libretro.so"},
     {".st",   CORES_PATH "/castaway_libretro.so"},
+    {".jar",  J2ME_CORE},
+    {".jad",  J2ME_CORE},
     {".msa",  CORES_PATH "/castaway_libretro.so"},
     {".cue",  CORES_PATH "/pcsx_rearmed_libretro.so"},
     {".iso",  CORES_PATH "/pcsx_rearmed_libretro.so"},
@@ -380,6 +439,7 @@ static int core_choice_index_for_path(const char *path) {
 /* Libretro callbacks */
 static retro_video_refresh_t     video_cb     = NULL;
 static retro_environment_t       environ_cb   = NULL;
+static retro_log_printf_t        log_cb       = NULL;
 static retro_audio_sample_t      audio_cb     = NULL;
 static retro_audio_sample_batch_t audio_batch_cb = NULL;
 static retro_input_poll_t        input_poll_cb = NULL;
@@ -402,6 +462,7 @@ static int selected_index   = 0;
 static int scroll_offset    = 0;
 static uint16_t *framebuffer = NULL;
 static bool shutdown_requested = false;
+
 static bool viewing_recents = false;
 static bool viewing_favourites = false;
 static bool viewing_apps = false;
@@ -413,6 +474,9 @@ static long activity_runs[128];
 static time_t activity_last[128];
 static int activity_has_dates = 0;
 static int activity_count = 0;
+static char activity_marquee_key[MAX_PATH_LEN];
+static int activity_marquee_offset;
+static unsigned activity_marquee_tick;
 static char apps_root_path[MAX_PATH_LEN] = "";
 static bool game_switcher_fullscreen = false;
 enum { MAIN_TAB_RECENTS, MAIN_TAB_GAMES, MAIN_TAB_APPS, MAIN_TAB_SETTINGS };
@@ -423,8 +487,10 @@ static uint16_t *view_transition_old = NULL;
 static uint16_t *view_transition_out = NULL;
 static int view_transition_frame = VIEW_TRANSITION_FRAMES + 1;
 static int is_app_folder_name(const char *name);
+static bool is_psp_folder(const char *folder);
 static char ui_toast_text[96] = "";
 static int ui_toast_frames = 0;
+static bool screenshot_pending = false;
 /* The UI's idle path polls input at about 1 kHz.  These must not be frame
  * counters: a 240-frame confirmation used to disappear in a fraction of a
  * second, before a deliberately held face button had even passed debounce. */
@@ -433,6 +499,14 @@ static bool usb_mode_initiated_active = false;
 static bool usb_mode_wait_for_release = false;
 static long long usb_mode_initiated_at_ms = 0;
 static uint32_t usb_mode_prev_raw = 0;
+static bool port_error_active = false;
+static bool port_error_wait_release = false;
+static char port_error_name[48];
+static char port_error_url[256];
+static char port_error_qr_path[MAX_PATH_LEN];
+static char port_error_files[6][128];
+static int port_error_file_count = 0;
+static Thumbnail port_error_qr;
 static void ui_toast_show(const char *text);
 static void ui_transition_start(int direction);
 static void system_labels_refresh(void);
@@ -440,6 +514,10 @@ static void system_labels_refresh(void);
 static int system_carousel_frame = SYSTEM_CAROUSEL_FRAMES + 1;
 static float system_carousel_start_offset = 0.0f;
 static float system_carousel_visible_offset = 0.0f;
+#define MENU_PILL_FRAMES 3
+static pill_animation menu_pill_animation;
+static bool menu_pill_initialized;
+static bool startup_bg_override;
 
 /* Search (X button): on-screen keyboard → filtered results.
  * Scope = the folder you were in (ROMS_PATH root = search everything). */
@@ -482,7 +560,8 @@ static const char *extf_pool[] = {
     "zip", "7z", "cue", "bin", "m3u", "pbp", "iso", "chd",
     "img", "mdf", "sbi", "ccd", "ecm", "gba", "gb", "gbc", "nes",
     "smc", "sfc", "md", "gen", "sms", "gg", "pce", "a26", "a78",
-    "lnx", "ws", "wsc", "nds", "cia", "love", "p8", "p8.png", NULL
+    "lnx", "ws", "wsc", "nds", "cia", "love", "mcd", "gme", "mcs",
+    "pss", "p8", "p8.png", NULL
 };
 
 static void dbg(const char *msg) {
@@ -494,6 +573,50 @@ static void dbg(const char *msg) {
     FILE *f = fopen("/mnt/sdcard/frogui_crash.log", "a");
     if (f) { fputs(msg, f); fputs("\n", f); fclose(f); }
     fprintf(stderr, "FROGUI_DBG: %s\n", msg);
+}
+
+#define INPUT_LOG_PATH "/mnt/sdcard/cubegm/logs/frogui-input.log"
+#define INPUT_LOG_PREV INPUT_LOG_PATH ".prev"
+#define INPUT_LOG_MAX (128 * 1024)
+static long long monotonic_ms(void);
+
+static void input_log(const char *event, const char *details) {
+    struct stat st;
+    char line[1400];
+    int len = snprintf(line, sizeof(line), "%lld %s %s\n", monotonic_ms(),
+                       event, details ? details : "");
+    if (len < 0 || (size_t)len >= sizeof(line)) return;
+    if (stat(INPUT_LOG_PATH, &st) == 0 && st.st_size + len > INPUT_LOG_MAX) return;
+    FILE *f = fopen(INPUT_LOG_PATH, "a");
+    if (!f) return;
+    fputs(line, f);
+    fclose(f);
+}
+
+static void input_log_start(void) {
+    mkdir(SDCARD_BASE "/cubegm/logs", 0777);
+    unlink(INPUT_LOG_PREV);
+    rename(INPUT_LOG_PATH, INPUT_LOG_PREV);
+    FILE *f = fopen(INPUT_LOG_PATH, "w");
+    if (f) {
+        fputs("FrogUI input diagnostics\n", f);
+        fclose(f);
+    }
+}
+
+static void input_log_activation(void) {
+    char details[1200];
+    const char *view = viewing_search ? "search" : viewing_activity ? "activity" :
+        viewing_favourites ? "favourites" : viewing_recents ? "recents" :
+        viewing_apps ? "apps" : apps_browsing ? "apps-browsing" : "games";
+    const char *name = selected_index >= 0 && selected_index < entry_count
+        ? entries[selected_index].name : "(out-of-range)";
+    int is_dir = selected_index >= 0 && selected_index < entry_count
+        ? entries[selected_index].is_dir : -1;
+    snprintf(details, sizeof(details),
+             "view=%s path=\"%s\" selected=%d entry=\"%s\" is_dir=%d raw=0x%08x",
+             view, current_path, selected_index, name, is_dir, input_get_raw_state());
+    input_log("A-activate", details);
 }
 
 static long long monotonic_ms(void) {
@@ -517,7 +640,9 @@ static bool usb_mode_raw_edge(FrogButton button, uint32_t raw) {
  * fb1 is rotated and/or double-buffered on SF3500-class devices, so physical
  * top-right is not reliably memory top-right and the active page is not always
  * page zero. Clear every memory corner on every virtual page. */
+static int frogui_stock_battery_indicator(void);
 static void fb1_clear_battery_zone(void) {
+    if (frogui_stock_battery_indicator()) return;
     /* Persistent mmap + cached geometry: open/mmap ONCE. The old per-frame
      * open+ioctl+mmap+munmap+close stalled the loop (visible input lag).
      * Do not latch a failed first attempt: early boot may reach FrogUI before
@@ -594,10 +719,10 @@ static void fb1_clear_all(void) {
  * clears cubevol's battery corner each call so its glyph stays hidden. Called by
  * render_header (every screen, every frame). */
 static int raw_to_pct(int raw) {
-    /* This ADC is too noisy and device-dependent for a truthful percentage.
-     * Use three broad states; give the full state a deliberately wide range. */
-    if (raw < 100) return 25;
-    if (raw < 145) return 50;
+    /* R36SX packs measure about 64 empty, 153 half and 180 full. */
+    if (raw <= 64) return 0;
+    if (raw <= 153) return (raw - 64) * 50 / (153 - 64);
+    if (raw < 180) return 50 + (raw - 153) * 50 / (180 - 153);
     return 100;
 }
 /* Persistent ADC fds, opened O_RDWR ONCE like cubevol (battery_adc_init) - these
@@ -619,6 +744,7 @@ static int g_batt_charging = 0;
 int frogui_battery_charging(void) { return g_batt_charging; }
 int frogui_battery_color_mode(void);   /* defined after settings_battery_color */
 int frogui_battery_pct(void) {
+    if (frogui_stock_battery_indicator()) return -1;
     static int cached = -1, tick = 0;
     if (cached < 0 || (tick++ % 300) == 0) {
         int a1 = read_adc(0), a5 = read_adc(1);
@@ -646,6 +772,7 @@ int frogui_battery_pct(void) {
 static char font_files[MAX_FONTS][FONT_STR_MAX];
 static char font_disp[MAX_FONTS][FONT_STR_MAX];
 static int  font_count = 0;
+static int settings_font_idx = 0;
 
 static int font_has_ext(const char *name) {
     const char *dot = strrchr(name, '.');
@@ -830,6 +957,12 @@ static void font_scan(void) {
         }
         strncpy(font_files[j + 1], key, FONT_STR_MAX);
     }
+    for (int i = 0; i < font_count; i++) {
+        if (strcasecmp(font_files[i], "alium_Nunito.ttf") == 0) {
+            settings_font_idx = i;
+            break;
+        }
+    }
     /* Build display names = filename minus extension. */
     for (int i = 0; i < font_count; i++) {
         strncpy(font_disp[i], font_files[i], FONT_STR_MAX - 1);
@@ -845,7 +978,7 @@ static bool settings_menu_active = false;
  * presenting its last frame. */
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
-static int settings_font_idx = 0;
+static int settings_font_size = 23;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
  * its OWN stored brightness on start, DELAYED by panel/backlight-delay (to avoid
@@ -858,38 +991,28 @@ static int settings_audio_mute_reassert = 0;
 static int settings_filter_idx = 1;     /* forced bilinear (option removed from menu) */
 static int settings_filter_idx_on_enter = 0;  /* snapshot for restart-on-change */
 static int settings_quick_resume = 0;      /* boot straight into last game: 0=off, 1=on. Settings key stays "auto_resume" for upgrade compat. */
+static int settings_custom_aspect_ratios = 0; /* expose forced aspect-ratio choices in PicoArch */
 static int settings_autosave_autoload = 1; /* auto-save on pause/quit + auto-load on any game launch (boot or manual pick): 0=off, 1=on */
 static int settings_anim = 1;           /* UI animations: 0=off, 1=on */
 static int settings_menu_sounds = 0;    /* short navigation tick: 0=off, 1=on */
 enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_COUNT };
 static int settings_style = STYLE_VERTICAL;
 static int settings_center_text = 0;   /* center labels in the vertical system list */
-static int settings_friendly_names = 0; /* expand system folder codes in either style */
+static int settings_friendly_names = 1; /* expand system folder codes in either style */
 static int settings_hide_empty = 1;     /* hide rom folders with no games: 0=off, 1=on */
 static int settings_hide_extensions = 1; /* hide file extensions in the browser: 0=off, 1=on */
 static int settings_backgrounds = 1;     /* show per-system background images: 0=off (solid theme bg), 1=on */
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
-enum { LANGUAGE_EN_US, LANGUAGE_PL_PL, LANGUAGE_ES_ES, LANGUAGE_PT_BR, LANGUAGE_JA_JP,
-       LANGUAGE_RU_RU, LANGUAGE_ZH_CN, LANGUAGE_COUNT };
-static int settings_language = LANGUAGE_EN_US;
-static const char *language_codes[LANGUAGE_COUNT] = {
-    "en_US", "pl_PL", "es_ES", "pt_BR", "ja_JP", "ru_RU", "zh_CN"
-};
-static const char *language_name_keys[LANGUAGE_COUNT] = {
-    "language.en_US", "language.pl_PL", "language.es_ES", "language.pt_BR", "language.ja_JP",
-    "language.ru_RU", "language.zh_CN"
-};
+static int settings_stock_battery = 1;   /* cubevol's original fb1 indicator */
+static int settings_language;
 
-/* Pastel themes are complete treatments, not palette-only options.  Pair
- * them with their matching artwork pack whenever the theme is applied. */
 static void theme_sync_artwork_pack(void) {
     const char *wanted = NULL;
     const char *theme = theme_get_name(settings_theme_idx);
     if (strcmp(theme, "Catppuccin Mocha") == 0) wanted = "Catppuccin";
     else if (strcmp(theme, "Aura") == 0) wanted = "Aura";
-    else if (strcmp(theme, "Canvas Pastel") == 0) wanted = "Canvas_Pastel";
     if (!wanted) return;
     for (int i = 0; i < theme_pack_count; i++) {
         if (strcasecmp(theme_pack_files[i], wanted) == 0 ||
@@ -901,6 +1024,7 @@ static void theme_sync_artwork_pack(void) {
 }
 
 int frogui_battery_color_mode(void) { return settings_battery_color; }
+static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
 static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
 enum { ROM_SOURCE_SD, ROM_SOURCE_OTG, ROM_SOURCE_COUNT };
@@ -931,10 +1055,10 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
-    { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload },
+    { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
     { RT_HEADER, "settings.system" }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
 };
 #define SETTINGS_ROW_N ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
@@ -1108,12 +1232,17 @@ static void mkdir_p(const char *path) {
 }
 
 static void settings_write_volume(void) {
-    FILE *vf = fopen("/mnt/sdcard/cubegm/sndgain.txt", "w");
-    if (!vf) return;
-    fprintf(vf, "%d\n", settings_volume);
-    fflush(vf);
-    fsync(fileno(vf));
-    fclose(vf);
+    /* The shared system volume lives in cubevol's persistentmem slot (the
+     * physical volume buttons' value); writing it also mirrors to the I2SO
+     * hardware path and legacy sndgain.txt for standalone frontends.
+     * Called on confirmed adjustments (menu exit / boot apply) AND as the
+     * debounced commit of the live slider path (see settings_preview_row):
+     * cube_pmem_volume_write itself skips the EEPROM write when the level
+     * is unchanged, so repeated calls at the same value are free. */
+    if (settings_volume < 0)   settings_volume = 0;
+    if (settings_volume > 100) settings_volume = 100;
+    if (cube_pmem_volume_write(settings_volume) < 0)
+        dbg("volume persist failed (pmem); hw level applied, stored value unchanged");
 }
 
 static void settings_apply(void) {
@@ -1121,6 +1250,8 @@ static void settings_apply(void) {
     if (settings_theme_idx < 0 || settings_theme_idx >= theme_count) settings_theme_idx = 0;
     if (settings_style < 0 || settings_style >= STYLE_COUNT) settings_style = STYLE_VERTICAL;
     if (settings_font_idx < 0 || settings_font_idx >= font_count) settings_font_idx = 0;
+    if (settings_font_size < 18) settings_font_size = 18;
+    if (settings_font_size > 26) settings_font_size = 26;
     if (settings_brightness < 0)   settings_brightness = 0;
     if (settings_brightness > 100) settings_brightness = 100;
     if (settings_background_dim < 0)   settings_background_dim = 0;
@@ -1129,6 +1260,7 @@ static void settings_apply(void) {
     theme_sync_artwork_pack();
     if (font_count > 0)
         font_load_file(font_files[settings_font_idx]);
+    font_set_size(settings_font_size);
     font_sync_language_fallback();
     cube_set_backlight(settings_brightness);
     /* Keep cubevol's persistentmem value in sync so its delayed startup apply
@@ -1146,11 +1278,38 @@ static void settings_apply(void) {
        Zeroed samples leave the DAC/amp live; mute its real I2SO output instead. */
     cube_set_i2so_output_muted(settings_menu_sounds ? 0 : 1);
 }
-
 /* Apply only the setting being previewed. The old generic settings_apply()
  * reloaded the current font and fsync'd sndgain.txt after every Left/Right press,
  * even for unrelated toggles. Persistent brightness/volume writes are deferred
  * until menu exit; their on-screen preview remains immediate. */
+/* Live-volume debounce: the slider applies the level audibly on EVERY step
+ * (hardware mirror), but commits the durable persistentmem write at most once
+ * per VOLUME_COMMIT_MS while the user is still sliding, plus a final commit
+ * shortly after the last step - so the physical volume meter follows the
+ * slider in real time, without one EEPROM write per repeat step.  A step that
+ * arrives later than the window commits immediately (slow adjustment = live
+ * commit too).  The menu-exit path (settings_save_file) still writes the
+ * final value unconditionally, covering any remaining edge. */
+#define VOLUME_COMMIT_MS 500
+static long long volume_last_commit_ms = 0;
+static int volume_committed_level = -1;
+static void settings_volume_commit_live(void) {
+    long long now = monotonic_ms();
+    if (settings_volume == volume_committed_level)
+        return;   /* nothing new to persist */
+    if (now - volume_last_commit_ms < VOLUME_COMMIT_MS &&
+        volume_committed_level >= 0)
+        return;   /* inside the debounce window; next step (or the final
+                     commit below) will persist it */
+    volume_last_commit_ms = now;
+    volume_committed_level = settings_volume;
+    settings_write_volume();
+}
+static void settings_volume_commit_final(void) {
+    volume_committed_level = -1;   /* force a real commit check on next slide */
+    volume_last_commit_ms = monotonic_ms();
+}
+
 static void settings_preview_row(const SRow *r) {
     if (!r) return;
     switch (r->type) {
@@ -1159,13 +1318,24 @@ static void settings_preview_row(const SRow *r) {
         theme_sync_artwork_pack();
         break;
     case RT_FONT:
-        if (font_count > 0) font_load_file(font_files[settings_font_idx]);
+        if (font_count > 0)
+            font_load_file(font_files[settings_font_idx]);
         break;
     case RT_RANGE:
-        if (r->val == &settings_brightness)
+        if (r->val == &settings_font_size)
+            font_set_size(settings_font_size);
+        else if (r->val == &settings_brightness)
             cube_set_backlight(settings_brightness);
         else if (r->val == &settings_background_dim)
             banner_set_dim(settings_background_dim);
+        else if (r->val == &settings_volume) {
+            /* Live on EVERY step: the hardware mirror makes the change
+             * audible immediately, and the debounced commit keeps the
+             * stored value (physical meter) following the slider in
+             * real time without per-step EEPROM writes. */
+            cube_volume_preview(settings_volume);
+            settings_volume_commit_live();
+        }
         break;
     case RT_TOGGLE:
         if (r->val == &settings_anim) banner_set_anim(settings_anim);
@@ -1203,9 +1373,11 @@ static void settings_load_file(void) {
             for (int i = 0; i < font_count; i++)
                 if (strcasecmp(font_files[i], val) == 0 ||
                     strcasecmp(font_disp[i], val) == 0) { settings_font_idx = i; break; }
+        } else if (strcmp(line, "font_size") == 0) {
+            settings_font_size = atoi(val);
         } else if (strcmp(line, "language") == 0) {
-            for (int i = 0; i < LANGUAGE_COUNT; i++)
-                if (strcasecmp(val, language_codes[i]) == 0) {
+            for (int i = 0; i < i18n_language_count(); i++)
+                if (strcasecmp(val, i18n_language_code_at(i)) == 0) {
                     settings_language = i;
                     break;
                 }
@@ -1254,6 +1426,8 @@ static void settings_load_file(void) {
             settings_quick_resume = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "autosave_autoload") == 0) {
             settings_autosave_autoload = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "custom_aspect_ratios") == 0) {
+            settings_custom_aspect_ratios = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "hide_empty") == 0) {
             settings_hide_empty = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "hide_extensions") == 0) {
@@ -1269,6 +1443,8 @@ static void settings_load_file(void) {
             settings_file_cache = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "battery_color") == 0) {
             settings_battery_color = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "stock_battery") == 0) {
+            settings_stock_battery = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "disable_sleep") == 0) {
             settings_disable_sleep = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "game_switcher") == 0) {
@@ -1281,6 +1457,12 @@ static void settings_load_file(void) {
         }
     }
     fclose(f);
+    /* The shared system volume (cubevol persistentmem - what the PHYSICAL
+     * volume buttons last set) always wins over our saved copy: the user
+     * may have changed it with the buttons since the last Settings visit. */
+    int shared_vol = cube_pmem_volume_read();
+    if (shared_vol >= 0 && shared_vol <= 100)
+        settings_volume = shared_vol;
 }
 
 /* The rootfs mdev hook mounts a connected OTG drive at /media/hdd. Check both
@@ -1329,6 +1511,7 @@ static void settings_save_file(void) {
     if (!f) { dbg("settings save: fopen failed"); return; }
     fprintf(f, "theme=%s\n", themes[settings_theme_idx].name);
     fprintf(f, "font=%s\n", font_count > 0 ? font_files[settings_font_idx] : "");
+    fprintf(f, "font_size=%d\n", settings_font_size);
     fprintf(f, "language=%s\n", i18n_current_language());
     fprintf(f, "wallpaper=%s\n",
             (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count)
@@ -1343,6 +1526,7 @@ static void settings_save_file(void) {
     fprintf(f, "filter=%s\n", filter_names[settings_filter_idx]);
     fprintf(f, "auto_resume=%s\n", onoff_names[settings_quick_resume]);
     fprintf(f, "autosave_autoload=%s\n", onoff_names[settings_autosave_autoload]);
+    fprintf(f, "custom_aspect_ratios=%s\n", onoff_names[settings_custom_aspect_ratios]);
     fprintf(f, "animations=%s\n", onoff_names[settings_anim]);
     fprintf(f, "menu_sounds=%s\n", onoff_names[settings_menu_sounds]);
     fprintf(f, "style=%s\n", style_keys[settings_style]);
@@ -1354,6 +1538,7 @@ static void settings_save_file(void) {
     fprintf(f, "background_dim=%d\n", settings_background_dim);
     fprintf(f, "file_cache=%s\n", onoff_names[settings_file_cache]);
     fprintf(f, "battery_color=%s\n", onoff_names[settings_battery_color]);
+    fprintf(f, "stock_battery=%s\n", onoff_names[settings_stock_battery]);
     fprintf(f, "game_switcher=%s\n", onoff_names[settings_game_switcher]);
     fprintf(f, "load_recents=%s\n", onoff_names[settings_load_recents]);
     fprintf(f, "rom_source=%s\n", rom_source_names[settings_rom_source]);
@@ -1385,6 +1570,8 @@ static const char* get_console_folder(const char *path) {
         if (*sub == '/') {
             sub++;
         }
+        if (strncasecmp(sub, "ports/", 6) == 0 && sub[6])
+            sub += 6;
         static char console[64];
         int i = 0;
         while (sub[i] != '\0' && sub[i] != '/' && i < 63) {
@@ -1435,6 +1622,8 @@ static SystemLabel system_labels[] = {
     {"nes", "Nintendo Entertainment System"}, {"nesq", "NES - QuickNES"},
     {"nest", "NES - Nestopia"}, {"fds", "Famicom Disk System"},
     {"sfc", "Super Nintendo"}, {"snes", "Super Nintendo"},
+    {"snesz", "Super Nintendo - Snes9x-Z"},
+    {"zsnes", "Super Nintendo - Snes9x-Z"},
     {"snes02", "SNES - Fast"},
     {"gb", "Game Boy"}, {"gbc", "Game Boy Color"},
     {"gbgb", "Game Boy - Gearboy"},
@@ -1451,8 +1640,9 @@ static SystemLabel system_labels[] = {
     {"wswan", "WonderSwan"}, {"wsv", "WonderSwan - Potator"},
     {"vb", "Virtual Boy"}, {"pcfx", "PC-FX"},
     {"ps", "PlayStation"}, {"psx", "PlayStation"},
-    {"ps1", "PlayStation"}, {"ps1r", "PlayStation - ReARMed"},
-    {"psp", "PlayStation Portable"},
+    {"pokket", "PocketStation"},
+    {"ps1", "PlayStation"}, {"ps1r", "PlayStation - ReARMed"}, {"qpsx", "PlayStation - QPSX"},
+    {"psp", "PlayStation Portable"}, {"nds", "Nintendo DS"},
     {"scummvm", "ScummVM"},
     {"arcade", "Arcade"}, {"m2k", "Arcade - MAME 2000"}, {"cps1", "Arcade - Capcom CPS-1"},
     {"cps2", "Arcade - Capcom CPS-2"}, {"cps3", "Arcade - Capcom CPS-3"},
@@ -1464,13 +1654,22 @@ static SystemLabel system_labels[] = {
     {"col", "ColecoVision"}, {"amstrad", "Amstrad CPC"},
     {"amstradb", "Amstrad CPC Plus"}, {"thom", "Thomson MO / TO"},
     {"xmil", "Sharp X68000"}, {"pico286", "DOS / PC"},
+    {"j2me", "Java Games"},
+    {"classicube", "ClassiCube / Minecraft"},
+    {"mcpe", "Minecraft PE"},
+    {"openclaw", "Captain Claw"},
+    {"diablo", "Diablo 1"},
+    {"duke3d", "Duke Nukem 3D"},
+    {"undertale", "Undertale"},
+    {"openbor", "OpenBor"},
+    {"ports", "Ports"},
     {"dos", "DOS"}, {"prboom", "Doom"}, {"doom", "Doom"},
     {"quake", "Quake"}, {"quake2", "Quake II"}, {"wolf3d", "Wolfenstein 3D"},
     {"outrun", "Out Run"}, {"cavestory", "Cave Story"},
     {"flashback", "Flashback"}, {"xrick", "Rick Dangerous"},
     {"jnb", "Jump 'n Bump"}, {"gw", "Game & Watch"},
-    {"tic80", "TIC-80"}, {"pico8", "PICO-8"}, {"fake08", "PICO-8"},
-    {"retro8", "PICO-8 - Retro8"}, {"lowres-nx", "LowRes NX"},
+    {"tic80", "TIC-80"}, {"pico8", "PICO-8"}, {"fake08", "PICO-8 - Fake-08"},
+    {"retro8", "PICO-8 - Retro8"}, {"picante8", "PICO-8 - Picante8"}, {"lowres-nx", "LowRes NX"},
     {"pokem", "Pokemon Mini"}, {"int", "Intellivision"},
     {"fcf", "Fairchild Channel F"}, {"cdg", "CD+G Karaoke"},
     {"chip8", "CHIP-8"}, {"arduboy", "Arduboy"},
@@ -1516,7 +1715,11 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         char wp[512];
         snprintf(wp, sizeof wp, "/mnt/sdcard/frogui/wallpapers/%s",
                  wallpaper_files[settings_wallpaper_idx]);
-        if (access(wp, R_OK) == 0) { banner_load_fit(wp, settings_wallpaper_fit, COLOR_BG); return; }
+        if (access(wp, R_OK) == 0) {
+            banner_load_fit(wp, settings_wallpaper_fit, COLOR_BG);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "FrogUI background: wallpaper override=%s\n", wp);
+            return;
+        }
     }
     char img[512];
     char banner_dir[512];
@@ -1537,26 +1740,129 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
             if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
         }
     } else {
+        char ports_root[512];
+        snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
+        if (path && strncmp(path, ports_root, strlen(ports_root)) == 0) {
+            for (int i = 0; exts[i]; i++) {
+                snprintf(img, sizeof(img), "%s/main.%s", banner_dir, exts[i]);
+                if (access(img, R_OK) == 0) {
+                    banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                    return;
+                }
+            }
+            banner_clear();
+            return;
+        }
         const char *base = (path && *path) ? strrchr(path, '/') : NULL;
         const char *name = base ? base + 1 : (path ? path : "main");
         if (!name || !*name) name = "main";
-        /* Theme packs historically used m2k/gb names. Keep those assets
-         * working for the canonical arcade and Game Boy Color folders too. */
-        const char *names[] = { name,
-            strcasecmp(name, "arcade") == 0 ? "m2k" : NULL,
-            strcasecmp(name, "gbc") == 0 ? "gb" : NULL, NULL };
-        for (int n = 0; names[n]; n++)
-            for (int i = 0; exts[i]; i++) {
-                snprintf(img, sizeof(img), "%s/%s.%s", banner_dir, names[n], exts[i]);
-                if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
-            }
-        /* Fallback: try main.png for any view that has no folder-specific image */
-        for (int i = 0; exts[i]; i++) {
-            snprintf(img, sizeof(img), "%s/main.%s", banner_dir, exts[i]);
-            if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
+        if (strcasecmp(name, "snesz") == 0 || strcasecmp(name, "zsnes") == 0)
+            name = "snes";
+        if (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "retro8") == 0 ||
+            strcasecmp(name, "picante8") == 0)
+            name = "pico8";
+        /* Folder aliases share art; packs may omit an alias or a system image. */
+        const char *names[8];
+        int name_count = 0;
+        names[name_count++] = name;
+        if (strcasecmp(name, "arcade") == 0) names[name_count++] = "m2k";
+        if (strcasecmp(name, "gbc") == 0) names[name_count++] = "gb";
+        if (strcasecmp(name, "neogeo") == 0) names[name_count++] = "geolith";
+        else if (strcasecmp(name, "geolith") == 0) names[name_count++] = "neogeo";
+        if (strcasecmp(name, "md") == 0) {
+            names[name_count++] = "sega";
+            names[name_count++] = "gpgx";
+        } else if (strcasecmp(name, "sega") == 0 || strcasecmp(name, "gpgx") == 0) {
+            names[name_count++] = "sega";
+            names[name_count++] = "md";
         }
+        if (strcasecmp(name, "dos") == 0) names[name_count++] = "pico286";
+        else if (strcasecmp(name, "pico286") == 0) names[name_count++] = "dos";
+        if (strcasecmp(name, "j2me") == 0 || strcasecmp(name, "classicube") == 0)
+            names[name_count++] = "main";
+        if (strcasecmp(name, "mcpe") == 0) names[name_count++] = "classicube";
+        if (strcasecmp(name, "qpsx") == 0) names[name_count++] = "ps1";
+
+        const char *dirs[] = { banner_dir,
+            settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
+                ? BANNER_DIR : NULL,
+            NULL };
+        for (int d = 0; dirs[d]; d++)
+            for (int n = 0; n < name_count; n++)
+                for (int i = 0; exts[i]; i++) {
+                    snprintf(img, sizeof(img), "%s/%s.%s", dirs[d], names[n], exts[i]);
+                    if (access(img, R_OK) == 0) {
+                        banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                        char trace[700];
+                        snprintf(trace, sizeof trace, "FrogUI background: folder=%s pack=%s image=%s",
+                                 name, settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
+                                     ? theme_pack_files[settings_theme_pack_idx] : "default", img);
+                        dbg(trace);
+                        if (log_cb) log_cb(RETRO_LOG_INFO, "%s\n", trace);
+                        return;
+                    }
+                }
+        for (int d = 0; dirs[d]; d++)
+            for (int i = 0; exts[i]; i++) {
+                snprintf(img, sizeof(img), "%s/main.%s", dirs[d], exts[i]);
+                if (access(img, R_OK) == 0) {
+                    banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                    char trace[700];
+                    snprintf(trace, sizeof trace, "FrogUI background: folder=%s missing; fallback=%s", name, img);
+                    dbg(trace);
+                    if (log_cb) log_cb(RETRO_LOG_WARN, "%s\n", trace);
+                    return;
+                }
+            }
+        if (log_cb) log_cb(RETRO_LOG_WARN, "FrogUI background: no image for folder=%s\n", name);
     }
     banner_clear();
+}
+
+static int is_banner_image(const char *name) {
+    const char *dot = strrchr(name, '.');
+    return dot && (!strcasecmp(dot, ".png") || !strcasecmp(dot, ".jpg") ||
+                   !strcasecmp(dot, ".jpeg") || !strcasecmp(dot, ".bmp"));
+}
+
+static int prefetch_last_bg = -1, prefetch_last_wp = -1;
+static int prefetch_last_wpfit = -1, prefetch_last_pack = -1;
+static int prefetch_last_dim = -1, prefetch_last_theme = -1;
+
+static void prefetch_banner_directory(const char *directory) {
+    DIR *dp = opendir(directory);
+    if (!dp) return;
+    struct dirent *e;
+    while ((e = readdir(dp))) {
+        if (!is_banner_image(e->d_name)) continue;
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", directory, e->d_name);
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
+            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
+    }
+    closedir(dp);
+}
+
+static void prefetch_active_theme(void) {
+    banner_prefetch_clear();
+    if (!settings_backgrounds) return;
+    if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
+        char path[512];
+        snprintf(path, sizeof path, "/mnt/sdcard/frogui/wallpapers/%s",
+                 wallpaper_files[settings_wallpaper_idx]);
+        if (access(path, R_OK) == 0) {
+            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
+            return;
+        }
+    }
+    prefetch_banner_directory(BANNER_DIR);
+    if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count) {
+        char directory[512];
+        snprintf(directory, sizeof directory, BANNER_DIR "/theme-packs/%s",
+                 theme_pack_files[settings_theme_pack_idx]);
+        prefetch_banner_directory(directory);
+    }
 }
 
 /* True if `path` contains at least one game (any file that isn't artwork/metadata),
@@ -1633,7 +1939,7 @@ static int folder_has_games(const char *path, int depth) {
  * then rewrites the cache. Cache lives in frogui/.cache/, never in the rom dirs,
  * and the whole feature is behind settings_file_cache so it can be turned off. */
 #define CACHE_DIR   SETTINGS_DIR "/.cache"
-#define CACHE_MAGIC 0x33435546u    /* "FUC3" — bumped when the listing content
+#define CACHE_MAGIC 0x35435546u    /* "FUC5" — bumped when the listing content
                                      * changes WITHOUT the dir mtime moving
                                      * (e.g. extension-whitelist edits). */
 #define CACHE_MAX_ENTRIES 100000   /* sanity cap to reject a corrupt count */
@@ -1745,6 +2051,13 @@ static void scan_directory(const char *path) {
      * NULL deref (SIGBUS addr=0) and a boot crash-loop on cards without roms/. */
     entry_count = 0;
     int at_root = strcmp(path, ROMS_PATH) == 0;
+    char ports_root[MAX_PATH_LEN];
+    snprintf(ports_root, sizeof ports_root, "%s/ports", ROMS_PATH);
+    int in_ports = strncmp(path, ports_root, strlen(ports_root)) == 0 &&
+                   (path[strlen(ports_root)] == '\0' ||
+                    path[strlen(ports_root)] == '/');
+    int at_ports_root = strcmp(path, ports_root) == 0;
+    int have_ports = access(ports_root, F_OK) == 0;
 
     /* Cache fast path: if the dir is unchanged (mtime match), load the sorted
      * listing from disk and skip readdir/stat/empty-check/sort entirely. */
@@ -1767,8 +2080,13 @@ static void scan_directory(const char *path) {
             if (e->d_name[0] == '.') continue;
             int isdir = dirent_is_dir(path, e);   /* d_type, stat() only if unknown */
             if (isdir < 0) continue;
+            /* Ports lists launchers only. Port data stays in hidden folders. */
+            if (in_ports && at_ports_root && isdir) continue;
+            if (isdir && in_ports && !at_ports_root) continue;
             if (!isdir) {
                 const char *ext = strrchr(e->d_name, '.');
+                if (in_ports &&
+                    (!ext || strcasecmp(ext, ".sh") != 0)) continue;
                 /* PICO-8 carts are .p8.png — keep them; only skip plain .png artwork. */
                 size_t nlen = strlen(e->d_name);
                 int is_p8png = nlen >= 7 && strcasecmp(e->d_name + nlen - 7, ".p8.png") == 0;
@@ -1781,11 +2099,19 @@ static void scan_directory(const char *path) {
                  * other system shows everything as before. The extension was
                  * already isolated once above (review: normalize per entry,
                  * never per API call) - pass it, or "" when there is none. */
-                if (ext_filter_should_hide(sys_folder[0] ? sys_folder : NULL,
+                if (!in_ports && ext_filter_should_hide(sys_folder[0] ? sys_folder : NULL,
                                            ext ? ext + 1 : "")) continue;
             }
             /* Always hide the internal "menu" folder at the root. */
             if (isdir && at_root && strcasecmp(e->d_name, "menu") == 0) continue;
+            if (isdir && at_root && have_ports &&
+                (strcasecmp(e->d_name, "diablo") == 0 ||
+                 strcasecmp(e->d_name, "duke3d") == 0 ||
+                 strcasecmp(e->d_name, "mcpe") == 0 ||
+                 strcasecmp(e->d_name, "openclaw") == 0 ||
+                 strcasecmp(e->d_name, "undertale") == 0 ||
+                 strcasecmp(e->d_name, "classicube") == 0)) continue;
+            if (isdir && at_root && is_psp_folder(e->d_name)) continue;
             /* Media libraries live under Apps, not in the Games tab. */
             if (isdir && at_root && is_app_folder_name(e->d_name)) continue;
             /* Inside a filtered system, per-game folders with no whitelisted
@@ -1829,6 +2155,7 @@ static void scan_directory(const char *path) {
         for (int read = 0; read < entry_count; read++) {
             if (entries[read].is_dir &&
                 (strcasecmp(entries[read].name, "menu") == 0 ||
+                 is_psp_folder(entries[read].name) ||
                  is_app_folder_name(entries[read].name))) continue;
             if (write != read) entries[write] = entries[read];
             write++;
@@ -2299,6 +2626,61 @@ static void render_activity_graph(uint16_t *fb) {
     }
 }
 
+static int activity_title_width(void) {
+    int bar_x = SCREEN_WIDTH * 52 / 100;
+    return bar_x - PADDING - UI_S(8);
+}
+
+static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
+                                int max_width, int selected) {
+    int full_width = font_measure_text(text);
+    if (full_width <= max_width) {
+        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text, COLOR_TEXT);
+        return;
+    }
+
+    if (!selected) {
+        char clipped[96];
+        size_t n = strlen(text);
+        if (n > sizeof clipped - 1) n = sizeof clipped - 1;
+        memcpy(clipped, text, n);
+        clipped[n] = '\0';
+        while (n > 3 && font_measure_text(clipped) > max_width) clipped[--n] = '\0';
+        if (n > 3) {
+            clipped[n - 1] = '.';
+            clipped[n - 2] = '.';
+            clipped[n - 3] = '.';
+        }
+        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, clipped, COLOR_TEXT);
+        return;
+    }
+
+    if (strcmp(activity_marquee_key, text) != 0) {
+        snprintf(activity_marquee_key, sizeof activity_marquee_key, "%s", text);
+        activity_marquee_offset = 0;
+        activity_marquee_tick = 0;
+    }
+    char marquee[2 * 96 + 4];
+    snprintf(marquee, sizeof marquee, "%s   %s", text, text);
+    int cycle = (int)strlen(text) + 3;
+    int start = activity_marquee_offset % cycle;
+    char window[96];
+    int out = 0;
+    for (int i = 0; out < (int)sizeof window - 1 && marquee[start + i]; i++) {
+        window[out++] = marquee[start + i];
+        window[out] = '\0';
+        if (font_measure_text(window) > max_width) {
+            window[--out] = '\0';
+            break;
+        }
+    }
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, window, COLOR_TEXT);
+    if (++activity_marquee_tick >= 6) {
+        activity_marquee_tick = 0;
+        activity_marquee_offset = (activity_marquee_offset + 1) % cycle;
+    }
+}
+
 static void render_activity_page(uint16_t *fb) {
     if (!fb) return;
     render_fill_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BG);
@@ -2326,19 +2708,33 @@ static void render_activity_page(uint16_t *fb) {
         const char *base = strrchr(activity_paths[i], '/'); base = base ? base + 1 : activity_paths[i];
         char name[96]; strncpy(name, base, sizeof name - 1); name[sizeof name - 1] = '\0';
         char *dot = strrchr(name, '.'); if (dot) *dot = '\0';
-        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, name, COLOR_TEXT);
         char detail[96]; long s = activity_seconds[i];
         snprintf(detail, sizeof detail, "%ld runs   %ldh %02ldm total",
                  activity_runs[i], s / 3600, (s % 3600) / 60);
         font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y + UI_S(20), detail, COLOR_DISABLED);
         int bx = SCREEN_WIDTH * 52 / 100, bw = SCREEN_WIDTH - bx - PADDING;
         int fill = (int)((long)bw * s / max_seconds); if (fill < UI_S(3)) fill = UI_S(3);
+        int title_width = activity_title_width();
+        activity_draw_title(fb, name, PADDING, y, title_width, i == selected_index);
         render_fill_rect(fb, bx, y + UI_S(9), bw, UI_S(12), COLOR_LEGEND_BG);
         render_fill_rect(fb, bx, y + UI_S(9), fill, UI_S(12), COLOR_SELECT_BG);
     }
     if (activity_count > visible)
         font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH - UI_S(92), SCREEN_HEIGHT - UI_S(42),
                        "UP/DOWN", COLOR_DISABLED);
+}
+
+static int activity_marquee_active(void) {
+    if (!viewing_activity || selected_index < 0 || selected_index >= activity_count)
+        return 0;
+    const char *base = strrchr(activity_paths[selected_index], '/');
+    base = base ? base + 1 : activity_paths[selected_index];
+    char name[96];
+    strncpy(name, base, sizeof name - 1);
+    name[sizeof name - 1] = '\0';
+    char *dot = strrchr(name, '.');
+    if (dot) *dot = '\0';
+    return font_measure_text(name) > activity_title_width();
 }
 
 static int games_tab_selected = 0, games_tab_scroll = 0;
@@ -2360,6 +2756,7 @@ static const AppEntry app_defs[] = {
     {"videos", "app.videos", "Videos", "videos", "video", NULL},
     {"music", "app.music_mp3", "Music / MP3", "music", "audio", NULL},
     {"rockbox", "app.rockbox", "Rockbox", "rockbox", NULL, NULL},
+    {"shutdown", "app.shutdown", "Shutdown", NULL, NULL, SHUTDOWN_BIN},
 };
 
 static const char *app_folder_path(int index, char *out, size_t out_size) {
@@ -2388,8 +2785,13 @@ static void scan_apps_tab(void) {
     current_path[MAX_PATH_LEN - 1] = '\0';
     apps_root_path[0] = '\0';
     entry_count = 0;
+    const char *tf_device = getenv("TF_DEVICE");
     for (int i = 0; i < (int)(sizeof(app_defs) / sizeof(app_defs[0])); i++) {
         char path[MAX_PATH_LEN];
+        /* SF3000 has a physical power toggle; expose software shutdown on
+         * devices whose power control is momentary (SF3100/SF3500/R36*). */
+        if (!strcmp(app_defs[i].key, "shutdown") && tf_device &&
+            !strcasecmp(tf_device, "SF3000")) continue;
         if (!app_defs[i].bin && !strcmp(app_defs[i].key, "activity")) {
             if (access("/mnt/sdcard/frogui/playtime.txt", R_OK) != 0) continue;
         } else if (app_defs[i].bin) {
@@ -2567,7 +2969,11 @@ static void write_picoarch_skin(void) {
 }
 
 static void request_game_launch(const char *core_path, const char *rom_path) {
-    fb1_clear_all();
+    char details[MAX_PATH_LEN * 2 + 32];
+    snprintf(details, sizeof(details), "core=\"%s\" rom=\"%s\"",
+             core_path ? core_path : "(null)", rom_path ? rom_path : "(null)");
+    input_log("launch-request", details);
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* game owns the audio path after exec */
     write_picoarch_skin();
     FILE *f = fopen(LAUNCH_FILE, "w");
@@ -2590,7 +2996,10 @@ static void request_game_launch(const char *core_path, const char *rom_path) {
 
 static void request_standalone_launch(const char *bin_path, const char *rom_path) {
     dbg("standalone_launch: start");
-    fb1_clear_all();
+    /* Standalone apps own the whole screen. Match PicoArch/PCSX4ALL and hide
+     * the stock fb1 OSD while they run; FrogUI re-enables it in retro_init. */
+    fb1_set_visible(0);
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* standalone app owns the audio path */
     write_picoarch_skin();
     FILE *f = fopen(LAUNCH_FILE, "w");
@@ -2623,7 +3032,7 @@ static void request_standalone_launch(const char *bin_path, const char *rom_path
  * therefore must not create Recents entries. */
 static void request_builtin_launch(const char *bin_path) {
     dbg("builtin_launch: start");
-    fb1_clear_all();
+    if (!frogui_stock_battery_indicator()) fb1_clear_all();
     cube_set_i2so_output_muted(0);  /* built-in standalone app may use audio */
     FILE *f = fopen(LAUNCH_FILE, "w");
     if (!f) { dbg("builtin_launch: fopen failed"); return; }
@@ -2661,7 +3070,9 @@ static bool is_standalone_bin(const char *name) {
                     strcmp(name, EBOOK_BIN)    == 0 ||
                     strcmp(name, VIDEO_BIN)    == 0 ||
                     strcmp(name, IMAGE_BIN)    == 0 ||
-                    strcmp(name, PPSSPP_BIN)   == 0);
+                    strcmp(name, PPSSPP_BIN)   == 0 ||
+                    strcmp(name, DSPERATE_BIN) == 0 ||
+                    strcmp(name, DIABLO_BIN)   == 0);
 }
 
 /* ----------------------------- Search (X button) ----------------------------- */
@@ -2719,7 +3130,7 @@ static void search_walk(const char *dir, int depth) {
         int isdir = dirent_is_dir(dir, e);
         if (isdir < 0) continue;
         if (isdir) {
-            if (depth < 3) search_walk(p, depth + 1);
+            if (!is_psp_folder(e->d_name) && depth < 3) search_walk(p, depth + 1);
         } else if (str_icontains(e->d_name, search_query)) {
             /* Same per-system whitelist as the browser, so search results never
              * resurrect the hidden companion files (PS1 .bin tracks). The
@@ -2762,6 +3173,25 @@ static void run_search(void) {
  * pcsx4all preference (a ps1 favourite booted pcsx_rearmed instead). */
 static void launch_by_path(const char *path) {
     const char *folder = get_console_folder(path);
+    const char *extension = strrchr(path, '.');
+    char ports_root[MAX_PATH_LEN];
+    snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
+    if (strncmp(path, ports_root, strlen(ports_root)) == 0 && folder &&
+        extension &&
+        strcasecmp(extension, ".sh") == 0) {
+        request_standalone_launch(path, path);
+        return;
+    }
+    /* Runtime assets are kept beside the launcher, but are not games. This
+     * guard also protects stale favourites/recents created before the
+     * openclaw extension whitelist was added. */
+    if (folder && strcasecmp(folder, "openclaw") == 0) {
+        const char *dot = strrchr(path, '.');
+        if (!dot || strcasecmp(dot, ".claw") != 0) {
+            dbg("launch: ignored non-launcher openclaw asset");
+            return;
+        }
+    }
     char dir[MAX_PATH_LEN];
     strncpy(dir, path, sizeof(dir) - 1);
     dir[sizeof(dir) - 1] = '\0';
@@ -2770,6 +3200,12 @@ static void launch_by_path(const char *path) {
     const char *ov = core_override_lookup(path, dir);
     const char *core = ov ? ov : get_core_for_folder(folder);
     if (!core) core = get_core_for_extension(path);
+    {
+        char msg[768];
+        snprintf(msg, sizeof msg, "launch resolved folder=%s core=%s rom=%s",
+                 folder ? folder : "(none)", core ? core : "(none)", path);
+        dbg(msg);
+    }
     if (ov)
         request_game_launch(ov, path);         /* explicit override → libretro */
     else if (core) {
@@ -3159,15 +3595,15 @@ static void handle_settings_menu(void) {
             settings_rom_source = (settings_rom_source + delta + ROM_SOURCE_COUNT) % ROM_SOURCE_COUNT;
             break;
         case RT_LANGUAGE:
-            settings_language = (settings_language + delta + LANGUAGE_COUNT) % LANGUAGE_COUNT;
+            settings_language = (settings_language + delta + i18n_language_count()) % i18n_language_count();
             /* Locale changes need a fresh FrogUI core instance. Reinitializing
              * libretro from inside retro_run tears down picoarch itself, so
              * leave a one-shot boot flag and ask the normal launcher loop to
              * start us again. The new instance loads the saved locale before
              * scanning or rendering any system labels. */
-            if (!i18n_init(language_codes[settings_language])) {
-                settings_language = LANGUAGE_EN_US;
-                i18n_init(language_codes[settings_language]);
+            if (!i18n_init(i18n_language_code_at(settings_language))) {
+                settings_language = 0;
+                i18n_init(i18n_language_code_at(settings_language));
             }
             settings_save_file();
             {
@@ -3226,6 +3662,7 @@ static void handle_settings_menu(void) {
     if ((input_was_pressed(FROG_BTN_A) && settings_rows[settings_menu_idx].type != RT_ACTION) ||
          input_was_pressed(FROG_BTN_B)) {
         settings_save_file();
+        settings_volume_commit_final();   /* reset the live-commit debounce state */
         settings_menu_active = false;
         /* re-scan root so a hide-empty-folders change takes effect now */
         resolve_roms_root();
@@ -3250,6 +3687,23 @@ static bool icon_system_view(void) {
            !apps_browsing && !viewing_search;
 }
 
+static bool menu_pill_view(void) {
+    return !settings_menu_active && !viewing_activity &&
+           !(viewing_recents && settings_game_switcher) &&
+           !horizontal_system_view() && !icon_system_view();
+}
+
+static int menu_row_y(int index, int offset) {
+    int row = index - offset;
+    if (row < 0) row = 0;
+    if (row >= VISIBLE_ENTRIES) row = VISIBLE_ENTRIES - 1;
+    return START_Y + row * ITEM_HEIGHT;
+}
+
+static int menu_pill_draw_y(void) {
+    return pill_animation_step(&menu_pill_animation);
+}
+
 static void ui_toast_show(const char *text) {
     if (!text) return;
     strncpy(ui_toast_text, text, sizeof ui_toast_text - 1);
@@ -3257,24 +3711,64 @@ static void ui_toast_show(const char *text) {
     ui_toast_frames = 90;   /* about 1.5 seconds at the presented 60 fps */
 }
 
+static bool save_ui_screenshot(const uint16_t *pixels) {
+    char path[128];
+    if (mkdir(SDCARD_BASE "/screenshots", 0777) != 0 && errno != EEXIST)
+        return false;
+
+    int fd = -1;
+    for (unsigned i = 0; i < 10000; i++) {
+        snprintf(path, sizeof path, SDCARD_BASE "/screenshots/frogui_%04u.bmp", i);
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+        if (fd >= 0 || errno != EEXIST) break;
+    }
+    if (fd < 0) return false;
+
+    FILE *file = fdopen(fd, "wb");
+    if (!file) {
+        close(fd);
+        unlink(path);
+        return false;
+    }
+    bool ok = screenshot_write_bmp(file, pixels, SCREEN_WIDTH, SCREEN_HEIGHT,
+                                   SCREEN_WIDTH * sizeof(*pixels)) == 0 &&
+              fflush(file) == 0 && fsync(fd) == 0;
+    if (fclose(file) != 0) ok = false;
+    if (!ok) unlink(path);
+    return ok;
+}
+
+/* The minimum audible tick measured on R36SX was ~60 ms of content; the stock
+ * firmware's navigation blip is ~74 ms. Keep the click short and distinct.
+ * Frames are derived from the core's ACTIVE sample rate so a different
+ * audio backend/rate keeps the same 60 ms duration. */
+#define UI_TICK_MS 60
+/* Cap sized for the longest plausible UI tick (200 ms @ 48 kHz = 9600), not
+ * the full second - static buffers are precious on these devices. */
+#define UI_TICK_MAX_FRAMES 9600
+
 static void ui_menu_tick(void) {
     if (!settings_menu_sounds) return;
-    /* A deliberately quiet 12 ms square tick. The setting defaults off; unlike
-     * a sampled asset this costs no SD read and follows the frontend's mixer. */
-    static int16_t tick[530 * 2];
+    static int16_t tick[UI_TICK_MAX_FRAMES * 2];
+    static int frames = 0;
     static int ready = 0;
-    if (!ready) {
-        for (int i = 0; i < 530; i++) {
-            int16_t s = ((i / 25) & 1) ? 1100 : -1100;
-            int fade = 530 - i;
-            s = (int16_t)((int)s * fade / 530);
+    if (!ready || frames == 0) {
+        frames = (int)((double)SAMPLE_RATE * UI_TICK_MS / 1000.0 + 0.5);
+        if (frames < 16) frames = 16;             /* never degenerate */
+        if (frames > UI_TICK_MAX_FRAMES) frames = UI_TICK_MAX_FRAMES;
+        for (int i = 0; i < frames; i++) {
+            int16_t s = ((i / 25) & 1) ? 900 : -900;
+            int fade = (i < 200) ? i : (frames - i);
+            if (fade > 2000) fade = 2000;
+            if (fade < 1) fade = 1;
+            s = (int16_t)((int)s * fade / 2000);
             tick[i * 2] = tick[i * 2 + 1] = s;
         }
         ready = 1;
     }
-    if (audio_batch_cb) audio_batch_cb(tick, 530);
+    if (audio_batch_cb) audio_batch_cb(tick, frames);
     else if (audio_cb)
-        for (int i = 0; i < 530; i++) audio_cb(tick[i * 2], tick[i * 2 + 1]);
+        for (int i = 0; i < frames; i++) audio_cb(tick[i * 2], tick[i * 2 + 1]);
 }
 
 static void ui_transition_start(int direction) {
@@ -3390,10 +3884,10 @@ static void render_system_carousel(uint16_t *fb) {
 
         if (i == selected_index) {
             render_text_pillbox(fb, x, text_y, label,
-                                COLOR_SELECT_BG, COLOR_SELECT_TEXT, UI_S(7));
+                                COLOR_SELECT_BG, COLOR_SELECT_TEXT, UI_S(7), 0);
         } else {
             render_text_pillbox(fb, x, text_y, label,
-                                COLOR_LEGEND_BG, COLOR_DISABLED, UI_S(7));
+                                COLOR_LEGEND_BG, COLOR_DISABLED, UI_S(7), 0);
         }
     }
 
@@ -3448,6 +3942,12 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     if (strcmp(folder, FAVOURITES_ENTRY_NAME) == 0) key = "favourites";
     else if (strcmp(folder, RECENTS_ENTRY_NAME) == 0) key = "recents";
     else if (strcmp(folder, SETTINGS_ENTRY_NAME) == 0) key = "settings";
+    else if (strcasecmp(folder, "ports") == 0) key = "menu";
+    else if (strcasecmp(folder, "fake08") == 0 || strcasecmp(folder, "retro8") == 0 ||
+             strcasecmp(folder, "picante8") == 0) key = "pico8";
+    else if (strcasecmp(folder, "snesz") == 0 || strcasecmp(folder, "zsnes") == 0)
+        key = "snes";
+    else if (strcasecmp(folder, "pokket") == 0) key = "ps1";
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";
@@ -3672,6 +4172,31 @@ static void render_system_grid(uint16_t *fb) {
 static void handle_input(void) {
     input_update();
 
+    static bool screenshot_chord_down;
+    static bool select_pending;
+    static bool l1_tab_pending;
+    if (input_is_pressed(FROG_BTN_SELECT) && input_is_pressed(FROG_BTN_L1)) {
+        if (!screenshot_chord_down) screenshot_pending = true;
+        screenshot_chord_down = true;
+        select_pending = false;
+        l1_tab_pending = false;
+        return;
+    }
+    screenshot_chord_down = false;
+
+    if (port_error_active) {
+        if (port_error_wait_release) {
+            if (input_get_raw_state() == 0) port_error_wait_release = false;
+        } else if (input_was_pressed(FROG_BTN_A) ||
+                   input_was_pressed(FROG_BTN_B) ||
+                   input_was_pressed(FROG_BTN_START)) {
+            port_error_active = false;
+            unlink(PORT_ERROR_FILE);
+            free_thumbnail(&port_error_qr);
+        }
+        return;
+    }
+
     /* A modal action must not fall through to the browser while its physical
      * button is still held.  In particular, B previously cancelled the modal
      * and then immediately performed a second, unrelated browser action. */
@@ -3746,7 +4271,9 @@ static void handle_input(void) {
         bool at_tabs = settings_menu_active || viewing_recents || viewing_apps || apps_browsing ||
                        (!viewing_favourites && !viewing_search &&
                         strcmp(current_path, ROMS_PATH) == 0);
-        bool prev = input_was_pressed(FROG_BTN_L1);
+        if (input_was_pressed(FROG_BTN_L1)) l1_tab_pending = true;
+        bool prev = l1_tab_pending && !input_is_pressed(FROG_BTN_L1);
+        if (prev) l1_tab_pending = false;
         bool next = input_was_pressed(FROG_BTN_R1);
         if (at_tabs && prev && tab > MAIN_TAB_RECENTS) {
             switch_main_tab(tab - 1);
@@ -3775,7 +4302,10 @@ static void handle_input(void) {
 
     /* SELECT: open core picker. On a ROM file → per-game override; on a system
      * folder → per-folder override. Not available in recents/favourites views. */
-    if (input_was_pressed(FROG_BTN_SELECT) && !viewing_recents && !viewing_favourites && !viewing_search &&
+    if (input_was_pressed(FROG_BTN_SELECT)) select_pending = true;
+    bool select_action = select_pending && !input_is_pressed(FROG_BTN_SELECT);
+    if (select_action) select_pending = false;
+    if (select_action && !viewing_recents && !viewing_favourites && !viewing_search &&
         selected_index < entry_count &&
         strcmp(entries[selected_index].name, SETTINGS_ENTRY_NAME) != 0 &&
         strcmp(entries[selected_index].name, RECENTS_ENTRY_NAME) != 0 &&
@@ -3891,6 +4421,7 @@ static void handle_input(void) {
     }
 
     if (input_was_pressed(FROG_BTN_A) && selected_index < entry_count) {
+        input_log_activation();
         if (viewing_search) {
             search_launch(selected_index);
         } else if (viewing_favourites) {
@@ -3919,6 +4450,8 @@ static void handle_input(void) {
             if (app_index >= 0 && !strcmp(app_defs[app_index].key, "activity")) {
                 ui_transition_start(1);
                 enter_activity_view();
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "shutdown")) {
+                request_builtin_launch(SHUTDOWN_BIN);
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "usbmode")) {
                 if (access(USB_MODE_BIN, X_OK) != 0)
                     ui_toast_show("USB mode is unavailable");
@@ -4125,11 +4658,14 @@ void retro_get_system_av_info(struct retro_system_av_info *info) {
     info->geometry.max_height   = SCREEN_HEIGHT;
     info->geometry.aspect_ratio = (float)SCREEN_WIDTH / SCREEN_HEIGHT;
     info->timing.fps            = 60.0;
-    info->timing.sample_rate    = 44100.0;
+    info->timing.sample_rate    = (double)SAMPLE_RATE;
 }
 
 void retro_set_environment(retro_environment_t cb) {
     environ_cb = cb;
+    struct retro_log_callback logging;
+    log_cb = cb && cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : NULL;
+    if (!cb) return;
     bool no_game = true;
     cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_game);
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
@@ -4142,9 +4678,223 @@ void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb){ audio_batch_cb
 void retro_set_input_poll(retro_input_poll_t cb)                { input_poll_cb = cb; }
 void retro_set_input_state(retro_input_state_t cb)              { input_state_cb = cb; }
 
+static void port_error_load(void) {
+    static const struct { const char *slug, *name; } ports[] = {
+        {"diablo", "Diablo 1"}, {"duke3d", "Duke Nukem 3D"},
+        {"mcpe", "Minecraft PE"}, {"openclaw", "Captain Claw"},
+        {"undertale", "Undertale"}, {"openlara", "OpenLara"},
+        {"vvvvvv", "VVVVVV"}, {NULL, NULL}
+    };
+    FILE *f = fopen(PORT_ERROR_FILE, "r");
+    char slug[32], qr_path[MAX_PATH_LEN];
+    if (!f) return;
+    if (!fgets(slug, sizeof slug, f)) { fclose(f); return; }
+    slug[strcspn(slug, "\r\n")] = '\0';
+    for (int i = 0; ports[i].slug; i++) {
+        if (strcmp(slug, ports[i].slug) == 0) {
+            strncpy(port_error_name, ports[i].name, sizeof port_error_name - 1);
+            break;
+        }
+    }
+    if (!port_error_name[0] || !fgets(port_error_url, sizeof port_error_url, f) ||
+        !fgets(qr_path, sizeof qr_path, f)) { fclose(f); return; }
+    port_error_url[strcspn(port_error_url, "\r\n")] = '\0';
+    qr_path[strcspn(qr_path, "\r\n")] = '\0';
+    snprintf(port_error_qr_path, sizeof port_error_qr_path,
+             "%s/frogui/port-help/%s.png", SDCARD_BASE, slug);
+    if (strcmp(qr_path, port_error_qr_path) != 0 ||
+        strncmp(port_error_url, "https://github.com/", 19) != 0) {
+        fclose(f);
+        port_error_name[0] = '\0';
+        return;
+    }
+    while (port_error_file_count < 6 &&
+           fgets(port_error_files[port_error_file_count],
+                 sizeof port_error_files[0], f)) {
+        char *line = port_error_files[port_error_file_count];
+        line[strcspn(line, "\r\n")] = '\0';
+        if (*line) port_error_file_count++;
+    }
+    fclose(f);
+    if (port_error_file_count == 0) return;
+    port_error_qr_path[strlen(port_error_qr_path) - 4] = '\0';
+    load_thumbnail(port_error_qr_path, &port_error_qr);
+    port_error_wait_release = true;
+    port_error_active = true;
+}
+
+static void port_migration_detect(void) {
+    char path[512];
+    port_migration_count = port_migration_index = port_migration_failures = 0;
+    port_migration_finish_frames = port_migration_result_frames = 0;
+    port_migration_active = false;
+    for (size_t i = 0; i < sizeof(port_migrations) / sizeof(port_migrations[0]); i++) {
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", ROMS_PATH_DEFAULT,
+                 port_migrations[i].slug);
+        port_migrations[i].pending = stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+        if (port_migrations[i].pending) port_migration_count++;
+    }
+    port_migration_active = port_migration_count > 0;
+}
+
+static int port_migration_command(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static bool port_migration_move_entry(const char *src, const char *dst) {
+    struct stat src_st, dst_st;
+    if (lstat(src, &src_st) != 0) return false;
+    if (lstat(dst, &dst_st) == 0) {
+        if (S_ISDIR(src_st.st_mode) && S_ISDIR(dst_st.st_mode)) {
+            DIR *dir = opendir(src);
+            if (!dir) return false;
+            struct dirent *entry;
+            char src_child[1024], dst_child[1024];
+            bool ok = true;
+            errno = 0;
+            while ((entry = readdir(dir)) != NULL) {
+                const char *name = entry->d_name;
+                if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+                if (snprintf(src_child, sizeof src_child, "%s/%s", src, name) >=
+                        (int)sizeof src_child ||
+                    snprintf(dst_child, sizeof dst_child, "%s/%s", dst, name) >=
+                        (int)sizeof dst_child ||
+                    !port_migration_move_entry(src_child, dst_child)) {
+                    ok = false;
+                    break;
+                }
+                errno = 0;
+            }
+            if (errno != 0) ok = false;
+            closedir(dir);
+            return ok;
+        }
+        return true; /* the release-provided file wins */
+    }
+    if (errno != ENOENT) return false;
+    if (rename(src, dst) == 0) return true;
+    if (!S_ISDIR(src_st.st_mode) || errno != EXDEV) return false;
+    if (mkdir(dst, src_st.st_mode & 0777) != 0 && errno != EEXIST) return false;
+    return port_migration_move_entry(src, dst);
+}
+
+static bool port_migration_move(PortMigration *port) {
+    char src[512], dst[512], src_item[1024], dst_item[1024];
+    snprintf(src, sizeof src, "%s/%s", ROMS_PATH_DEFAULT, port->slug);
+    snprintf(dst, sizeof dst, "%s/ports/%s", ROMS_PATH_DEFAULT, port->slug);
+    if (mkdir(ROMS_PATH_DEFAULT "/ports", 0777) != 0 && errno != EEXIST)
+        return false;
+    if (mkdir(dst, 0777) != 0 && errno != EEXIST) return false;
+    DIR *dir = opendir(src);
+    if (!dir) return false;
+    struct dirent *entry;
+    bool ok = true;
+    errno = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        /* Release supplies current launchers/art; preserve user game data only. */
+        if (strncasecmp(name, "Start ", 6) == 0 ||
+            (strcmp(port->slug, "classicube") == 0 &&
+             strcmp(name, "Start_Here.cw") == 0) ||
+            (len >= 3 && strcasecmp(name + len - 3, ".sh") == 0)) continue;
+        if (snprintf(src_item, sizeof src_item, "%s/%s", src, name) >=
+                (int)sizeof src_item ||
+            snprintf(dst_item, sizeof dst_item, "%s/%s", dst, name) >=
+                (int)sizeof dst_item ||
+            !port_migration_move_entry(src_item, dst_item)) {
+            ok = false;
+            break;
+        }
+        errno = 0;
+    }
+    if (errno != 0) ok = false;
+    closedir(dir);
+    if (!ok) return false;
+    char *remove[] = {"rm", "-rf", src, NULL};
+    return port_migration_command(remove) == 0;
+}
+
+static void draw_migration_line(const char *text, int y, uint16_t color) {
+    int x = (SCREEN_WIDTH - font_measure_text(text, 1)) / 2;
+    if (x < PADDING) x = PADDING;
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text, color, 1);
+}
+
+static void render_port_migration(const PortMigration *port, int index,
+                                  int result) {
+    render_clear_screen(framebuffer);
+    int card_w = SCREEN_WIDTH - UI_S(40);
+    int card_h = UI_S(240);
+    int x = (SCREEN_WIDTH - card_w) / 2;
+    int y = (SCREEN_HEIGHT - card_h + UI_S(28)) / 2;
+    render_rounded_rect(framebuffer, x, y, card_w, card_h, UI_S(12),
+                        theme_select_bg());
+    render_header(framebuffer, "Migrating ports");
+    const uint16_t text_color = theme_select_text();
+    if (result == 2) {
+        draw_migration_line(port_migration_failures
+                            ? "Some old folders were kept safe."
+                            : "All done! Your ports are ready!",
+                            y + UI_S(44), text_color);
+    } else if (result == 1 || result == -1) {
+        char line[96];
+        if (result == 1)
+            snprintf(line, sizeof line, "%s moved successfully!", port->name);
+        else
+            snprintf(line, sizeof line, "%s stayed in its old folder.", port->name);
+        draw_migration_line(line, y + UI_S(44), text_color);
+        draw_migration_line("Moving on to the next port...",
+                            y + UI_S(78), text_color);
+    } else {
+        char progress[48];
+        draw_migration_line("Currently migrating", y + UI_S(18), text_color);
+        draw_migration_line(port->name, y + UI_S(46), text_color);
+        draw_migration_line("to the new Ports system.", y + UI_S(74), text_color);
+        draw_migration_line("Please wait...", y + UI_S(102), text_color);
+        draw_migration_line("This may take a little while.",
+                            y + UI_S(130), text_color);
+        draw_migration_line("Thanks for your patience!",
+                            y + UI_S(158), text_color);
+        snprintf(progress, sizeof progress, "Port %d of %d",
+                 index + 1, port_migration_count);
+        draw_migration_line(progress, y + UI_S(206), text_color);
+    }
+
+    int bar_x = x + UI_S(20);
+    int bar_y = y + UI_S(180);
+    int bar_w = card_w - UI_S(40);
+    int bar_h = UI_S(10);
+    int completed = result == 2 ? port_migration_count : index;
+    if (result == 1 || result == -1) completed++;
+    if (completed < 0) completed = 0;
+    if (completed > port_migration_count) completed = port_migration_count;
+    render_rounded_rect(framebuffer, bar_x, bar_y, bar_w, bar_h,
+                        bar_h / 2, COLOR_LEGEND_BG);
+    int fill_w = port_migration_count > 0
+               ? (bar_w - UI_S(4)) * completed / port_migration_count : bar_w;
+    if (fill_w > 0)
+        render_rounded_rect(framebuffer, bar_x + UI_S(2), bar_y + UI_S(2),
+                            fill_w, bar_h - UI_S(4),
+                            (bar_h - UI_S(4)) / 2, theme_header());
+}
+
 
 void retro_init(void) {
     dbg("retro_init start");
+    input_log_start();
     /* Runtime panel geometry from picoarch (device-detected). Must run before
      * font_init / any layout use. Falls back to render.c defaults if env unset. */
     {
@@ -4160,6 +4910,7 @@ void retro_init(void) {
     input_init();
     input_load_remap(KEYMAP_FILE);
     i18n_init("en_US");
+    i18n_scan_languages();
     font_init();
     dbg("font_init done");
     font_scan();
@@ -4173,7 +4924,9 @@ void retro_init(void) {
     theme_init();
     dbg("theme_init done");
     settings_load_file();
-    i18n_init(language_codes[settings_language]);
+    startup_bg_override = settings_backgrounds != 0;
+    theme_set_bg_override(startup_bg_override, 0x0000);
+    i18n_init(i18n_language_code_at(settings_language));
     system_labels_refresh();
     settings_sections_load();   /* restore the user's collapsed sections */
     /* A language change requests a normal launcher restart. Consume the flag
@@ -4224,18 +4977,30 @@ void retro_init(void) {
     }
     strncpy(current_path, g_roms_path, MAX_PATH_LEN - 1);
     current_path[MAX_PATH_LEN - 1] = '\0';
-    scan_directory(current_path);
-    dbg("scan_directory done");
-    /* Recents reuses entries[] for its own rows. Keep the freshly-built Games
-     * root in RAM so switching tabs never re-walks the FAT filesystem. */
-    save_games_tab_entries();
-    if (settings_load_recents && recent_games_get_count() > 0)
-        enter_recents_view();   /* "Start in Recents" setting */
+    port_migration_detect();
+    if (!port_migration_active) {
+        scan_directory(current_path);
+        dbg("scan_directory done");
+        /* Recents reuses entries[] for its own rows. Keep the freshly-built
+         * Games root in RAM so switching tabs never re-walks the FAT filesystem. */
+        save_games_tab_entries();
+        if (settings_load_recents && recent_games_get_count() > 0)
+            enter_recents_view();
+    }
+    port_error_active = false;
+    port_error_wait_release = false;
+    port_error_name[0] = port_error_url[0] = port_error_qr_path[0] = '\0';
+    port_error_file_count = 0;
+    free_thumbnail(&port_error_qr);
+    port_error_load();
     shutdown_requested = false;
     dbg("retro_init complete");
 }
 
 void retro_deinit(void) {
+    banner_prefetch_clear();
+    prefetch_last_bg = prefetch_last_wp = prefetch_last_wpfit = -1;
+    prefetch_last_pack = prefetch_last_dim = prefetch_last_theme = -1;
     for (int i = 0; i < SYSTEM_ICON_CACHE_N; i++) {
         free(system_icons[i].pixels);
         free(system_icons[i].alpha);
@@ -4249,6 +5014,7 @@ void retro_deinit(void) {
     free(view_transition_out); view_transition_out = NULL;
     free(games_tab_entries); games_tab_entries = NULL;
     games_tab_entry_count = 0;
+    free_thumbnail(&port_error_qr);
     free(entries);     entries = NULL;
     entry_count = entry_capacity = 0;
 }
@@ -4290,7 +5056,7 @@ static void render_settings_menu(void) {
              * pillbox when idle ??? but selectable, so pillbox under cursor. */
             snprintf(line, sizeof line, ">> %s", tr(r->label));
             if (settings_menu_idx == idx)
-                render_text_pillbox(framebuffer, PADDING, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                render_text_pillbox(framebuffer, PADDING, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, line, COLOR_SELECT_BG);
             continue;
@@ -4304,8 +5070,12 @@ static void render_settings_menu(void) {
         case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_fit_names[settings_wallpaper_fit]); break;
         case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), theme_pack_disp[settings_theme_pack_idx]); break;
         case RT_ICON_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), icon_pack_disp[settings_icon_pack_idx]); break;
-        case RT_LANGUAGE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label),
-                                   tr(language_name_keys[settings_language])); break;
+        case RT_LANGUAGE: {
+            char key[32];
+            snprintf(key, sizeof key, "language.%s", i18n_language_code_at(settings_language));
+            snprintf(line, sizeof line, "%s: < %s >", tr(r->label), tr(key));
+            break;
+        }
         case RT_ROM_SOURCE:
             if (otg_roms_available())
                 snprintf(line, sizeof line, "%s: < %s >", tr(r->label), rom_source_names[settings_rom_source]);
@@ -4317,7 +5087,10 @@ static void render_settings_menu(void) {
                      tr(otg_roms_available() ? "value.connected" : "value.not_connected"));
             break;
         case RT_TOGGLE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), tr(*r->val ? "value.on" : "value.off")); break;
-        case RT_RANGE:  snprintf(line, sizeof line, "%s: < %d%% >", tr(r->label), *r->val); break;
+        case RT_RANGE:
+            snprintf(line, sizeof line, r->val == &settings_font_size ? "%s: < %d px >" : "%s: < %d%% >",
+                     tr(r->label), *r->val);
+            break;
         default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
         if (!settings_row_enabled(r)) {
@@ -4332,7 +5105,7 @@ static void render_settings_menu(void) {
          * clearly. Headers stay flush at PADDING. */
         int ix = PADDING + UI_S(16);
         if (settings_menu_idx == idx && settings_row_enabled(r))
-            render_text_pillbox(framebuffer, ix, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+            render_text_pillbox(framebuffer, ix, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
         else {
             int color = (!settings_row_enabled(r) || r->type == RT_OTG_STATUS ||
                          (r->type == RT_ROM_SOURCE && !otg_roms_available()))
@@ -4424,12 +5197,12 @@ static void render_core_picker(void) {
         if (r->type == PR_CORE_HDR || r->type == PR_EXT_HDR) {
             /* headers: accent color; pillbox when the cursor is on them */
             if (idx == core_picker_idx)
-                render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, ry,
                                line, COLOR_SELECT_BG);
         } else if (idx == core_picker_idx) {
-            render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
         } else {
             font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, ry, line, COLOR_TEXT);
         }
@@ -4458,7 +5231,7 @@ static void render_search_kbd(void) {
             if (r == KBD_SPECIAL_ROW) { snprintf(lbl, sizeof(lbl), "%s", KBD_SPECIAL[c]); cx = PADDING + c * (cw * 3); }
             else { lbl[0] = KBD_ROWS[r][c]; lbl[1] = '\0'; cx = PADDING + c * cw; }
             if (r == search_kbd_r && c == search_kbd_c)
-                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, cx, ry, lbl, COLOR_TEXT);
         }
@@ -4488,7 +5261,7 @@ static void render_extf_kbd(void) {
             if (r == KBD_SPECIAL_ROW) { snprintf(lbl, sizeof(lbl), "%s", KBD_SPECIAL[c]); cx = PADDING + c * (cw * 3); }
             else { lbl[0] = KBD_ROWS[r][c]; lbl[1] = '\0'; cx = PADDING + c * cw; }
             if (r == search_kbd_r && c == search_kbd_c)
-                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, cx, ry, lbl, COLOR_TEXT);
         }
@@ -4518,7 +5291,7 @@ static void render_usb_confirm(void) {
                         /* Keep the selected-theme contrast pair inside the
                          * pillbox; COLOR_TEXT can equal the pill background
                          * on light themes. */
-                        COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7);
+                        COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
                    (SCREEN_WIDTH - font_measure_text(b)) / 2,
                    SCREEN_HEIGHT / 2 + UI_S(12), b, COLOR_TEXT);
@@ -4530,7 +5303,94 @@ static void render_usb_confirm(void) {
     }
 }
 
+static void render_port_error(void) {
+    const uint16_t panel = 0x1082, red = 0xF800, white = 0xFFFF;
+    int margin = UI_S(12), x = margin, y = margin;
+    int w = SCREEN_WIDTH - margin * 2, h = SCREEN_HEIGHT - margin * 2;
+    render_clear_screen(framebuffer);
+    render_fill_rect(framebuffer, x, y, w, h, panel);
+    render_fill_rect(framebuffer, x, y, w, UI_S(56), panel);
+
+    int cross = UI_S(38), thick = UI_S(5), cx = x + UI_S(12), cy = y + UI_S(8);
+    for (int py = 0; py < cross; py++) {
+        for (int px = 0; px < cross; px++) {
+            if (abs(px - py) <= thick || abs(px - (cross - 1 - py)) <= thick)
+                framebuffer[(cy + py) * SCREEN_WIDTH + cx + px] = red;
+        }
+    }
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(62), y + UI_S(18), "REQUIRED FILES MISSING", white, 1);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + UI_S(76), port_error_name, white, 1);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + UI_S(110), "Missing:", white, 1);
+    for (int i = 0; i < port_error_file_count; i++) {
+        char line[136];
+        snprintf(line, sizeof line, "- %s", port_error_files[i]);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       x + UI_S(18), y + UI_S(140 + i * 27), line, white);
+    }
+    if (port_error_qr.data) {
+        render_thumbnail(framebuffer, &port_error_qr);
+        const char *caption = "SCAN FOR INSTALL GUIDE";
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       SCREEN_WIDTH - THUMBNAIL_MAX_WIDTH +
+                           (THUMBNAIL_MAX_WIDTH - font_measure_text(caption)) / 2,
+                       (SCREEN_HEIGHT + port_error_qr.height) / 2 + UI_S(12),
+                       caption, white, 1);
+    }
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                   x + UI_S(18), y + h - UI_S(38), "Press A or B to return", white);
+}
+
 void retro_run(void) {
+    if (port_migration_active) {
+        if (port_migration_index < port_migration_count) {
+            PortMigration *port = NULL;
+            int seen = 0;
+            for (size_t i = 0; i < sizeof(port_migrations) / sizeof(port_migrations[0]); i++) {
+                if (!port_migrations[i].pending) continue;
+                if (seen++ == port_migration_index) {
+                    port = &port_migrations[i];
+                    break;
+                }
+            }
+            if (port_migration_result_frames > 0) {
+                render_port_migration(port, port_migration_index,
+                                      port_migration_current_ok ? 1 : -1);
+                if (video_cb)
+                    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                             SCREEN_WIDTH * sizeof(uint16_t));
+                if (--port_migration_result_frames == 0)
+                    port_migration_index++;
+            } else {
+                render_port_migration(port, port_migration_index, 0);
+                if (video_cb)
+                    video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                             SCREEN_WIDTH * sizeof(uint16_t));
+                port_migration_current_ok = port_migration_move(port);
+                if (!port_migration_current_ok) port_migration_failures++;
+                port_migration_result_frames = 30;
+            }
+            return;
+        }
+
+        render_port_migration(NULL, port_migration_index, 2);
+        if (video_cb)
+            video_cb(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                     SCREEN_WIDTH * sizeof(uint16_t));
+        if (++port_migration_finish_frames >= 60) {
+            port_migration_active = false;
+            scan_directory(current_path);
+            save_games_tab_entries();
+            if (settings_load_recents && recent_games_get_count() > 0)
+                enter_recents_view();
+            if (port_migration_failures)
+                ui_toast_show("Some port folders stayed safe in Games");
+        }
+        return;
+    }
+
     /* Take input from the libretro frontend (rkgame feeds cores this way; the
      * cubevol joy_key shm isn't updated when rkgame owns evdev). Build FrogUI's
      * raw bit layout from the joypad → input_set_ext_raw (OR'd with shm). */
@@ -4548,13 +5408,39 @@ void retro_run(void) {
         input_set_ext_raw(raw);
     }
     int old_selected = selected_index;
+    int old_scroll = scroll_offset;
     int old_settings_row = settings_menu_idx;
     bool old_settings_active = settings_menu_active;
     bool old_recents = viewing_recents, old_favourites = viewing_favourites;
+    bool old_apps = viewing_apps, old_activity = viewing_activity;
+    bool old_search = viewing_search;
+    bool old_pill_view = menu_pill_view();
     char old_path[MAX_PATH_LEN];
     strncpy(old_path, current_path, sizeof old_path - 1);
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
+    bool same_menu = old_settings_active == settings_menu_active &&
+                     old_recents == viewing_recents &&
+                     old_favourites == viewing_favourites &&
+                     old_apps == viewing_apps && old_activity == viewing_activity &&
+                     old_search == viewing_search &&
+                     strcmp(old_path, current_path) == 0;
+    if (!menu_pill_view()) {
+        pill_animation_reset(&menu_pill_animation, 0);
+        menu_pill_initialized = false;
+    } else {
+        int target_y = menu_row_y(selected_index, scroll_offset);
+        if (!menu_pill_initialized || !old_pill_view || !same_menu) {
+            pill_animation_reset(&menu_pill_animation, target_y);
+            menu_pill_initialized = true;
+        } else if (old_selected != selected_index || old_scroll != scroll_offset) {
+            int from_y = pill_animation_active(&menu_pill_animation)
+                       ? menu_pill_animation.current_y
+                       : menu_row_y(old_selected, old_scroll);
+            pill_animation_start(&menu_pill_animation, from_y, target_y,
+                                 settings_anim ? MENU_PILL_FRAMES : 0);
+        }
+    }
     if (old_selected != selected_index || old_settings_row != settings_menu_idx ||
         old_settings_active != settings_menu_active || old_recents != viewing_recents ||
         old_favourites != viewing_favourites || strcmp(old_path, current_path) != 0)
@@ -4581,6 +5467,40 @@ void retro_run(void) {
         cube_set_backlight(settings_brightness);
         settings_bl_reassert--;
     }
+    /* Live-volume tail commit: the debounced slider path (500 ms) can leave
+     * the newest level applied to the hardware mirror but not yet persisted
+     * when the user stops sliding.  Commit it once the window has passed, so
+     * the stored value (physical meter, next boot) always catches up without
+     * waiting for a menu exit. */
+    if (settings_volume != volume_committed_level &&
+        monotonic_ms() - volume_last_commit_ms >= VOLUME_COMMIT_MS) {
+        volume_committed_level = -1;   /* force the real write below */
+        settings_volume_commit_live();
+    }
+    /* Reverse link: the physical volume buttons (cubevol) change the stored
+     * pmem value out from under us at any moment.  Poll it while the
+     * Settings menu is open so the slider DISPLAY follows the buttons in
+     * real time too - one value everywhere, whichever side changed it.
+     * (picoarch does the same for the in-game path; this covers the UI.)
+     * OWN-LAG GUARD: while the debounced slider path is catching up, pmem
+     * still holds OUR last committed level - reading it back would bounce
+     * the slider to stale values mid-adjustment (seen on-device as
+     * 50-45-45-45-40-45-40 when sliding fast).  A read that matches our own
+     * last commit is our lag, not a physical press: only adopt values that
+     * differ from BOTH the slider and our last commit. */
+    if (settings_menu_active) {
+        static long long volume_poll_ms = 0;
+        long long now = monotonic_ms();
+        if (now - volume_poll_ms >= 250) {
+            volume_poll_ms = now;
+            int shared = cube_pmem_volume_read();
+            if (shared >= 0 && shared <= 100 &&
+                shared != settings_volume && shared != volume_committed_level) {
+                settings_volume = shared;
+                volume_committed_level = shared;   /* it is already stored */
+            }
+        }
+    }
     /* cubevol can restore its stored I2SO level shortly after boot.  Keep the
        idle launcher mute asserted through that window, without changing the
        stored level used for the next game launch. */
@@ -4601,6 +5521,20 @@ void retro_run(void) {
     static int  banner_last_pack = -1;  /* reload when the background pack changes */
     static int  banner_last_dim = -1;   /* reload when background dim changes */
     {
+        if (settings_backgrounds != prefetch_last_bg ||
+            settings_wallpaper_idx != prefetch_last_wp ||
+            settings_wallpaper_fit != prefetch_last_wpfit ||
+            settings_theme_pack_idx != prefetch_last_pack ||
+            settings_background_dim != prefetch_last_dim ||
+            settings_theme_idx != prefetch_last_theme) {
+            prefetch_active_theme();
+            prefetch_last_bg = settings_backgrounds;
+            prefetch_last_wp = settings_wallpaper_idx;
+            prefetch_last_wpfit = settings_wallpaper_fit;
+            prefetch_last_pack = settings_theme_pack_idx;
+            prefetch_last_dim = settings_background_dim;
+            prefetch_last_theme = settings_theme_idx;
+        }
         const char *banner_path = current_path;
         char sel_path[MAX_PATH_LEN];
         if (settings_menu_active) {
@@ -4654,6 +5588,10 @@ void retro_run(void) {
              * and its cache keys untouched while Recents is open, so returning
              * to Games does not decode the same background from SD again. */
             load_banner_for_view(banner_path, viewing_recents, viewing_favourites);
+            if (startup_bg_override) {
+                theme_set_bg_override(0, 0);
+                startup_bg_override = false;
+            }
             banner_last_recents = viewing_recents;
             banner_last_favourites = viewing_favourites;
             banner_last_sel = selected_index;
@@ -4688,6 +5626,7 @@ void retro_run(void) {
          * an unrelated navigation key happened to invalidate it. */
         sig = sig*33u + (unsigned)usb_mode_confirm_active;
         sig = sig*33u + (unsigned)usb_mode_initiated_active;
+        sig = sig*33u + (unsigned)port_error_active;
         sig = sig*33u + (unsigned)settings_menu_active;
         if (settings_menu_active) {
             sig = sig*33u + (unsigned)settings_menu_idx;
@@ -4708,12 +5647,14 @@ void retro_run(void) {
         } else {
             sig = sig*33u + (unsigned)selected_index;
             sig = sig*33u + (unsigned)scroll_offset;
-            sig = sig*33u + (unsigned)(viewing_recents*4 + viewing_favourites*2 + viewing_search);
+            sig = sig*33u + (unsigned)(viewing_recents*16 + viewing_favourites*8 + viewing_apps*4 + apps_browsing*2 + viewing_activity + viewing_search*32);
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
         redraw = first || sig != last_sig || banner_is_animating() ||
                  system_carousel_is_animating() ||
+                 pill_animation_active(&menu_pill_animation) ||
+                 activity_marquee_active() ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
         last_sig = sig; first = 0;
@@ -4733,8 +5674,11 @@ void retro_run(void) {
      * Only the top-right battery zone is touched; cubevol's centered volume
      * popup remains available. */
     fb1_clear_battery_zone();
+    int selected_pill_y = menu_pill_draw_y();
 
-    if (usb_mode_confirm_active || usb_mode_initiated_active) {
+    if (port_error_active) {
+        render_port_error();
+    } else if (usb_mode_confirm_active || usb_mode_initiated_active) {
         render_usb_confirm();
     } else if (search_kbd_active) {
         render_search_kbd();
@@ -4751,7 +5695,9 @@ void retro_run(void) {
         render_clear_screen(framebuffer);
         render_game_switcher(framebuffer);
     } else {
-        if (banner_is_loaded())
+        /* Keep calling banner_render while a banner is being built in row
+         * batches; otherwise the first pending batch would never advance. */
+        if (banner_is_loaded() || banner_is_animating())
             banner_render(framebuffer);
         else
             render_clear_screen(framebuffer);
@@ -4795,7 +5741,10 @@ void retro_run(void) {
                     shown = system_display_name(entries[idx].name);
                 /* Hide file extension (.gb/.gba/...) when enabled — display only,
                  * the real name in entries[] is still used to launch. Files only. */
-                if (settings_hide_extensions && !entries[idx].is_dir) {
+                if ((settings_hide_extensions ||
+                     (strncmp(current_path, ROMS_PATH, strlen(ROMS_PATH)) == 0 &&
+                      strcmp(current_path + strlen(ROMS_PATH), "/ports") == 0)) &&
+                    !entries[idx].is_dir) {
                     strncpy(disp, entries[idx].name, sizeof disp - 1);
                     disp[sizeof disp - 1] = '\0';
                     char *dot = strrchr(disp, '.');
@@ -4804,10 +5753,12 @@ void retro_run(void) {
                 if (settings_center_text && settings_style == STYLE_VERTICAL &&
                     strcmp(current_path, ROMS_PATH) == 0)
                     render_menu_item_centered(framebuffer, idx, shown, entries[idx].is_dir,
-                                              (idx == selected_index), scroll_offset);
+                                              (idx == selected_index), scroll_offset,
+                                              selected_pill_y);
                 else
                     render_menu_item(framebuffer, idx, shown, entries[idx].is_dir,
-                                     (idx == selected_index), scroll_offset, 0);
+                                     (idx == selected_index), scroll_offset, 0,
+                                     selected_pill_y);
             }
             render_scroll_indicator(framebuffer, entry_count, selected_index, VISIBLE_ENTRIES);
         }
@@ -4891,12 +5842,16 @@ void retro_run(void) {
         }
     }
 
-    if (ui_toast_frames > 0) {
+    if (ui_toast_frames > 0 && !port_error_active) {
         render_toast(framebuffer, ui_toast_text);
         ui_toast_frames--;
     }
 
     const uint16_t *present = ui_transition_compose();
+    if (screenshot_pending) {
+        screenshot_pending = false;
+        ui_toast_show(save_ui_screenshot(present) ? "Screenshot saved" : "Screenshot failed");
+    }
     if (video_cb)
         video_cb(present, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH * sizeof(uint16_t));
 }

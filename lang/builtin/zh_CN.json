@@ -6,6 +6,8 @@
   "language.ja_JP": "日本語",
   "language.ru_RU": "Русский",
   "language.zh_CN": "简体中文",
+  "language.de_DE": "Deutsch",
+  "language.tr_TR": "Türkçe",
   "tab.recents": "RECENTS",
   "tab.games": "GAMES",
   "tab.apps": "APPS",
@@ -25,18 +27,21 @@
   "settings.center_text": "Center Text",
   "settings.friendly_system_names": "Friendly System Names",
   "settings.font": "Font",
+  "settings.font_size": "字体大小",
   "settings.general": "GENERAL",
   "settings.language": "Language",
   "settings.brightness": "Brightness",
   "settings.animations": "Animations",
   "settings.menu_sounds": "Menu Sounds",
   "settings.battery_colour_mode": "Battery Colour Mode",
+  "settings.stock_battery_indicator": "原始电池指示器",
   "settings.background_images": "Background Images",
   "settings.background_dim": "Background Dim",
   "settings.wallpaper": "Wallpaper",
   "settings.background_image_fit": "Background Image Fit",
   "settings.hide_extensions": "Hide Extensions",
   "settings.hide_empty_folders": "Hide Empty Folders",
+  "settings.custom_aspect_ratios": "所有画面比例",
   "settings.library": "LIBRARY",
   "settings.rom_source": "ROM Source",
   "settings.otg_storage": "OTG Storage",
@@ -64,7 +69,14 @@
   ,"header.search": "SEARCH"
   ,"header.add_extension": "ADD EXTENSION"
   ,"header.usb_mode": "USB MODE"
-  ,"remap.skip": "[B] = skip / keep default"
+  ,"remap.skip": "[B] = 跳过 / 保持默认",
+  "remap.press": "按下 %s (%d / %d)",
+  "remap.saved": "按键映射已保存",
+  "remap.save_failed": "无法保存按键映射",
+  "button.up": "上",
+  "button.down": "下",
+  "button.left": "左",
+  "button.right": "右"
   ,"picker.cores": "Cores"
   ,"picker.extensions": "EXTENSIONS"
   ,"picker.filter_files": "Filter files"
@@ -84,6 +96,7 @@
   ,"app.videos": "Videos"
   ,"app.music_mp3": "Music / MP3"
   ,"app.rockbox": "Rockbox"
+  ,"app.shutdown": "关机"
   ,"pico.menu.resume": "Resume game"
   ,"pico.menu.save_state": "Save state"
   ,"pico.menu.load_state": "Load state"
@@ -184,6 +197,10 @@
   "system.thom": "Thomson MO / TO",
   "system.xmil": "Sharp X68000",
   "system.pico286": "DOS / PC",
+  "system.j2me": "Java 游戏",
+  "system.classicube": "ClassiCube / Minecraft",
+  "system.mcpe": "Minecraft PE",
+  "system.openclaw": "Captain Claw",
   "system.dos": "DOS",
   "system.prboom": "Doom",
   "system.doom": "Doom",
@@ -198,8 +215,13 @@
   "system.gw": "Game & Watch",
   "system.tic80": "TIC-80",
   "system.pico8": "PICO-8",
-  "system.fake08": "PICO-8",
+  "system.fake08": "PICO-8 - Fake-08",
   "system.retro8": "PICO-8 - Retro8",
+  "system.picante8": "PICO-8 - Picante8",
+  "system.duke3d": "毁灭公爵 3D",
+  "system.undertale": "Undertale",
+  "system.openbor": "OpenBor",
+  "system.ports": "移植游戏",
   "system.lowres-nx": "LowRes NX",
   "system.pokem": "Pokemon Mini",
   "system.int": "Intellivision",

@@ -6,6 +6,8 @@
   "language.ja_JP": "Japonés",
   "language.ru_RU": "Русский",
   "language.zh_CN": "简体中文",
+  "language.de_DE": "Deutsch",
+  "language.tr_TR": "Türkçe",
   "tab.recents": "RECIENTES",
   "tab.games": "JUEGOS",
   "tab.apps": "APPS",
@@ -25,18 +27,21 @@
   "settings.center_text": "Centrar texto",
   "settings.friendly_system_names": "Nombres amigables del sistema",
   "settings.font": "Fuente",
+  "settings.font_size": "Tamaño de fuente",
   "settings.general": "GENERAL",
   "settings.language": "Language",
   "settings.brightness": "Brillo",
   "settings.animations": "Animaciones",
   "settings.menu_sounds": "Menu de sonidos",
   "settings.battery_colour_mode": "Modo de color de la bateria",
+  "settings.stock_battery_indicator": "Indicador de batería original",
   "settings.background_images": "Imágenes de fondo",
   "settings.background_dim": "Atenuación del fondo",
   "settings.wallpaper": "Fondo de pantalla",
   "settings.background_image_fit": "Ajuste de la imagen de fondo",
   "settings.hide_extensions": "Ocultar extensiones",
   "settings.hide_empty_folders": "Ocultar carpetas vacías",
+  "settings.custom_aspect_ratios": "Todas las relaciones de aspecto",
   "settings.library": "BIBLIOTECA",
   "settings.rom_source": "Fuente de la ROM",
   "settings.otg_storage": "Almacenamiento OTG",
@@ -64,7 +69,14 @@
   ,"header.search": "BUSCAR"
   ,"header.add_extension": "AÑADIR EXTENSIONES"
   ,"header.usb_mode": "CONECCIÓN USB"
-  ,"remap.skip": "[B] = omitir / mantener valor predeterminado"
+  ,"remap.skip": "[B] = omitir / mantener valor predeterminado",
+  "remap.press": "Pulsa %s (%d / %d)",
+  "remap.saved": "Asignación de botones guardada",
+  "remap.save_failed": "No se pudo guardar la asignación de botones",
+  "button.up": "ARRIBA",
+  "button.down": "ABAJO",
+  "button.left": "IZQUIERDA",
+  "button.right": "DERECHA"
   ,"picker.cores": "Nucleos"
   ,"picker.extensions": "EXTENSIONES"
   ,"picker.filter_files": "Filtrar archivos"
@@ -84,6 +96,7 @@
   ,"app.videos": "Videos"
   ,"app.music_mp3": "Musica / MP3"
   ,"app.rockbox": "Rockbox player",
+  "app.shutdown": "Apagar",
   "system.a26": "Atari 2600",
   "system.a5200": "Atari 5200",
   "system.a78": "Atari 7800",
@@ -152,6 +165,10 @@
   "system.thom": "Thomson MO / TO",
   "system.xmil": "Sharp X68000",
   "system.pico286": "DOS / PC",
+  "system.j2me": "Juegos Java",
+  "system.classicube": "ClassiCube / Minecraft",
+  "system.mcpe": "Minecraft PE",
+  "system.openclaw": "Captain Claw",
   "system.dos": "DOS",
   "system.prboom": "Doom",
   "system.doom": "Doom",
@@ -166,8 +183,13 @@
   "system.gw": "Game & Watch",
   "system.tic80": "TIC-80",
   "system.pico8": "PICO-8",
-  "system.fake08": "PICO-8",
+  "system.fake08": "PICO-8 - Fake-08",
   "system.retro8": "PICO-8 - Retro8",
+  "system.picante8": "PICO-8 - Picante8",
+  "system.duke3d": "Duke Nukem 3D",
+  "system.undertale": "Undertale",
+  "system.openbor": "OpenBor",
+  "system.ports": "Ports",
   "system.lowres-nx": "LowRes NX",
   "system.pokem": "Pokemon Mini",
   "system.int": "Intellivision",

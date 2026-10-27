@@ -31,6 +31,7 @@ int theme_get_current_index(void);
 const char* theme_get_name(int index);
 
 uint16_t theme_bg(void);
+void theme_set_bg_override(int enabled, uint16_t color);
 uint16_t theme_text(void);
 uint16_t theme_select_bg(void);
 uint16_t theme_select_text(void);

@@ -387,17 +387,150 @@ const Theme themes[] = {
         .legend_bg = RGB565(53, 43, 70),
         .disabled = RGB565(150, 137, 171)
     },
+    /* Allium-Themes palettes; provenance and mapping: fonts/alium_README.md. */
     {
-        .name = "Canvas Pastel",
-        .bg = RGB565(187, 187, 187),
-        .text = RGB565(119, 119, 119),
-        .select_bg = RGB565(167, 199, 231),
+        .name = "alium_default",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(114, 135, 253),
         .select_text = RGB565(255, 255, 255),
-        .header = RGB565(167, 199, 231),
-        .folder = RGB565(119, 119, 119),
-        .legend = RGB565(119, 119, 119),
-        .legend_bg = RGB565(255, 255, 255),
-        .disabled = RGB565(160, 160, 160)
+        .header = RGB565(255, 255, 255),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(0, 0, 0),
+        .disabled = RGB565(88, 91, 112)
+    },
+    {
+        .name = "alium_alliumboy",
+        .bg = RGB565(8, 24, 32),
+        .text = RGB565(224, 248, 208),
+        .select_bg = RGB565(52, 104, 86),
+        .select_text = RGB565(224, 248, 208),
+        .header = RGB565(224, 248, 208),
+        .folder = RGB565(224, 248, 208),
+        .legend = RGB565(224, 248, 208),
+        .legend_bg = RGB565(8, 24, 32),
+        .disabled = RGB565(52, 104, 86)
+    },
+    {
+        .name = "alium_blue",
+        .bg = RGB565(27, 38, 59),
+        .text = RGB565(233, 236, 239),
+        .select_bg = RGB565(58, 134, 255),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(58, 134, 255),
+        .folder = RGB565(233, 236, 239),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(27, 38, 59),
+        .disabled = RGB565(108, 117, 125)
+    },
+    {
+        .name = "alium_boxart",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(255, 255, 255),
+        .select_text = RGB565(0, 0, 0),
+        .header = RGB565(255, 255, 255),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(0, 0, 0),
+        .disabled = RGB565(151, 151, 151)
+    },
+    {
+        .name = "alium_brown",
+        .bg = RGB565(58, 24, 0),
+        .text = RGB565(204, 124, 75),
+        .select_bg = RGB565(221, 221, 221),
+        .select_text = RGB565(204, 124, 75),
+        .header = RGB565(238, 159, 2),
+        .folder = RGB565(204, 124, 75),
+        .legend = RGB565(204, 124, 75),
+        .legend_bg = RGB565(58, 24, 0),
+        .disabled = RGB565(71, 74, 109)
+    },
+    {
+        .name = "alium_bubblegum",
+        .bg = RGB565(191, 211, 186),
+        .text = RGB565(131, 147, 144),
+        .select_bg = RGB565(252, 215, 221),
+        .select_text = RGB565(254, 254, 254),
+        .header = RGB565(254, 254, 254),
+        .folder = RGB565(131, 147, 144),
+        .legend = RGB565(254, 254, 254),
+        .legend_bg = RGB565(191, 211, 186),
+        .disabled = RGB565(194, 163, 165)
+    },
+    {
+        .name = "alium_eva_01",
+        .bg = RGB565(95, 42, 98),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(160, 222, 89),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(160, 222, 89),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(95, 42, 98),
+        .disabled = RGB565(88, 91, 112)
+    },
+    {
+        .name = "alium_min",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(255, 255, 255),
+        .select_text = RGB565(0, 0, 0),
+        .header = RGB565(255, 255, 255),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(0, 0, 0),
+        .disabled = RGB565(151, 151, 151)
+    },
+    {
+        .name = "alium_pastel",
+        .bg = RGB565(254, 249, 243),
+        .text = RGB565(74, 74, 74),
+        .select_bg = RGB565(180, 167, 214),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(74, 74, 74),
+        .folder = RGB565(74, 74, 74),
+        .legend = RGB565(74, 74, 74),
+        .legend_bg = RGB565(254, 249, 243),
+        .disabled = RGB565(212, 197, 199)
+    },
+    {
+        .name = "alium_snes",
+        .bg = RGB565(84, 88, 90),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(81, 70, 137),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(167, 164, 224),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(84, 88, 90),
+        .disabled = RGB565(84, 88, 90)
+    },
+    {
+        .name = "alium_spruceos",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(235, 219, 178),
+        .select_bg = RGB565(251, 241, 199),
+        .select_text = RGB565(40, 40, 40),
+        .header = RGB565(104, 157, 106),
+        .folder = RGB565(235, 219, 178),
+        .legend = RGB565(235, 219, 178),
+        .legend_bg = RGB565(0, 0, 0),
+        .disabled = RGB565(124, 111, 100)
+    },
+    {
+        .name = "alium_synthwave",
+        .bg = RGB565(0, 0, 0),
+        .text = RGB565(255, 255, 255),
+        .select_bg = RGB565(118, 23, 153),
+        .select_text = RGB565(255, 255, 255),
+        .header = RGB565(81, 97, 157),
+        .folder = RGB565(255, 255, 255),
+        .legend = RGB565(255, 255, 255),
+        .legend_bg = RGB565(0, 0, 0),
+        .disabled = RGB565(88, 91, 112)
     }
 };
 
@@ -405,10 +538,13 @@ const int theme_count = sizeof(themes) / sizeof(themes[0]);
 
 static int current_theme_index = 0;
 static const Theme* current_theme = &themes[0];
+static int bg_override_active;
+static uint16_t bg_override_color;
 
 void theme_init(void) {
     current_theme_index = 0;
     current_theme = &themes[0];
+    bg_override_active = 0;
 }
 
 int theme_load_from_settings(const char* theme_name) {
@@ -450,7 +586,11 @@ const char* theme_get_name(int index) {
 }
 
 // Color accessors
-uint16_t theme_bg(void) { return current_theme->bg; }
+uint16_t theme_bg(void) { return bg_override_active ? bg_override_color : current_theme->bg; }
+void theme_set_bg_override(int enabled, uint16_t color) {
+    bg_override_active = enabled;
+    bg_override_color = color;
+}
 uint16_t theme_text(void) { return current_theme->text; }
 uint16_t theme_select_bg(void) { return current_theme->select_bg; }
 uint16_t theme_select_text(void) { return current_theme->select_text; }

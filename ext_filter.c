@@ -103,10 +103,36 @@ static void save_file(void) {
  * each game shows once. ps1r uses the same disc formats. */
 static void apply_builtin_defaults(void) {
     static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
-    static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", NULL };
+    static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", "qpsx", NULL };
     for (int f = 0; folders[f]; f++)
         for (int e = 0; disc_exts[e]; e++)
             ext_filter_add_builtin(folders[f], disc_exts[e]);
+    /* The NDS folder contains saves and sidecars alongside ROMs. */
+    ext_filter_add_builtin("nds", "nds");
+
+    /* Bundled ports keep runtime data beside a small launch marker. Only the
+     * marker belongs in the browser; hide packaged support files. */
+    ext_filter_add_builtin("j2me", "jar");
+    ext_filter_add_builtin("j2me", "jad");
+    ext_filter_add_builtin("classicube", "cw");
+    ext_filter_add_builtin("classicube", "classicube");
+    ext_filter_add_builtin("mcpe", "mcpe");
+    ext_filter_add_builtin("mcpe", "sh");
+
+    /* Captain Claw keeps its real game archive and runtime assets beside the
+     * tiny .claw launcher; only the launcher belongs in the ROM browser. */
+    ext_filter_add_builtin("openclaw", "claw");
+    ext_filter_add_builtin("openclaw", "openclaw");
+    ext_filter_add_builtin("openclaw", "sh");
+    ext_filter_add_builtin("pico8", "p8");
+    ext_filter_add_builtin("pico8", "png");
+    ext_filter_add_builtin("picante8", "p8");
+    ext_filter_add_builtin("picante8", "png");
+    ext_filter_add_builtin("diablo", "diablo");
+    ext_filter_add_builtin("diablo", "sh");
+    ext_filter_add_builtin("duke3d", "duke3d");
+    ext_filter_add_builtin("duke3d", "sh");
+    ext_filter_add_builtin("undertale", "sh");
     ext_filter_add_builtin("scummvm", "scummvm");
 }
 
@@ -141,10 +167,15 @@ void ext_filter_load(void) {
                 strncpy(fl->exts[fl->ext_count], norm, EXT_FILTER_EXT_LEN + 1);
                 /* re-resolve the built-in marker for persisted entries */
                 static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
-                static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", NULL };
-                int is_builtin = 0;
-                if (strcasecmp(line, "scummvm") == 0 && strcmp(norm, "scummvm") == 0)
-                    is_builtin = 1;
+                static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", "qpsx", NULL };
+                int is_builtin = (strcasecmp(line, "scummvm") == 0 && strcmp(norm, "scummvm") == 0) ||
+                                 (strcasecmp(line, "diablo") == 0 && strcmp(norm, "diablo") == 0) ||
+                                 ((strcasecmp(norm, "sh") == 0) &&
+                                  (strcasecmp(line, "diablo") == 0 ||
+                                   strcasecmp(line, "duke3d") == 0 ||
+                                   strcasecmp(line, "mcpe") == 0 ||
+                                   strcasecmp(line, "openclaw") == 0 ||
+                                   strcasecmp(line, "undertale") == 0));
                 for (int fi = 0; folders[fi]; fi++)
                     if (strcasecmp(folders[fi], line) == 0) {
                         for (int ei = 0; disc_exts[ei]; ei++)
@@ -163,6 +194,13 @@ void ext_filter_load(void) {
 
 bool ext_filter_should_hide(const char *folder_name, const char *file_ext) {
     if (!folder_name || !file_ext) return false;
+    if (strcasecmp(file_ext, "sh") == 0 &&
+        (strcasecmp(folder_name, "diablo") == 0 ||
+         strcasecmp(folder_name, "duke3d") == 0 ||
+         strcasecmp(folder_name, "mcpe") == 0 ||
+         strcasecmp(folder_name, "openclaw") == 0 ||
+         strcasecmp(folder_name, "undertale") == 0))
+        return false;
     const ExtFilter *f = resolve(folder_name);
     if (!f || !f->enabled || f->ext_count == 0) return false;
     /* file_ext is the extension normalized ONCE by the caller (lowercase,
