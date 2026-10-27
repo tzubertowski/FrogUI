@@ -259,5 +259,9 @@
   "system.videos": "Videolar",
   "system.video": "Videolar",
   "system.images": "Görseller",
-  "system.photos": "Görseller"
+  "system.photos": "Görseller",
+  "settings.requires_background_images": "Arka plan görselleri gerekli",
+  "settings.requires_system_view": "Sistem görünümü gerekli",
+  "system.classicube": "ClassiCube",
+  "system.scummvm": "ScummVM"
 }

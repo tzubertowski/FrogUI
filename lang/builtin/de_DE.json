@@ -259,5 +259,9 @@
   "system.videos": "Videos",
   "system.video": "Videos",
   "system.images": "Bilder",
-  "system.photos": "Bilder"
+  "system.photos": "Bilder",
+  "settings.requires_background_images": "Benötigt Hintergrundbilder",
+  "settings.requires_system_view": "Benötigt die Systemansicht",
+  "system.classicube": "ClassiCube",
+  "system.scummvm": "ScummVM"
 }

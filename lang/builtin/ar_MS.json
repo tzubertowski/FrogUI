@@ -260,5 +260,8 @@
   "system.videos": "الفيديوهات",
   "system.video": "الفيديوهات",
   "system.images": "الصور",
-  "system.photos": "الصور"
+  "system.photos": "الصور",
+  "settings.requires_background_images": "يتطلب صور الخلفية",
+  "settings.requires_system_view": "يتطلب عرض الأنظمة",
+  "system.scummvm": "ScummVM"
 }

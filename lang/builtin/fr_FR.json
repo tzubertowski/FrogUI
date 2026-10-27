@@ -260,5 +260,8 @@
   "system.videos": "Vidéos",
   "system.video": "Vidéos",
   "system.images": "Images",
-  "system.photos": "Images"
+  "system.photos": "Images",
+  "settings.requires_background_images": "Nécessite les images d’arrière-plan",
+  "settings.requires_system_view": "Nécessite la vue système",
+  "system.scummvm": "ScummVM"
 }
