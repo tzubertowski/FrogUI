@@ -273,6 +273,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".openclaw", CLAW_CORE},
     {".duke3d", DUKE3D_CORE},
     {".butterscotch", BUTTERSCOTCH_CORE},
+    {".p8", CORES_PATH "/picante8_libretro.so"},
     {".nes",  CORES_PATH "/fceumm_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
@@ -354,6 +355,9 @@ static const ExtensionMapping ext_mappings[] = {
 
 static const char* get_core_for_extension(const char *filename) {
     if (!filename) return NULL;
+    size_t len = strlen(filename);
+    if (len >= 7 && strcasecmp(filename + len - 7, ".p8.png") == 0)
+        return CORES_PATH "/picante8_libretro.so";
     const char *dot = strrchr(filename, '.');
     if (!dot) return NULL;
     for (int i = 0; ext_mappings[i].ext; i++)
@@ -1602,6 +1606,13 @@ static int is_image_library_path(const char *path) {
                       !strcasecmp(folder, "photos"));
 }
 
+static int is_pico8_folder(const char *folder) {
+    return folder && (!strcasecmp(folder, "pico8") ||
+                      !strcasecmp(folder, "fake08") ||
+                      !strcasecmp(folder, "retro8") ||
+                      !strcasecmp(folder, "picante8"));
+}
+
 #define SETTINGS_ENTRY_NAME    ">> Settings"
 #define RECENTS_ENTRY_NAME     ">> Recents"
 #define FAVOURITES_ENTRY_NAME  ">> Favourites"
@@ -1911,6 +1922,7 @@ static int folder_has_games(const char *path, int depth) {
             int is_p8png = nlen >= 7 && strcasecmp(e->d_name + nlen - 7, ".p8.png") == 0;
             const char *ext = strrchr(e->d_name, '.');
             if (ext && !is_p8png && !is_image_library_path(path) &&
+                !(is_pico8_folder(sys_folder) && strcasecmp(ext, ".png") == 0) &&
                 (strcasecmp(ext,".csv")==0 || strcasecmp(ext,".txt")==0 ||
                  strcasecmp(ext,".xml")==0 || strcasecmp(ext,".jpg")==0 ||
                  strcasecmp(ext,".png")==0)) continue;
@@ -2086,6 +2098,7 @@ static void scan_directory(const char *path) {
                 size_t nlen = strlen(e->d_name);
                 int is_p8png = nlen >= 7 && strcasecmp(e->d_name + nlen - 7, ".p8.png") == 0;
                 if (ext && !is_p8png && !is_image_library_path(path) &&
+                    !(is_pico8_folder(sys_folder) && strcasecmp(ext, ".png") == 0) &&
                            (strcasecmp(ext,".csv")==0 || strcasecmp(ext,".txt")==0 ||
                             strcasecmp(ext,".xml")==0 || strcasecmp(ext,".jpg")==0 ||
                             strcasecmp(ext,".png")==0)) continue;

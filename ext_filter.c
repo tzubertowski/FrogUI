@@ -129,6 +129,10 @@ static void apply_builtin_defaults(void) {
     ext_filter_add_builtin("pico8", "png");
     ext_filter_add_builtin("picante8", "p8");
     ext_filter_add_builtin("picante8", "png");
+    ext_filter_add_builtin("fake08", "p8");
+    ext_filter_add_builtin("fake08", "png");
+    ext_filter_add_builtin("retro8", "p8");
+    ext_filter_add_builtin("retro8", "png");
     ext_filter_add_builtin("diablo", "diablo");
     ext_filter_add_builtin("diablo", "sh");
     ext_filter_add_builtin("duke3d", "duke3d");
