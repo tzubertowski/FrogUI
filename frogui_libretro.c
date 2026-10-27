@@ -1642,6 +1642,7 @@ static SystemLabel system_labels[] = {
     {"pokket", "PocketStation"},
     {"ps1", "PlayStation"}, {"ps1r", "PlayStation - ReARMed"}, {"qpsx", "PlayStation - QPSX"},
     {"psp", "PlayStation Portable"}, {"nds", "Nintendo DS"},
+    {"scummvm", "ScummVM"},
     {"arcade", "Arcade"}, {"m2k", "Arcade - MAME 2000"}, {"cps1", "Arcade - Capcom CPS-1"},
     {"cps2", "Arcade - Capcom CPS-2"}, {"cps3", "Arcade - Capcom CPS-3"},
     {"c64", "Commodore 64"}, {"c64sc", "Commodore 64"},
@@ -3868,12 +3869,29 @@ static const char *system_icon_path(const char *folder, char *path, size_t size)
     /* Master System is stored as SMS on some cards, while the icon packs use
      * the shared Game Gear/Master System artwork key (gg). */
     else if (strcasecmp(folder, "sms") == 0) key = "gg";
-    if (settings_icon_pack_idx > 0 && settings_icon_pack_idx < icon_pack_count)
+    int use_icon_pack = settings_icon_pack_idx > 0 && settings_icon_pack_idx < icon_pack_count;
+    if (use_icon_pack)
         snprintf(path, size, BANNER_DIR "/icon-packs/%s/%s.png",
                  icon_pack_files[settings_icon_pack_idx], key);
     else
         snprintf(path, size, BANNER_DIR "/system-icons/%s.png", key);
     if (system_icon_cached(path)) return path;
+    int pack_icon_missing = 0;
+    if (use_icon_pack)
+        for (int i = 0; i < system_icon_missing_count; i++)
+            if (strcmp(system_icon_missing[i], path) == 0) {
+                pack_icon_missing = 1;
+                break;
+            }
+    if (use_icon_pack && (pack_icon_missing || access(path, R_OK) != 0)) {
+        if (!pack_icon_missing && system_icon_missing_count < SYSTEM_ICON_MISSING_N) {
+            strncpy(system_icon_missing[system_icon_missing_count], path, 511);
+            system_icon_missing[system_icon_missing_count][511] = '\0';
+            system_icon_missing_count++;
+        }
+        snprintf(path, size, BANNER_DIR "/system-icons/%s.png", key);
+        if (system_icon_cached(path)) return path;
+    }
     for (int i = 0; i < system_icon_missing_count; i++)
         if (strcmp(system_icon_missing[i], path) == 0) return NULL;
     if (access(path, R_OK) == 0) return path;

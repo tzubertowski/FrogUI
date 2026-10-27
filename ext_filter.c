@@ -107,7 +107,6 @@ static void apply_builtin_defaults(void) {
     for (int f = 0; folders[f]; f++)
         for (int e = 0; disc_exts[e]; e++)
             ext_filter_add_builtin(folders[f], disc_exts[e]);
-
     /* The NDS folder contains saves and sidecars alongside ROMs. */
     ext_filter_add_builtin("nds", "nds");
 
@@ -134,6 +133,7 @@ static void apply_builtin_defaults(void) {
     ext_filter_add_builtin("duke3d", "duke3d");
     ext_filter_add_builtin("duke3d", "sh");
     ext_filter_add_builtin("undertale", "sh");
+    ext_filter_add_builtin("scummvm", "scummvm");
 }
 
 void ext_filter_load(void) {
@@ -168,7 +168,8 @@ void ext_filter_load(void) {
                 /* re-resolve the built-in marker for persisted entries */
                 static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
                 static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", "qpsx", NULL };
-                int is_builtin = (strcasecmp(line, "diablo") == 0 && strcmp(norm, "diablo") == 0) ||
+                int is_builtin = (strcasecmp(line, "scummvm") == 0 && strcmp(norm, "scummvm") == 0) ||
+                                 (strcasecmp(line, "diablo") == 0 && strcmp(norm, "diablo") == 0) ||
                                  ((strcasecmp(norm, "sh") == 0) &&
                                   (strcasecmp(line, "diablo") == 0 ||
                                    strcasecmp(line, "duke3d") == 0 ||
