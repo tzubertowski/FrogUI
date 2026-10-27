@@ -39,6 +39,7 @@
   "settings.background_image_fit": "Ajuste de la imagen de fondo",
   "settings.hide_extensions": "Ocultar extensiones",
   "settings.hide_empty_folders": "Ocultar carpetas vacías",
+  "settings.custom_aspect_ratios": "Todas las relaciones de aspecto",
   "settings.library": "BIBLIOTECA",
   "settings.rom_source": "Fuente de la ROM",
   "settings.otg_storage": "Almacenamiento OTG",
