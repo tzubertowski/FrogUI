@@ -439,6 +439,7 @@ static int core_choice_index_for_path(const char *path) {
 /* Libretro callbacks */
 static retro_video_refresh_t     video_cb     = NULL;
 static retro_environment_t       environ_cb   = NULL;
+static retro_log_printf_t        log_cb       = NULL;
 static retro_audio_sample_t      audio_cb     = NULL;
 static retro_audio_sample_batch_t audio_batch_cb = NULL;
 static retro_input_poll_t        input_poll_cb = NULL;
@@ -1714,7 +1715,11 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         char wp[512];
         snprintf(wp, sizeof wp, "/mnt/sdcard/frogui/wallpapers/%s",
                  wallpaper_files[settings_wallpaper_idx]);
-        if (access(wp, R_OK) == 0) { banner_load_fit(wp, settings_wallpaper_fit, COLOR_BG); return; }
+        if (access(wp, R_OK) == 0) {
+            banner_load_fit(wp, settings_wallpaper_fit, COLOR_BG);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "FrogUI background: wallpaper override=%s\n", wp);
+            return;
+        }
     }
     char img[512];
     char banner_dir[512];
@@ -1756,29 +1761,60 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         if (strcasecmp(name, "fake08") == 0 || strcasecmp(name, "retro8") == 0 ||
             strcasecmp(name, "picante8") == 0)
             name = "pico8";
-        /* Theme packs historically used m2k/gb names. Keep those assets
-         * working for the canonical arcade and Game Boy Color folders too. */
-        const char *names[] = {
-            name,
-            strcasecmp(name, "arcade") == 0 ? "m2k" : NULL,
-            strcasecmp(name, "gbc") == 0 ? "gb" : NULL,
-            /* Java Games has no dedicated artwork; use the active theme's
-             * composed main banner so stripes/framing remain intact. */
-            strcasecmp(name, "j2me") == 0 ? "main" : NULL,
-            /* Keep useful fallbacks for installs predating the bundled art. */
-            strcasecmp(name, "classicube") == 0 ? "main" : NULL,
-            strcasecmp(name, "mcpe") == 0 ? "classicube" : NULL,
-            strcasecmp(name, "qpsx") == 0 ? "ps1" : NULL, NULL };
-        for (int n = 0; names[n]; n++)
-            for (int i = 0; exts[i]; i++) {
-                snprintf(img, sizeof(img), "%s/%s.%s", banner_dir, names[n], exts[i]);
-                if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
-            }
-        /* Fallback: try main.png for any view that has no folder-specific image */
-        for (int i = 0; exts[i]; i++) {
-            snprintf(img, sizeof(img), "%s/main.%s", banner_dir, exts[i]);
-            if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
+        /* Folder aliases share art; packs may omit an alias or a system image. */
+        const char *names[8];
+        int name_count = 0;
+        names[name_count++] = name;
+        if (strcasecmp(name, "arcade") == 0) names[name_count++] = "m2k";
+        if (strcasecmp(name, "gbc") == 0) names[name_count++] = "gb";
+        if (strcasecmp(name, "neogeo") == 0) names[name_count++] = "geolith";
+        else if (strcasecmp(name, "geolith") == 0) names[name_count++] = "neogeo";
+        if (strcasecmp(name, "md") == 0) {
+            names[name_count++] = "sega";
+            names[name_count++] = "gpgx";
+        } else if (strcasecmp(name, "sega") == 0 || strcasecmp(name, "gpgx") == 0) {
+            names[name_count++] = "sega";
+            names[name_count++] = "md";
         }
+        if (strcasecmp(name, "dos") == 0) names[name_count++] = "pico286";
+        else if (strcasecmp(name, "pico286") == 0) names[name_count++] = "dos";
+        if (strcasecmp(name, "j2me") == 0 || strcasecmp(name, "classicube") == 0)
+            names[name_count++] = "main";
+        if (strcasecmp(name, "mcpe") == 0) names[name_count++] = "classicube";
+        if (strcasecmp(name, "qpsx") == 0) names[name_count++] = "ps1";
+
+        const char *dirs[] = { banner_dir,
+            settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
+                ? BANNER_DIR : NULL,
+            NULL };
+        for (int d = 0; dirs[d]; d++)
+            for (int n = 0; n < name_count; n++)
+                for (int i = 0; exts[i]; i++) {
+                    snprintf(img, sizeof(img), "%s/%s.%s", dirs[d], names[n], exts[i]);
+                    if (access(img, R_OK) == 0) {
+                        banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                        char trace[700];
+                        snprintf(trace, sizeof trace, "FrogUI background: folder=%s pack=%s image=%s",
+                                 name, settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
+                                     ? theme_pack_files[settings_theme_pack_idx] : "default", img);
+                        dbg(trace);
+                        if (log_cb) log_cb(RETRO_LOG_INFO, "%s\n", trace);
+                        return;
+                    }
+                }
+        for (int d = 0; dirs[d]; d++)
+            for (int i = 0; exts[i]; i++) {
+                snprintf(img, sizeof(img), "%s/main.%s", dirs[d], exts[i]);
+                if (access(img, R_OK) == 0) {
+                    banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                    char trace[700];
+                    snprintf(trace, sizeof trace, "FrogUI background: folder=%s missing; fallback=%s", name, img);
+                    dbg(trace);
+                    if (log_cb) log_cb(RETRO_LOG_WARN, "%s\n", trace);
+                    return;
+                }
+            }
+        if (log_cb) log_cb(RETRO_LOG_WARN, "FrogUI background: no image for folder=%s\n", name);
     }
     banner_clear();
 }
@@ -4581,6 +4617,9 @@ void retro_get_system_av_info(struct retro_system_av_info *info) {
 
 void retro_set_environment(retro_environment_t cb) {
     environ_cb = cb;
+    struct retro_log_callback logging;
+    log_cb = cb && cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging) ? logging.log : NULL;
+    if (!cb) return;
     bool no_game = true;
     cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_game);
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
