@@ -977,7 +977,7 @@ static bool settings_menu_active = false;
  * presenting its last frame. */
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
-static int settings_font_size = 23;
+static int settings_font_size = 21;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
  * its OWN stored brightness on start, DELAYED by panel/backlight-delay (to avoid
@@ -1822,6 +1822,7 @@ static int is_banner_image(const char *name) {
 static int prefetch_last_bg = -1, prefetch_last_wp = -1;
 static int prefetch_last_wpfit = -1, prefetch_last_pack = -1;
 static int prefetch_last_dim = -1, prefetch_last_theme = -1;
+static long long prefetch_resume_at;
 
 static void prefetch_banner_directory(const char *directory) {
     DIR *dp = opendir(directory);
@@ -5339,6 +5340,19 @@ void retro_run(void) {
     strncpy(old_path, current_path, sizeof old_path - 1);
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
+    bool prefetch_config_changed = prefetch_last_bg >= 0 &&
+        (settings_backgrounds != prefetch_last_bg ||
+         settings_wallpaper_idx != prefetch_last_wp ||
+         settings_wallpaper_fit != prefetch_last_wpfit ||
+         settings_theme_pack_idx != prefetch_last_pack ||
+         settings_background_dim != prefetch_last_dim ||
+         settings_theme_idx != prefetch_last_theme);
+    if (old_selected != selected_index || old_scroll != scroll_offset ||
+        old_settings_row != settings_menu_idx || old_settings_active != settings_menu_active ||
+        strcmp(old_path, current_path) != 0 || prefetch_config_changed) {
+        banner_prefetch_clear();
+        prefetch_resume_at = monotonic_ms() + 400;
+    }
     bool same_menu = old_settings_active == settings_menu_active &&
                      old_recents == viewing_recents &&
                      old_favourites == viewing_favourites &&
@@ -5448,13 +5462,18 @@ void retro_run(void) {
             settings_theme_pack_idx != prefetch_last_pack ||
             settings_background_dim != prefetch_last_dim ||
             settings_theme_idx != prefetch_last_theme) {
-            prefetch_active_theme();
             prefetch_last_bg = settings_backgrounds;
             prefetch_last_wp = settings_wallpaper_idx;
             prefetch_last_wpfit = settings_wallpaper_fit;
             prefetch_last_pack = settings_theme_pack_idx;
             prefetch_last_dim = settings_background_dim;
             prefetch_last_theme = settings_theme_idx;
+            if (prefetch_resume_at == 0)
+                prefetch_active_theme();
+        }
+        if (prefetch_resume_at && monotonic_ms() >= prefetch_resume_at) {
+            prefetch_active_theme();
+            prefetch_resume_at = 0;
         }
         const char *banner_path = current_path;
         char sel_path[MAX_PATH_LEN];

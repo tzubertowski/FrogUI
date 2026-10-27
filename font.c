@@ -23,7 +23,7 @@
 #ifndef UI_SCALE
 #define UI_SCALE 100
 #endif
-#define DEFAULT_FONT_SIZE 23
+#define DEFAULT_FONT_SIZE 26
 static float ui_font_size = DEFAULT_FONT_SIZE * UI_SCALE / 100.0f;
 
 #define GLYPH_CACHE_SIZE 4096
@@ -161,8 +161,7 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
     return &glyph_cache[hash];
   }
 
-  FT_Int32 load_flags =
-      FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_LIGHT | FT_LOAD_FORCE_AUTOHINT;
+  FT_Int32 load_flags = effective_bold ? FT_LOAD_NO_BITMAP : FT_LOAD_DEFAULT;
   if (FT_Load_Glyph(face->ft_face, glyph_index, load_flags)) {
     return NULL;
   }
@@ -173,7 +172,8 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
     FT_Outline_Embolden(&face->ft_face->glyph->outline, strength);
   }
 
-  if (FT_Render_Glyph(face->ft_face->glyph, FT_RENDER_MODE_NORMAL)) {
+  if (face->ft_face->glyph->format != FT_GLYPH_FORMAT_BITMAP &&
+      FT_Render_Glyph(face->ft_face->glyph, FT_RENDER_MODE_NORMAL)) {
     return NULL;
   }
 
