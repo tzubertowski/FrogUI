@@ -1892,6 +1892,16 @@ static int direntry_cmp(const void *a, const void *b) {
     return strcasecmp(x->name, y->name);
 }
 
+static int system_direntry_cmp(const void *a, const void *b) {
+    const DirEntry *x = a, *y = b;
+    if (x->is_dir != y->is_dir) return y->is_dir - x->is_dir;
+    if (x->is_dir) {
+        int by_label = strcasecmp(system_display_name(x->name), system_display_name(y->name));
+        if (by_label) return by_label;
+    }
+    return strcasecmp(x->name, y->name);
+}
+
 static int folder_has_games(const char *path, int depth) {
     if (depth > 3) return 0;
     DIR *d = opendir(path);
@@ -2162,6 +2172,10 @@ static void scan_directory(const char *path) {
         }
         entry_count = write;
     }
+    /* Re-sort cached and fresh root listings alike; cache order stays based on
+     * folder names so toggling friendly labels never needs cache invalidation. */
+    if (at_root && settings_friendly_names && entry_count > 1)
+        qsort(entries, entry_count, sizeof(DirEntry), system_direntry_cmp);
     /* Favourites remains part of the Games library. Recents and Settings are
      * real top-level tabs and must never appear as fake system folders. */
     if (strcmp(path, ROMS_PATH) == 0) {
