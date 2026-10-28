@@ -5448,11 +5448,12 @@ void retro_run(void) {
             pill_animation_reset(&menu_pill_animation, target_y);
             menu_pill_initialized = true;
         } else if (old_selected != selected_index || old_scroll != scroll_offset) {
-            int from_y = pill_animation_active(&menu_pill_animation)
+            bool catching_up = pill_animation_active(&menu_pill_animation);
+            int from_y = catching_up
                        ? menu_pill_animation.current_y
                        : menu_row_y(old_selected, old_scroll);
             pill_animation_start(&menu_pill_animation, from_y, target_y,
-                                 settings_anim ? MENU_PILL_FRAMES : 0);
+                                 settings_anim ? (catching_up ? 1 : MENU_PILL_FRAMES) : 0);
         }
     }
     if (old_selected != selected_index || old_settings_row != settings_menu_idx ||
