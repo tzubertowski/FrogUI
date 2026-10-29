@@ -55,7 +55,7 @@
   "settings.autosave_autoload": "Autozapis / autowczytanie",
   "settings.custom_aspect_ratios": "Wszystkie proporcje obrazu",
   "settings.system": "SYSTEM",
-  "settings.rtc_emulation": "ZEGAR CZASU RZECZYWISTEGO (EMULACJA)",
+  "settings.rtc_emulation": "DATA/GODZINA (SYMULOWANA)",
   "settings.rtc_time": "Ustaw datę i godzinę",
   "settings.rtc_sync_usb": "Synchronizuj czas z USB",
   "settings.rtc_bump": "Przesunięcie zegara przy każdym restarcie (min)",

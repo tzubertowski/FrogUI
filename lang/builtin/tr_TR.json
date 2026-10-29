@@ -53,7 +53,7 @@
   "settings.quick_resume": "Hızlı devam et",
   "settings.autosave_autoload": "Otomatik kaydet/Yükle",
   "settings.system": "SİSTEM",
-  "settings.rtc_emulation": "GERÇEK ZAMAN SAATİ (BENZETİM)",
+  "settings.rtc_emulation": "TARİH/SAAT (SİMÜLE)",
   "settings.rtc_time": "Tarih ve saati ayarla",
   "settings.rtc_sync_usb": "Saati USB’den eşitle",
   "settings.rtc_bump": "Her yeniden başlatmada saat ekle (dk)",

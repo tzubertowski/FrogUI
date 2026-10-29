@@ -53,7 +53,7 @@
   "settings.quick_resume": "Schnelle Fortsetzung",
   "settings.autosave_autoload": "Automatisches Speichern/Laden",
   "settings.system": "SYSTEM",
-  "settings.rtc_emulation": "Echtzeituhr (Emulation)",
+  "settings.rtc_emulation": "DATUM/UHRZEIT (SIMULIERT)",
   "settings.rtc_time": "Datum und Uhrzeit einstellen",
   "settings.rtc_sync_usb": "Uhrzeit per USB synchronisieren",
   "settings.rtc_bump": "Uhrzeit je Neustart vorstellen (Min.)",

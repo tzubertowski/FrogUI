@@ -51,7 +51,7 @@
   "settings.quick_resume": "Retomada Rápida",
   "settings.autosave_autoload": "Salvar/Carregar Automaticamente",
   "settings.system": "SISTEMA",
-  "settings.rtc_emulation": "RELÓGIO DE TEMPO REAL (EMULAÇÃO)",
+  "settings.rtc_emulation": "DATA/HORA (SIMULADA)",
   "settings.rtc_time": "Definir data e hora",
   "settings.rtc_sync_usb": "Sincronizar horário via USB",
   "settings.rtc_bump": "Avançar relógio a cada reinício (min)",

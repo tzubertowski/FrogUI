@@ -53,7 +53,7 @@
   "settings.quick_resume": "Reprise rapide",
   "settings.autosave_autoload": "Sauvegarde/Chargement automatique",
   "settings.system": "SYSTÈME",
-  "settings.rtc_emulation": "HORLOGE TEMPS RÉEL (ÉMULATION)",
+  "settings.rtc_emulation": "DATE/HEURE (SIMULÉE)",
   "settings.rtc_time": "Régler la date et l’heure",
   "settings.rtc_sync_usb": "Synchroniser l’heure depuis USB",
   "settings.rtc_bump": "Avance de l’horloge à chaque redémarrage (min)",
