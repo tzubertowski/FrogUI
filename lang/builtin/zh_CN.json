@@ -51,6 +51,7 @@
   "settings.quick_resume": "Quick Resume",
   "settings.autosave_autoload": "Auto-Save/Auto-Load",
   "settings.system": "SYSTEM",
+  "settings.rtc_emulation": "实时时钟（模拟）",
   "settings.rtc_time": "设置日期和时间",
   "settings.rtc_sync_usb": "从 USB 同步时间",
   "settings.rtc_bump": "每次重启时钟增加（分钟）",

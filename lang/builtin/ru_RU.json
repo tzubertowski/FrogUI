@@ -51,6 +51,7 @@
   "settings.quick_resume": "Quick Resume",
   "settings.autosave_autoload": "Auto-Save/Auto-Load",
   "settings.system": "SYSTEM",
+  "settings.rtc_emulation": "ЧАСЫ РЕАЛЬНОГО ВРЕМЕНИ (ЭМУЛЯЦИЯ)",
   "settings.rtc_time": "Установить дату и время",
   "settings.rtc_sync_usb": "Синхронизировать время с USB",
   "settings.rtc_bump": "Прибавлять при перезагрузке (мин)",

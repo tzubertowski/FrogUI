@@ -55,6 +55,7 @@
   "settings.quick_resume": "クイック再開",
   "settings.autosave_autoload": "自動セーブ/自動ロード",
   "settings.system": "システム",
+  "settings.rtc_emulation": "リアルタイムクロック（エミュレーション）",
   "settings.rtc_time": "日時を設定",
   "settings.rtc_sync_usb": "USBから時刻を同期",
   "settings.rtc_bump": "再起動ごとの時刻進み（分）",

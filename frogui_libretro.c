@@ -1065,7 +1065,8 @@ static const SRow settings_rows[] = {
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
-    { RT_HEADER, "settings.system" }, { RT_RTC_TIME, "settings.rtc_time" }, { RT_RTC_SYNC, "settings.rtc_sync_usb" }, { RT_RANGE, "settings.rtc_bump", &settings_rtc_bump_minutes, 0, 1440, 5 }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
+    { RT_HEADER, "settings.system" }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
+    { RT_HEADER, "settings.rtc_emulation" }, { RT_RTC_TIME, "settings.rtc_time" }, { RT_RTC_SYNC, "settings.rtc_sync_usb" }, { RT_RANGE, "settings.rtc_bump", &settings_rtc_bump_minutes, 0, 1440, 5 },
 };
 #define SETTINGS_ROW_N ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
 static bool otg_roms_available(void);
@@ -1084,9 +1085,9 @@ static bool settings_row_enabled(const SRow *r) {
  * LEFT/RIGHT (or A) collapses/expands their section — same interaction as the
  * SELECT picker's ">> Cores" / ">> EXTENSIONS". The visible-row list below
  * is rebuilt whenever a section flips. */
-static const char *settings_section_names[] = { "settings.appearance", "settings.general", "settings.library", "settings.gameplay", "settings.system", NULL };
-#define SETTINGS_SECTION_N 5
-static bool settings_section_open[SETTINGS_SECTION_N] = { true, true, true, true, false };
+static const char *settings_section_names[] = { "settings.appearance", "settings.general", "settings.library", "settings.gameplay", "settings.system", "settings.rtc_emulation", NULL };
+#define SETTINGS_SECTION_N 6
+static bool settings_section_open[SETTINGS_SECTION_N] = { true, true, true, true, false, false };
 
 /* Map a settings_rows[] header index -> section id (index into
  * settings_section_names), or -1 when the row is not a known header. */
@@ -1100,8 +1101,8 @@ static int settings_section_of(int i) {
 
 /* ---- Collapsed-state persistence (review feedback) -----------------------
  * Each category's collapsed/expanded state is stored in the regular
- * settings file as one compact line ("sections=01011", one digit per
- * section, 0=collapsed 1=expanded). Default when absent: all expanded.
+ * settings file as one compact line with one digit per section
+ * (0=collapsed, 1=expanded). Defaults are defined in settings_section_open.
  * Saved immediately when the user toggles a section, so the layout comes
  * back exactly as it was left across reboots and updates. */
 static void settings_sections_save(void) {
@@ -1117,10 +1118,10 @@ static void settings_sections_save(void) {
     buf[len] = '\0';
 
     char newline[32];
-    snprintf(newline, sizeof newline, "sections=%d%d%d%d%d",
+    snprintf(newline, sizeof newline, "sections=%d%d%d%d%d%d",
              settings_section_open[0] ? 1 : 0, settings_section_open[1] ? 1 : 0,
              settings_section_open[2] ? 1 : 0, settings_section_open[3] ? 1 : 0,
-             settings_section_open[4] ? 1 : 0);
+             settings_section_open[4] ? 1 : 0, settings_section_open[5] ? 1 : 0);
 
     FILE *out = fopen(SETTINGS_FILE, "w");
     if (!out) return;
@@ -1554,10 +1555,10 @@ static void settings_save_file(void) {
     fprintf(f, "load_recents=%s\n", onoff_names[settings_load_recents]);
     fprintf(f, "rom_source=%s\n", rom_source_names[settings_rom_source]);
     fprintf(f, "disable_sleep=%s\n", onoff_names[settings_disable_sleep]);
-    fprintf(f, "sections=%d%d%d%d%d\n",
+    fprintf(f, "sections=%d%d%d%d%d%d\n",
             settings_section_open[0] ? 1 : 0, settings_section_open[1] ? 1 : 0,
             settings_section_open[2] ? 1 : 0, settings_section_open[3] ? 1 : 0,
-            settings_section_open[4] ? 1 : 0);
+            settings_section_open[4] ? 1 : 0, settings_section_open[5] ? 1 : 0);
     fflush(f);
     fsync(fileno(f));
     fclose(f);
