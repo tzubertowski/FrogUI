@@ -1086,7 +1086,7 @@ static bool settings_row_enabled(const SRow *r) {
  * is rebuilt whenever a section flips. */
 static const char *settings_section_names[] = { "settings.appearance", "settings.general", "settings.library", "settings.gameplay", "settings.system", NULL };
 #define SETTINGS_SECTION_N 5
-static bool settings_section_open[SETTINGS_SECTION_N] = { true, true, true, true, true };
+static bool settings_section_open[SETTINGS_SECTION_N] = { true, true, true, true, false };
 
 /* Map a settings_rows[] header index -> section id (index into
  * settings_section_names), or -1 when the row is not a known header. */
