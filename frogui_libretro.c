@@ -762,6 +762,7 @@ int frogui_battery_pct(void) {
  * Two options: theme + font. */
 #define SETTINGS_DIR  "/mnt/sdcard/frogui"
 #define SETTINGS_FILE SETTINGS_DIR "/settings.txt"
+#define RTC_TIME_FILE SDCARD_BASE "/cubegm/time_save.txt"
 
 /* Fonts are discovered at runtime by scanning the font directories for
  * .ttf/.otf files. font_files[] holds the on-disk filename (persisted in
@@ -1027,11 +1028,16 @@ int frogui_battery_color_mode(void) { return settings_battery_color; }
 static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
 static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
+enum { RTC_YEAR, RTC_MONTH, RTC_DAY, RTC_HOUR, RTC_MINUTE, RTC_FIELD_COUNT };
+static bool settings_rtc_edit_active = false;
+static int settings_rtc_edit_field = RTC_YEAR;
+static struct tm settings_rtc_edit_time;
 enum { ROM_SOURCE_SD, ROM_SOURCE_OTG, ROM_SOURCE_COUNT };
 static int settings_rom_source = ROM_SOURCE_SD;
 static const char *rom_source_names[ROM_SOURCE_COUNT] = {"SD", "OTG"};
 static int settings_disable_sleep = 1;  /* live-patch cubevol to disable power sleep: 0=off, 1=on. zhijack reads this at boot; applies after restart. Default ON: R36SX/SF3500-class sleep isn't supported by TreeFrogUI, so ship with it disabled and point users at Quick Resume instead. */
 static int settings_volume = 100;       /* global output volume 0..100 → cubegm/sndgain.txt */
+static int settings_rtc_bump_minutes = 0;
 static const char *filter_names[] = {"nearest", "bilinear"};
 static const char *onoff_names[] = {"off", "on"};
 static const char *style_names[STYLE_COUNT] = {"Vertical", "Horizontal", "System View"};
@@ -1046,7 +1052,7 @@ static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system"
  * and FONT are special (dynamic option lists); ACTION opens the remap wizard. */
 typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_THEME, RT_STYLE, RT_FONT, RT_WALLPAPER,
                RT_WALLFIT, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
-               RT_CACHE_REBUILD, RT_ACTION, RT_LANGUAGE } SRowType;
+               RT_CACHE_REBUILD, RT_ACTION, RT_LANGUAGE, RT_RTC_TIME, RT_RTC_SYNC } SRowType;
 typedef struct {
     SRowType type;
     const char *label;
@@ -1059,7 +1065,7 @@ static const SRow settings_rows[] = {
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
-    { RT_HEADER, "settings.system" }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
+    { RT_HEADER, "settings.system" }, { RT_RTC_TIME, "settings.rtc_time" }, { RT_RTC_SYNC, "settings.rtc_sync_usb" }, { RT_RANGE, "settings.rtc_bump", &settings_rtc_bump_minutes, 0, 1440, 5 }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
 };
 #define SETTINGS_ROW_N ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
 static bool otg_roms_available(void);
@@ -1401,6 +1407,10 @@ static void settings_load_file(void) {
             settings_brightness = atoi(val);
         } else if (strcmp(line, "volume") == 0) {
             settings_volume = atoi(val);
+        } else if (strcmp(line, "rtc_bump_minutes") == 0) {
+            settings_rtc_bump_minutes = atoi(val);
+            if (settings_rtc_bump_minutes < 0) settings_rtc_bump_minutes = 0;
+            if (settings_rtc_bump_minutes > 1440) settings_rtc_bump_minutes = 1440;
         } else if (strcmp(line, "filter") == 0) {
             for (int i = 0; i < FILTER_COUNT; i++)
                 if (strcmp(filter_names[i], val) == 0) { settings_filter_idx = i; break; }
@@ -1523,6 +1533,7 @@ static void settings_save_file(void) {
             icon_pack_files[settings_icon_pack_idx] : "default");
     fprintf(f, "brightness=%d\n", settings_brightness);
     fprintf(f, "volume=%d\n", settings_volume);
+    fprintf(f, "rtc_bump_minutes=%d\n", settings_rtc_bump_minutes);
     fprintf(f, "filter=%s\n", filter_names[settings_filter_idx]);
     fprintf(f, "auto_resume=%s\n", onoff_names[settings_quick_resume]);
     fprintf(f, "autosave_autoload=%s\n", onoff_names[settings_autosave_autoload]);
@@ -3544,6 +3555,125 @@ static void handle_remap_wizard(void) {
     }
 }
 
+static int rtc_days_in_month(int year, int month) {
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12) return 31;
+    if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) return 29;
+    return days[month - 1];
+}
+
+static int rtc_parse_timestamp(const char *text, struct tm *out) {
+    int year, month, day, hour, minute, second;
+    char extra;
+    if (!text || strlen(text) != 19 ||
+        sscanf(text, "%4d-%2d-%2d %2d:%2d:%2d%c",
+               &year, &month, &day, &hour, &minute, &second, &extra) != 6 ||
+        year < 2000 || year > 2099 || month < 1 || month > 12 ||
+        day < 1 || day > rtc_days_in_month(year, month) ||
+        hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
+        second < 0 || second > 59)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    out->tm_year = year - 1900;
+    out->tm_mon = month - 1;
+    out->tm_mday = day;
+    out->tm_hour = hour;
+    out->tm_min = minute;
+    out->tm_sec = second;
+    out->tm_isdst = -1;
+    return 1;
+}
+
+static int rtc_apply_time(const struct tm *value) {
+    char timestamp[32], command[96];
+    if (!strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", value)) return 0;
+    /* timestamp is numeric and formatted above, so it is safe in this command. */
+    snprintf(command, sizeof(command), "date -s '%s' >/dev/null 2>&1", timestamp);
+    if (system(command) != 0) return 0;
+    FILE *f = fopen(RTC_TIME_FILE, "w");
+    if (!f) return 0;
+    int ok = fprintf(f, "%s\n", timestamp) > 0;
+    if (fclose(f) != 0) ok = 0;
+    sync();
+    return ok;
+}
+
+static void rtc_begin_edit(void) {
+    time_t now = time(NULL);
+    struct tm *current = localtime(&now);
+    if (current) settings_rtc_edit_time = *current;
+    else memset(&settings_rtc_edit_time, 0, sizeof(settings_rtc_edit_time));
+    if (settings_rtc_edit_time.tm_year + 1900 < 2000)
+        settings_rtc_edit_time.tm_year = 100;
+    if (settings_rtc_edit_time.tm_year + 1900 > 2099)
+        settings_rtc_edit_time.tm_year = 199;
+    if (settings_rtc_edit_time.tm_mon < 0 || settings_rtc_edit_time.tm_mon > 11)
+        settings_rtc_edit_time.tm_mon = 0;
+    if (settings_rtc_edit_time.tm_mday < 1 ||
+        settings_rtc_edit_time.tm_mday > rtc_days_in_month(settings_rtc_edit_time.tm_year + 1900,
+                                                           settings_rtc_edit_time.tm_mon + 1))
+        settings_rtc_edit_time.tm_mday = 1;
+    settings_rtc_edit_time.tm_sec = 0;
+    settings_rtc_edit_time.tm_isdst = -1;
+    settings_rtc_edit_field = RTC_YEAR;
+    settings_rtc_edit_active = true;
+}
+
+static void rtc_adjust_edit(int delta) {
+    struct tm *t = &settings_rtc_edit_time;
+    int year = t->tm_year + 1900;
+    switch (settings_rtc_edit_field) {
+    case RTC_YEAR:
+        year += delta;
+        if (year < 2000) year = 2000;
+        if (year > 2099) year = 2099;
+        t->tm_year = year - 1900;
+        if (t->tm_mday > rtc_days_in_month(year, t->tm_mon + 1))
+            t->tm_mday = rtc_days_in_month(year, t->tm_mon + 1);
+        break;
+    case RTC_MONTH:
+        t->tm_mon += delta;
+        if (t->tm_mon < 0) {
+            if (year > 2000) { t->tm_mon = 11; t->tm_year--; }
+            else t->tm_mon = 0;
+        } else if (t->tm_mon > 11) {
+            if (year < 2099) { t->tm_mon = 0; t->tm_year++; }
+            else t->tm_mon = 11;
+        }
+        if (t->tm_mday > rtc_days_in_month(t->tm_year + 1900, t->tm_mon + 1))
+            t->tm_mday = rtc_days_in_month(t->tm_year + 1900, t->tm_mon + 1);
+        break;
+    case RTC_DAY: {
+        int maxday = rtc_days_in_month(year, t->tm_mon + 1);
+        t->tm_mday += delta;
+        if (t->tm_mday < 1) t->tm_mday = maxday;
+        if (t->tm_mday > maxday) t->tm_mday = 1;
+        break;
+    }
+    case RTC_HOUR:
+        t->tm_hour = (t->tm_hour + delta + 24) % 24;
+        break;
+    case RTC_MINUTE:
+        t->tm_min = (t->tm_min + delta + 60) % 60;
+        break;
+    }
+}
+
+static void rtc_sync_from_usb(void) {
+    FILE *f = fopen("/media/hdd/time_save.txt", "r");
+    char text[64];
+    struct tm value;
+    if (!f) { ui_toast_show("No USB time_save.txt found"); return; }
+    if (!fgets(text, sizeof(text), f)) text[0] = '\0';
+    fclose(f);
+    text[strcspn(text, "\r\n")] = '\0';
+    if (!rtc_parse_timestamp(text, &value)) {
+        ui_toast_show("Invalid USB date/time");
+        return;
+    }
+    ui_toast_show(rtc_apply_time(&value) ? "Time synced from USB" : "Could not set clock");
+}
+
 static void handle_settings_menu(void) {
     extern const int theme_count;
     /* Settings used to use edge-only presses while the browser used the
@@ -3553,6 +3683,21 @@ static void handle_settings_menu(void) {
     bool down  = input_repeat(FROG_BTN_DOWN);
     bool left  = input_repeat(FROG_BTN_LEFT);
     bool right = input_repeat(FROG_BTN_RIGHT);
+
+    if (settings_rtc_edit_active) {
+        if (left) settings_rtc_edit_field = (settings_rtc_edit_field + RTC_FIELD_COUNT - 1) % RTC_FIELD_COUNT;
+        if (right) settings_rtc_edit_field = (settings_rtc_edit_field + 1) % RTC_FIELD_COUNT;
+        if (up) rtc_adjust_edit(1);
+        if (down) rtc_adjust_edit(-1);
+        if (input_was_pressed(FROG_BTN_A)) {
+            ui_toast_show(rtc_apply_time(&settings_rtc_edit_time)
+                          ? "Date and time saved" : "Could not set clock");
+            settings_rtc_edit_active = false;
+        } else if (input_was_pressed(FROG_BTN_B)) {
+            settings_rtc_edit_active = false;
+        }
+        return;
+    }
 
     settings_build_vis_rows();
     /* Keep the cursor on a visible row (rows hidden by a collapsed section
@@ -3663,6 +3808,17 @@ static void handle_settings_menu(void) {
         settings_menu_active = false;
         save_games_tab_entries();
         ui_toast_show("File cache rebuilt");
+        return;
+    }
+    if (input_was_pressed(FROG_BTN_A) &&
+        settings_rows[settings_menu_idx].type == RT_RTC_TIME) {
+        rtc_begin_edit();
+        ui_toast_show("Left/Right select; Up/Down adjust; A save; B cancel");
+        return;
+    }
+    if (input_was_pressed(FROG_BTN_A) &&
+        settings_rows[settings_menu_idx].type == RT_RTC_SYNC) {
+        rtc_sync_from_usb();
         return;
     }
     if (input_was_pressed(FROG_BTN_A) && settings_rows[settings_menu_idx].type == RT_ACTION) {
@@ -5100,10 +5256,40 @@ static void render_settings_menu(void) {
             snprintf(line, sizeof line, "%s: %s", tr(r->label),
                      tr(otg_roms_available() ? "value.connected" : "value.not_connected"));
             break;
+        case RT_RTC_TIME: {
+            struct tm clock_value;
+            if (settings_rtc_edit_active) clock_value = settings_rtc_edit_time;
+            else {
+                time_t now = time(NULL);
+                struct tm *current = localtime(&now);
+                if (current) clock_value = *current;
+                else memset(&clock_value, 0, sizeof(clock_value));
+            }
+            int fields[RTC_FIELD_COUNT] = {
+                clock_value.tm_year + 1900, clock_value.tm_mon + 1,
+                clock_value.tm_mday, clock_value.tm_hour, clock_value.tm_min
+            };
+            char parts[RTC_FIELD_COUNT][12];
+            for (int f = 0; f < RTC_FIELD_COUNT; f++) {
+                if (settings_rtc_edit_active && f == settings_rtc_edit_field) {
+                    if (f == RTC_YEAR) snprintf(parts[f], sizeof(parts[f]), "[%04d]", fields[f]);
+                    else snprintf(parts[f], sizeof(parts[f]), "[%02d]", fields[f]);
+                } else if (f == RTC_YEAR) snprintf(parts[f], sizeof(parts[f]), "%04d", fields[f]);
+                else snprintf(parts[f], sizeof(parts[f]), "%02d", fields[f]);
+            }
+            snprintf(line, sizeof line, "%s: %s-%s-%s %s:%s", tr(r->label),
+                     parts[RTC_YEAR], parts[RTC_MONTH], parts[RTC_DAY],
+                     parts[RTC_HOUR], parts[RTC_MINUTE]);
+            break;
+        }
         case RT_TOGGLE: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), tr(*r->val ? "value.on" : "value.off")); break;
         case RT_RANGE:
-            snprintf(line, sizeof line, r->val == &settings_font_size ? "%s: < %d px >" : "%s: < %d%% >",
-                     tr(r->label), *r->val);
+            if (r->val == &settings_font_size)
+                snprintf(line, sizeof line, "%s: < %d px >", tr(r->label), *r->val);
+            else if (r->val == &settings_rtc_bump_minutes)
+                snprintf(line, sizeof line, "%s: < %d min >", tr(r->label), *r->val);
+            else
+                snprintf(line, sizeof line, "%s: < %d%% >", tr(r->label), *r->val);
             break;
         default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
@@ -5645,6 +5831,16 @@ void retro_run(void) {
         sig = sig*33u + (unsigned)settings_menu_active;
         if (settings_menu_active) {
             sig = sig*33u + (unsigned)settings_menu_idx;
+            sig = sig*33u + (unsigned)(time(NULL) / 60);
+            sig = sig*33u + (unsigned)settings_rtc_edit_active;
+            if (settings_rtc_edit_active) {
+                sig = sig*33u + (unsigned)settings_rtc_edit_field;
+                sig = sig*33u + (unsigned)settings_rtc_edit_time.tm_year;
+                sig = sig*33u + (unsigned)settings_rtc_edit_time.tm_mon;
+                sig = sig*33u + (unsigned)settings_rtc_edit_time.tm_mday;
+                sig = sig*33u + (unsigned)settings_rtc_edit_time.tm_hour;
+                sig = sig*33u + (unsigned)settings_rtc_edit_time.tm_min;
+            }
             /* Collapsed/expanded section state: pressing A on a header changes
              * NO row value and NO cursor index ??? without these bits in the
              * signature the screen would wait for the next cursor move. */
