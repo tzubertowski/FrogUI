@@ -53,7 +53,7 @@
   "settings.quick_resume": "Ripresa rapida",
   "settings.autosave_autoload": "Salvataggio/Caricamento automatico",
   "settings.system": "SISTEMA",
-  "settings.rtc_emulation": "DATA/ORA (SIMULATA)",
+  "settings.rtc_emulation": "DATA/ORA (EMULAZIONE)",
   "settings.rtc_time": "Imposta data e ora",
   "settings.rtc_sync_usb": "Sincronizza ora da USB",
   "settings.rtc_bump": "Avanzamento a ogni riavvio (min)",

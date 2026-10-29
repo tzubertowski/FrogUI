@@ -53,7 +53,7 @@
   "settings.quick_resume": "استئناف سريع",
   "settings.autosave_autoload": "حفظ تلقائي / تحميل تلقائي",
   "settings.system": "النظام",
-  "settings.rtc_emulation": "التاريخ/الوقت (اصطناعي)",
+  "settings.rtc_emulation": "التاريخ/الوقت (محاكاة)",
   "settings.rtc_time": "ضبط التاريخ والوقت",
   "settings.rtc_sync_usb": "مزامنة الوقت من USB",
   "settings.rtc_bump": "تقديم الساعة عند كل إعادة تشغيل (دقيقة)",
