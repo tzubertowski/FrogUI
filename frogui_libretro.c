@@ -82,6 +82,8 @@ static bool port_migration_current_ok;
 #define LGPT_BIN     SDCARD_BASE "/cubegm/lgpt"
 #define ROCKBOX_BIN  SDCARD_BASE "/cubegm/rockbox.sh"  /* wrapper sets HOME+SDL env */
 #define EBOOK_BIN    SDCARD_BASE "/cubegm/ebook"        /* MuPDF ebook reader (epub/mobi/pdf) */
+#define FROGGYREADER_CORE CORES_PATH "/froggyreader_libretro.so"
+#define FROGGYREADER_LIBRARY SDCARD_BASE "/roms/epub/Library.epub"
 #define VIDEO_BIN    SDCARD_BASE "/cubegm/video_player" /* hardware-decoded video player */
 #define IMAGE_BIN    SDCARD_BASE "/cubegm/image_viewer" /* hardware-decoded image viewer */
 #define PPSSPP_BIN   SDCARD_BASE "/cubegm/ppsspp"       /* optional standalone SF3000 port */
@@ -188,6 +190,7 @@ static const ConsoleMapping console_mappings[] = {
     {"Quake",  CORES_PATH "/tyrquake_libretro.so"},
     {"quake2", CORES_PATH "/vitaquake2_libretro.so"},
     {"scummvm", CORES_PATH "/scummvm_libretro.so"},
+    {"epub", FROGGYREADER_CORE},                         /* EPUB-only alternative reader */
     {"outrun", CORES_PATH "/cannonball_libretro.so"},
     {"wolf3d", CORES_PATH "/ecwolf_libretro.so"},
     {"prboom", CORES_PATH "/prboom_libretro.so"},
@@ -2778,6 +2781,7 @@ static const AppEntry app_defs[] = {
     {"frogshell", "app.frogshell", "FrogShell", NULL, NULL, FROGSHELL_CORE},
     {"usbmode", "app.usb_mode", "USB mode", NULL, NULL, USB_MODE_BIN},
     {"ebook", "app.ebook_reader", "Ebook Reader", "Ebook", "ebooks", NULL},
+    {"froggyreader", NULL, "FroggyReader (EPUB)", "epub/books", NULL, NULL},
     {"images", "app.image_viewer", "Image Viewer", "images", "photos", NULL},
     {"videos", "app.videos", "Videos", "videos", "video", NULL},
     {"music", "app.music_mp3", "Music / MP3", "music", "audio", NULL},
@@ -2803,7 +2807,7 @@ static int is_app_folder_name(const char *name) {
                     !strcasecmp(name, "audio") || !strcasecmp(name, "videos") ||
                     !strcasecmp(name, "video") || !strcasecmp(name, "images") ||
                     !strcasecmp(name, "photos") || !strcasecmp(name, "ebook") ||
-                    !strcasecmp(name, "ebooks"));
+                    !strcasecmp(name, "ebooks") || !strcasecmp(name, "epub"));
 }
 
 static void scan_apps_tab(void) {
@@ -2848,7 +2852,9 @@ static void scan_apps_tab(void) {
 static const char *app_label(const char *key) {
     for (size_t i = 0; i < sizeof(app_defs) / sizeof(app_defs[0]); i++)
         if (strcasecmp(key, app_defs[i].key) == 0)
-            return tr_or(app_defs[i].label_key, app_defs[i].label_en);
+            return app_defs[i].label_key
+                 ? tr_or(app_defs[i].label_key, app_defs[i].label_en)
+                 : app_defs[i].label_en;
     return key;
 }
 
@@ -4633,6 +4639,8 @@ static void handle_input(void) {
                      * confirms the modal. */
                     usb_mode_prev_raw = input_get_raw_state();
                 }
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggyreader")) {
+                request_game_launch(FROGGYREADER_CORE, FROGGYREADER_LIBRARY);
             } else if (app_index >= 0 && app_defs[app_index].bin && access(app_defs[app_index].bin, X_OK) == 0) {
                 if (!strcmp(app_defs[app_index].bin, FROGSHELL_CORE))
                     request_game_launch(FROGSHELL_CORE, FROGSHELL_CORE);

@@ -134,6 +134,7 @@ static void apply_builtin_defaults(void) {
     ext_filter_add_builtin("duke3d", "sh");
     ext_filter_add_builtin("undertale", "sh");
     ext_filter_add_builtin("scummvm", "scummvm");
+    ext_filter_add_builtin("epub", "epub");
 }
 
 void ext_filter_load(void) {
@@ -169,6 +170,7 @@ void ext_filter_load(void) {
                 static const char *disc_exts[] = { "cue", "m3u", "pbp", "iso", "chd", "img", "mdf", NULL };
                 static const char *folders[]   = { "ps1", "psx", "PS", "ps1r", "qpsx", NULL };
                 int is_builtin = (strcasecmp(line, "scummvm") == 0 && strcmp(norm, "scummvm") == 0) ||
+                                 (strcasecmp(line, "epub") == 0 && strcmp(norm, "epub") == 0) ||
                                  (strcasecmp(line, "diablo") == 0 && strcmp(norm, "diablo") == 0) ||
                                  ((strcasecmp(norm, "sh") == 0) &&
                                   (strcasecmp(line, "diablo") == 0 ||
