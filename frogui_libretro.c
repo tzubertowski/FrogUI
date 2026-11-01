@@ -477,9 +477,12 @@ static long activity_runs[128];
 static time_t activity_last[128];
 static int activity_has_dates = 0;
 static int activity_count = 0;
-static char activity_marquee_key[MAX_PATH_LEN];
-static int activity_marquee_offset;
-static unsigned activity_marquee_tick;
+static char selected_marquee_key[MAX_PATH_LEN];
+static int selected_marquee_offset;
+static unsigned selected_marquee_tick;
+static char system_marquee_key[96];
+static int system_marquee_offset, system_marquee_direction = 1;
+static long long system_marquee_last_ms, system_marquee_pause_until_ms;
 static char apps_root_path[MAX_PATH_LEN] = "";
 static bool game_switcher_fullscreen = false;
 enum { MAIN_TAB_RECENTS, MAIN_TAB_GAMES, MAIN_TAB_APPS, MAIN_TAB_SETTINGS };
@@ -2660,11 +2663,11 @@ static int activity_title_width(void) {
     return bar_x - PADDING - UI_S(8);
 }
 
-static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
-                                int max_width, int selected) {
+static void draw_scrolling_text(uint16_t *fb, const char *text, int x, int y,
+                                int max_width, uint16_t color, int selected) {
     int full_width = font_measure_text(text);
     if (full_width <= max_width) {
-        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text, COLOR_TEXT);
+        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text, color);
         return;
     }
 
@@ -2680,19 +2683,19 @@ static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
             clipped[n - 2] = '.';
             clipped[n - 3] = '.';
         }
-        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, clipped, COLOR_TEXT);
+        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, clipped, color);
         return;
     }
 
-    if (strcmp(activity_marquee_key, text) != 0) {
-        snprintf(activity_marquee_key, sizeof activity_marquee_key, "%s", text);
-        activity_marquee_offset = 0;
-        activity_marquee_tick = 0;
+    if (strcmp(selected_marquee_key, text) != 0) {
+        snprintf(selected_marquee_key, sizeof selected_marquee_key, "%s", text);
+        selected_marquee_offset = 0;
+        selected_marquee_tick = 0;
     }
     char marquee[2 * 96 + 4];
     snprintf(marquee, sizeof marquee, "%s   %s", text, text);
     int cycle = (int)strlen(text) + 3;
-    int start = activity_marquee_offset % cycle;
+    int start = selected_marquee_offset % cycle;
     char window[96];
     int out = 0;
     for (int i = 0; out < (int)sizeof window - 1 && marquee[start + i]; i++) {
@@ -2703,11 +2706,16 @@ static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
             break;
         }
     }
-    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, window, COLOR_TEXT);
-    if (++activity_marquee_tick >= 6) {
-        activity_marquee_tick = 0;
-        activity_marquee_offset = (activity_marquee_offset + 1) % cycle;
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, window, color);
+    if (++selected_marquee_tick >= 6) {
+        selected_marquee_tick = 0;
+        selected_marquee_offset = (selected_marquee_offset + 1) % cycle;
     }
+}
+
+static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
+                                int max_width, int selected) {
+    draw_scrolling_text(fb, text, x, y, max_width, COLOR_TEXT, selected);
 }
 
 static void render_activity_page(uint16_t *fb) {
@@ -4040,6 +4048,75 @@ static void fit_system_label(const char *source, char *dest, size_t size, int ma
     }
 }
 
+static int split_system_label(const char *source, char *first, size_t first_size,
+                              char *second, size_t second_size, int max_width) {
+    snprintf(first, first_size, "%s", source);
+    second[0] = '\0';
+    if (font_measure_text(first) <= max_width) return 1;
+
+    const char *best = NULL;
+    int best_width_delta = SCREEN_WIDTH;
+    for (const char *space = strchr(source, ' '); space; space = strchr(space + 1, ' ')) {
+        char left[96], right[96];
+        size_t left_len = (size_t)(space - source);
+        snprintf(left, sizeof left, "%.*s", (int)left_len, source);
+        snprintf(right, sizeof right, "%s", space + 1);
+        int left_width = font_measure_text(left), right_width = font_measure_text(right);
+        if (left_width <= max_width && right_width <= max_width) {
+            int delta = left_width > right_width ? left_width - right_width : right_width - left_width;
+            if (delta < best_width_delta) {
+                best = space;
+                best_width_delta = delta;
+            }
+        }
+    }
+    if (!best) {
+        return 0;
+    }
+    snprintf(first, first_size, "%.*s", (int)(best - source), source);
+    snprintf(second, second_size, "%s", best + 1);
+    return 2;
+}
+
+static void draw_system_label_marquee(uint16_t *fb, const char *text, int x,
+                                      int y, int w, int h, uint16_t color) {
+    long long now = monotonic_ms();
+    if (strcmp(system_marquee_key, text) != 0) {
+        snprintf(system_marquee_key, sizeof system_marquee_key, "%s", text);
+        system_marquee_offset = 0;
+        system_marquee_direction = 1;
+        system_marquee_last_ms = now;
+        system_marquee_pause_until_ms = 0;
+    }
+    int max_offset = font_measure_text(text) - w;
+    font_draw_text_clipped(fb, SCREEN_WIDTH, SCREEN_HEIGHT,
+                           x - system_marquee_offset, y, text, color,
+                           x, y - UI_S(3), w, h);
+    if (now < system_marquee_pause_until_ms) return;
+
+    int step = (int)((now - system_marquee_last_ms) * 35 / 1000);
+    if (step <= 0) return;
+    system_marquee_last_ms += (long long)step * 1000 / 35;
+    system_marquee_offset += system_marquee_direction * step;
+    if (system_marquee_offset >= max_offset) {
+        system_marquee_offset = max_offset;
+        system_marquee_direction = -1;
+        system_marquee_pause_until_ms = now + 500;
+    } else if (system_marquee_offset <= 0) {
+        system_marquee_offset = 0;
+        system_marquee_direction = 1;
+        system_marquee_pause_until_ms = now + 500;
+    }
+}
+
+static int system_grid_marquee_active(void) {
+    if (!icon_system_view() || selected_index < 0 || selected_index >= entry_count)
+        return 0;
+    int cell_w = (SCREEN_WIDTH - PADDING * 2 - UI_S(8) * 3) / 4;
+    return font_measure_text(system_display_name(entries[selected_index].name)) >
+           cell_w - UI_S(12);
+}
+
 static void render_system_carousel(uint16_t *fb) {
     render_tabs(fb, MAIN_TAB_GAMES, COLOR_BG);
     if (entry_count <= 0) {
@@ -4317,10 +4394,20 @@ static void render_system_grid(uint16_t *fb) {
             render_rounded_rect(fb, x, y, cell_w, cell_h, UI_S(10), tile_bg);
 
         const char *shown = system_display_name(entries[idx].name);
-        char label[96];
-        fit_system_label(shown, label, sizeof label, cell_w - UI_S(12));
-        int label_w = font_measure_text(label);
+        char label[96], label_second[96];
+        int max_label_w = cell_w - UI_S(12);
+        int label_lines = active && font_measure_text(shown) > max_label_w
+                        ? 0
+                        : split_system_label(shown, label, sizeof label,
+                                             label_second, sizeof label_second,
+                                             max_label_w);
+        if (!active && label_lines == 0) {
+            fit_system_label(shown, label, sizeof label, max_label_w);
+            label_lines = 1;
+        }
+        int label_line_h = font_get_size() + 4;
         int label_y = y + cell_h - ITEM_HEIGHT + UI_S(5);
+        if (label_lines == 2) label_y -= label_line_h / 2;
         if (icon) {
             system_icon_draw(fb, icon, x + UI_S(12), y + UI_S(10),
                              cell_w - UI_S(24), cell_h - ITEM_HEIGHT - UI_S(8));
@@ -4336,9 +4423,25 @@ static void render_system_grid(uint16_t *fb) {
                            x + (cell_w - iw) / 2, y + cell_h / 2 - UI_S(8),
                            initials, active ? tile_text : COLOR_TEXT);
         }
-        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT,
-                       x + (cell_w - label_w) / 2, label_y, label,
-                       active ? tile_text : COLOR_TEXT);
+        int label_w = 0;
+        if (label_lines == 0) {
+            int clip_x = x + UI_S(6);
+            int clip_w = cell_w - UI_S(12);
+            int clip_h = ITEM_HEIGHT - UI_S(5);
+            draw_system_label_marquee(fb, shown, clip_x, label_y, clip_w,
+                                      clip_h, active ? tile_text : COLOR_TEXT);
+        } else {
+            label_w = font_measure_text(label);
+            font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT,
+                           x + (cell_w - label_w) / 2, label_y, label,
+                           active ? tile_text : COLOR_TEXT);
+        }
+        if (label_lines == 2) {
+            label_w = font_measure_text(label_second);
+            font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT,
+                           x + (cell_w - label_w) / 2, label_y + label_line_h,
+                           label_second, active ? tile_text : COLOR_TEXT);
+        }
     }
 
     char count[32];
@@ -5890,7 +5993,7 @@ void retro_run(void) {
         redraw = first || sig != last_sig || banner_is_animating() ||
                  system_carousel_is_animating() ||
                  pill_animation_active(&menu_pill_animation) ||
-                 activity_marquee_active() ||
+                 activity_marquee_active() || system_grid_marquee_active() ||
                  view_transition_frame <= VIEW_TRANSITION_FRAMES ||
                  ui_toast_frames > 0 || usb_mode_confirm_active || usb_mode_initiated_active;
         last_sig = sig; first = 0;

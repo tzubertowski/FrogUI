@@ -422,7 +422,9 @@ static inline FontFace *get_face_for_codepoint(uint32_t cp, int *out_font_id) {
 static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                                   int screen_height, int x, int y,
                                   const char *text, uint16_t color, int is_bold,
-                                  int measure_only, int *out_width) {
+                                  int clip_x, int clip_y, int clip_width,
+                                  int clip_height, int measure_only,
+                                  int *out_width) {
   if (!text || !*text) {
     if (out_width)
       *out_width = 0;
@@ -535,7 +537,8 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
 
                       for (int row = 0; row < cg->rows; row++) {
                         int py = draw_y + row;
-                        if (py < 0 || py >= screen_height)
+                        if (py < clip_y || py >= clip_y + clip_height ||
+                            py < 0 || py >= screen_height)
                           continue;
 
                         uint16_t *line_dst = &framebuffer[py * screen_width];
@@ -545,7 +548,8 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                           uint8_t alpha = src_ptr[col];
                           if (alpha > 0) {
                             int px = draw_x + col;
-                            if (px >= 0 && px < screen_width) {
+                            if (px >= clip_x && px < clip_x + clip_width &&
+                                px >= 0 && px < screen_width) {
                               font_blend_pixel(&line_dst[px], color, alpha);
                             }
                           }
@@ -590,12 +594,22 @@ void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
                     int x, int y, const char *text, uint16_t color,
                     ...) {
   shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
-                        color, 0, 0, NULL);
+                        color, 0, 0, 0, screen_width, screen_height, 0, NULL);
+}
+
+void font_draw_text_clipped(uint16_t *framebuffer, int screen_width,
+                            int screen_height, int x, int y, const char *text,
+                            uint16_t color, int clip_x, int clip_y,
+                            int clip_width, int clip_height) {
+  shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
+                        color, 0, clip_x, clip_y, clip_width, clip_height, 0,
+                        NULL);
 }
 
 int font_measure_text(const char *text, ...) {
   int width = 0;
-  shape_and_render_text(NULL, 0, 0, 0, 0, text, 0, 0, 1, &width);
+  shape_and_render_text(NULL, 0, 0, 0, 0, text, 0, 0, 0, 0, 0, 0, 1,
+                        &width);
   return width;
 }
 

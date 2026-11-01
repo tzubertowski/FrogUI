@@ -29,6 +29,10 @@ void font_sync_language_fallback(void);
 void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
                     int x, int y, const char *text, uint16_t color,
                     ...);
+void font_draw_text_clipped(uint16_t *framebuffer, int screen_width,
+                            int screen_height, int x, int y, const char *text,
+                            uint16_t color, int clip_x, int clip_y,
+                            int clip_width, int clip_height);
 
 // Measure text width in pixels. An optional bold argument is accepted for
 // compatibility with newer renderers.
