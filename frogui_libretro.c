@@ -3416,10 +3416,10 @@ static void picker_cursor_to(int type) {
 static void handle_core_picker(void) {
     picker_rows_build();
     int total = picker_rows_n;
-    if (input_was_pressed(FROG_BTN_UP)) {
+    if (input_repeat(FROG_BTN_UP)) {
         core_picker_idx = (core_picker_idx - 1 + total) % total;
     }
-    if (input_was_pressed(FROG_BTN_DOWN)) {
+    if (input_repeat(FROG_BTN_DOWN)) {
         core_picker_idx = (core_picker_idx + 1) % total;
     }
     if (input_was_pressed(FROG_BTN_LEFT)) {
@@ -3875,6 +3875,13 @@ static int menu_row_y(int index, int offset) {
     if (row < 0) row = 0;
     if (row >= VISIBLE_ENTRIES) row = VISIBLE_ENTRIES - 1;
     return START_Y + row * ITEM_HEIGHT;
+}
+
+static int core_picker_row_y(int index, int offset) {
+    int row = index - offset;
+    if (row < 0) row = 0;
+    if (row >= PICKER_ROWS) row = PICKER_ROWS - 1;
+    return START_Y + ITEM_HEIGHT + row * ITEM_HEIGHT;
 }
 
 static int menu_pill_draw_y(void) {
@@ -5342,7 +5349,7 @@ static void render_remap_wizard(void) {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, tr("remap.skip"), COLOR_TEXT);
 }
 
-static void render_core_picker(void) {
+static void render_core_picker(int selected_pill_y) {
     if (banner_is_loaded())
         banner_render(framebuffer);
     else
@@ -5406,12 +5413,12 @@ static void render_core_picker(void) {
         if (r->type == PR_CORE_HDR || r->type == PR_EXT_HDR) {
             /* headers: accent color; pillbox when the cursor is on them */
             if (idx == core_picker_idx)
-                render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+                render_menu_row(framebuffer, line, 0, 1, 0, ry, selected_pill_y);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, ry,
                                line, COLOR_SELECT_BG);
         } else if (idx == core_picker_idx) {
-                render_text_pillbox(framebuffer, PADDING, ry, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+            render_menu_row(framebuffer, line, 0, 1, 0, ry, selected_pill_y);
         } else {
             font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, ry, line, COLOR_TEXT);
         }
@@ -5620,6 +5627,9 @@ void retro_run(void) {
     int old_scroll = scroll_offset;
     int old_settings_row = settings_menu_idx;
     bool old_settings_active = settings_menu_active;
+    bool old_core_picker_active = core_picker_active;
+    int old_core_picker_idx = core_picker_idx;
+    int old_core_picker_scroll = core_picker_scroll;
     bool old_recents = viewing_recents, old_favourites = viewing_favourites;
     bool old_apps = viewing_apps, old_activity = viewing_activity;
     bool old_search = viewing_search;
@@ -5629,6 +5639,7 @@ void retro_run(void) {
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
     bool same_menu = old_settings_active == settings_menu_active &&
+                     old_core_picker_active == core_picker_active &&
                      old_recents == viewing_recents &&
                      old_favourites == viewing_favourites &&
                      old_apps == viewing_apps && old_activity == viewing_activity &&
@@ -5638,14 +5649,19 @@ void retro_run(void) {
         pill_animation_reset(&menu_pill_animation, 0);
         menu_pill_initialized = false;
     } else {
-        int target_y = menu_row_y(selected_index, scroll_offset);
+        int target_y = core_picker_active
+                     ? core_picker_row_y(core_picker_idx, core_picker_scroll)
+                     : menu_row_y(selected_index, scroll_offset);
         if (!menu_pill_initialized || !old_pill_view || !same_menu) {
             pill_animation_reset(&menu_pill_animation, target_y);
             menu_pill_initialized = true;
-        } else if (old_selected != selected_index || old_scroll != scroll_offset) {
+        } else if (old_selected != selected_index || old_scroll != scroll_offset ||
+                   old_core_picker_idx != core_picker_idx ||
+                   old_core_picker_scroll != core_picker_scroll) {
             bool catching_up = pill_animation_active(&menu_pill_animation);
-            int from_y = catching_up
-                       ? menu_pill_animation.current_y
+            int from_y = catching_up ? menu_pill_animation.current_y
+                       : old_core_picker_active
+                       ? core_picker_row_y(old_core_picker_idx, old_core_picker_scroll)
                        : menu_row_y(old_selected, old_scroll);
             pill_animation_start(&menu_pill_animation, from_y, target_y,
                                  settings_anim ? (catching_up ? 1 : MENU_PILL_FRAMES) : 0);
@@ -5905,7 +5921,7 @@ void retro_run(void) {
     } else if (extf_kbd_active) {
         render_extf_kbd();
     } else if (core_picker_active) {
-        render_core_picker();
+        render_core_picker(selected_pill_y);
     } else if (remap_wizard_active) {
         render_remap_wizard();
     } else if (settings_menu_active) {
