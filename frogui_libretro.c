@@ -116,12 +116,11 @@ static const ConsoleMapping console_mappings[] = {
     {"openbor", OPENBOR_CORE},
     {"diablo", DIABLO_BIN},
     /* NES */
-    {"nes",    CORES_PATH "/fceumm_libretro.so"},
+    {"nes",    CORES_PATH "/quicknes_libretro.so"},
     {"nesq",   CORES_PATH "/quicknes_libretro.so"},
     {"nest",   CORES_PATH "/nestopia_libretro.so"},
     {"FC",     CORES_PATH "/fceumm_libretro.so"},
     {"fds",    CORES_PATH "/fceumm_libretro.so"},   /* Famicom Disk System (needs disksys.rom BIOS) */
-    {"NES",    CORES_PATH "/quicknes_libretro.so"},
     /* SNES */
     {"snes",   CORES_PATH "/snes9x2005_plus_libretro.so"},
     {"snes02", CORES_PATH "/snes9x2002_libretro.so"},
@@ -278,7 +277,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".openclaw", CLAW_CORE},
     {".duke3d", DUKE3D_CORE},
     {".butterscotch", BUTTERSCOTCH_CORE},
-    {".nes",  CORES_PATH "/fceumm_libretro.so"},
+    {".nes",  CORES_PATH "/quicknes_libretro.so"},
     {".fds",  CORES_PATH "/fceumm_libretro.so"},
     {".unf",  CORES_PATH "/fceumm_libretro.so"},
     {".sfc",  CORES_PATH "/snes9x2005_plus_libretro.so"},
