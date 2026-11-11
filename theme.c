@@ -531,7 +531,7 @@ const Theme themes[] = {
         .legend = RGB565(255, 255, 255),
         .legend_bg = RGB565(0, 0, 0),
         .disabled = RGB565(88, 91, 112)
-    }
+    },
 };
 
 const int theme_count = sizeof(themes) / sizeof(themes[0]);

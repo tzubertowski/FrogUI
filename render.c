@@ -1,4 +1,5 @@
 #include "render.h"
+#include "frogui_settings.h"
 #include "common/i18n.h"
 #include "font.h"
 #include "stb_image.h" /* decls only; impl lives in banner.c */
@@ -153,8 +154,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
   int color_mode = frogui_battery_color_mode();
 
   /* NextUI-style: rounded body + a little terminal nub, fill proportional. */
-  int bw = UI_S(26), bh = UI_S(13); /* body */
-  int nub_w = UI_S(3), nub_h = bh / 2;
+  int compact = frogui_prominimal_style_active();
+  int bw = UI_S(compact ? 18 : 26), bh = UI_S(compact ? 10 : 13); /* body */
+  int nub_w = UI_S(compact ? 2 : 3), nub_h = bh / 2;
   int pad = UI_S(2);
   int x = SCREEN_WIDTH - PADDING - bw - nub_w;
   int y = 10; /* header baseline area */
@@ -162,7 +164,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
   uint16_t outline = accent_color;
   uint16_t green = 0x2FE6; /* charging fill */
   uint16_t fillcol;
-  if (color_mode)
+  if (compact)
+    fillcol = outline;
+  else if (color_mode)
     fillcol = charging      ? green
               : (pct >= 70) ? green
               : (pct >= 30) ? 0x041F
@@ -189,9 +193,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
     render_fill_rect(framebuffer, x + pad, y + pad, fw, bh - 2 * pad, fillcol);
 
   /* Charging bolt: a small lightning glyph centered on the body. */
-  if (charging) {
+  if (charging && !compact) {
     int cx = x + bw / 2, cy = y + bh / 2;
-    uint16_t bolt = 0xFFFF;
+    uint16_t bolt = compact ? outline : 0xFFFF;
     int s = UI_S(1);
     if (s < 1)
       s = 1;
@@ -230,6 +234,7 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
   static const char *keys[] = {"tab.recents", "tab.games", "tab.apps",
                                "tab.settings"};
   extern int frogui_battery_pct(void);
+  extern int frogui_apps_in_settings_get(void);
   if (!framebuffer)
     return;
 
@@ -237,8 +242,13 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
   int y = UI_S(5);
   int h = ITEM_HEIGHT - UI_S(5);
   int gap = UI_S(8);
+  int compact = frogui_prominimal_style_active();
+  if (frogui_apps_in_settings_get() && active == 2)
+    active = 3;
   for (int i = 0; i < 4; i++) {
-    int pad = UI_S(7);
+    if (i == 2 && frogui_apps_in_settings_get())
+      continue;
+    int pad = UI_S(compact ? 5 : 7);
     const char *label = tr(keys[i]);
     int tw = font_measure_text(label, 1);
     int w = tw + pad * 2;
@@ -271,8 +281,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     const char *nav = tr("legend.enter_back");
     int w = font_measure_text(nav, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                        COLOR_LEGEND_BG);
+    if (frogui_pillboxes_get())
+      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
+                          COLOR_LEGEND_BG);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -283,8 +294,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
                                                          : "legend.favourite");
     int w = font_measure_text(xl, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                        COLOR_LEGEND_BG);
+    if (frogui_pillboxes_get())
+      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
+                          COLOR_LEGEND_BG);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -294,8 +306,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     const char *sl = tr("legend.options");
     int w = font_measure_text(sl, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                        COLOR_LEGEND_BG);
+    if (frogui_pillboxes_get())
+      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
+                          COLOR_LEGEND_BG);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -305,8 +318,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     const char *xs = tr("legend.search");
     int w = font_measure_text(xs, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                        COLOR_LEGEND_BG);
+    if (frogui_pillboxes_get())
+      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
+                          COLOR_LEGEND_BG);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
                    COLOR_LEGEND, 1);
   }
@@ -349,7 +363,9 @@ void render_toast(uint16_t *framebuffer, const char *text) {
   int h = ITEM_HEIGHT - UI_S(3);
   int x = (SCREEN_WIDTH - w) / 2;
   int y = SCREEN_HEIGHT - ITEM_HEIGHT * 2 - UI_S(8);
-  render_rounded_rect(framebuffer, x, y, w, h, UI_S(8), COLOR_SELECT_BG);
+  int pillboxes = frogui_pillboxes_get();
+  if (pillboxes)
+    render_rounded_rect(framebuffer, x, y, w, h, UI_S(8), COLOR_SELECT_BG);
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
   int ty = y + h / 2 - (baseline - cap_h / 2);
@@ -357,17 +373,20 @@ void render_toast(uint16_t *framebuffer, const char *text) {
   if (tx < x + UI_S(4))
     tx = x + UI_S(4);
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, tx, ty, text,
-                 COLOR_SELECT_TEXT, 1);
+                 pillboxes ? COLOR_SELECT_TEXT : COLOR_HEADER, 1);
 }
 
 static void render_text_pillbox_moving(uint16_t *framebuffer, int x, int text_y,
                                        int pill_y, const char *text) {
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
-  int width = font_measure_text(text, 0) + 14;
-  int height = cap_h + 14;
-  render_rounded_rect(framebuffer, x - 7, pill_y + (baseline - cap_h) - 7,
-                      width, height, 6, COLOR_SELECT_BG);
+  int pad = frogui_prominimal_style_active() ? UI_S(5) : 7;
+  int width = font_measure_text(text, 0) + 2 * pad;
+  int height = cap_h + 2 * pad;
+  render_rounded_rect(framebuffer, x - pad,
+                      pill_y + (baseline - cap_h) - pad,
+                      width, height, frogui_prominimal_style_active() ? UI_S(5) : 6,
+                      COLOR_SELECT_BG);
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, text,
                  COLOR_SELECT_TEXT, 0);
 }

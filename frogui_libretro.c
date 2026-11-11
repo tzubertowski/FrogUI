@@ -32,6 +32,8 @@
 #include "render.h"
 #include "common/pill_animation.h"
 #include "theme.h"
+#include "frogui_settings.h"
+#include "theme_profile.h"
 #include "recent_games.h"
 #include "favorites.h"
 #include "settings.h"
@@ -469,6 +471,7 @@ static bool shutdown_requested = false;
 static bool viewing_recents = false;
 static bool viewing_favourites = false;
 static bool viewing_apps = false;
+static bool settings_apps_origin = false;
 static bool apps_browsing = false;
 static bool viewing_activity = false;
 static char activity_paths[128][MAX_PATH_LEN];
@@ -965,7 +968,7 @@ static void font_scan(void) {
         strncpy(font_files[j + 1], key, FONT_STR_MAX);
     }
     for (int i = 0; i < font_count; i++) {
-        if (strcasecmp(font_files[i], "alium_Nunito.ttf") == 0) {
+        if (strcasecmp(font_files[i], "GamePocket-Regular-ZeroKern.ttf") == 0) {
             settings_font_idx = i;
             break;
         }
@@ -1002,8 +1005,13 @@ static int settings_custom_aspect_ratios = 0; /* expose forced aspect-ratio choi
 static int settings_autosave_autoload = 1; /* auto-save on pause/quit + auto-load on any game launch (boot or manual pick): 0=off, 1=on */
 static int settings_anim = 1;           /* UI animations: 0=off, 1=on */
 static int settings_menu_sounds = 0;    /* short navigation tick: 0=off, 1=on */
-enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_COUNT };
+enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_PROMINIMAL, STYLE_COUNT };
 static int settings_style = STYLE_VERTICAL;
+enum { SETTINGS_LAYOUT_SECTIONS, SETTINGS_LAYOUT_FOLDER };
+static int settings_layout = SETTINGS_LAYOUT_SECTIONS;
+/* Controls decorative pills; renderers must keep selected-row pills visible. */
+static int settings_pillboxes = 1;
+static int settings_folder_section = -1;
 static int settings_center_text = 0;   /* center labels in the vertical system list */
 static int settings_friendly_names = 1; /* expand system folder codes in either style */
 static int settings_hide_empty = 1;     /* hide rom folders with no games: 0=off, 1=on */
@@ -1013,7 +1021,27 @@ static int settings_background_dim = 15; /* darken background artwork: 0=unchang
 static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
 static int settings_stock_battery = 1;   /* cubevol's original fb1 indicator */
+static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
+static int settings_apps_in_settings = 0;
+static int settings_rounded_screenshots = 0;
 static int settings_language;
+typedef struct {
+    unsigned mask;
+    int quick_resume, autosave_autoload, layout, pillboxes;
+    int backgrounds, game_switcher, apps_in_settings, rounded_screenshots, stock_battery;
+    int battery_color, font_size;
+    char font[FONT_STR_MAX];
+} SettingsOverrides;
+enum {
+    OV_QUICK_RESUME = 1u << 0, OV_AUTOSAVE = 1u << 1,
+    OV_LAYOUT = 1u << 2, OV_PILLBOXES = 1u << 3,
+    OV_BACKGROUNDS = 1u << 4, OV_GAME_SWITCHER = 1u << 5,
+    OV_ROUNDED_SHOTS = 1u << 6, OV_STOCK_BATTERY = 1u << 7,
+    OV_BATTERY_COLOR = 1u << 8, OV_FONT = 1u << 9,
+    OV_FONT_SIZE = 1u << 10, OV_APPS_IN_SETTINGS = 1u << 11
+};
+static SettingsOverrides settings_overrides;
+static int settings_override_meta_loaded;
 
 static void theme_sync_artwork_pack(void) {
     const char *wanted = NULL;
@@ -1032,7 +1060,6 @@ static void theme_sync_artwork_pack(void) {
 
 int frogui_battery_color_mode(void) { return settings_battery_color; }
 static int frogui_stock_battery_indicator(void) { return settings_stock_battery; }
-static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
 static int settings_load_recents = 0;   /* start FrogUI in the recents view: 0=off, 1=on */
 enum { RTC_YEAR, RTC_MONTH, RTC_DAY, RTC_HOUR, RTC_MINUTE, RTC_FIELD_COUNT };
 static bool settings_rtc_edit_active = false;
@@ -1046,8 +1073,10 @@ static int settings_volume = 100;       /* global output volume 0..100 → cubeg
 static int settings_rtc_bump_minutes = 0;
 static const char *filter_names[] = {"nearest", "bilinear"};
 static const char *onoff_names[] = {"off", "on"};
-static const char *style_names[STYLE_COUNT] = {"Vertical", "Horizontal", "System View"};
-static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system"};
+static const char *style_names[STYLE_COUNT] = {"Vertical", "Horizontal", "System View", "ProMinimal"};
+static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system", "prominimal"};
+static const char *settings_layout_names[] = {"Sections", "Folders"};
+static const char *settings_layout_keys[] = {"sections", "folder"};
 #define FILTER_COUNT 2
 #define SETTINGS_BRIGHTNESS_STEP 5
 /* Filter option removed from the menu — always bilinear (HW path). */
@@ -1056,9 +1085,9 @@ static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system"
  * options. Adding, reordering, or grouping = just editing this table; the nav,
  * adjust, and render code all iterate it. TOGGLE/RANGE point at their int; THEME
  * and FONT are special (dynamic option lists); ACTION opens the remap wizard. */
-typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_THEME, RT_STYLE, RT_FONT, RT_WALLPAPER,
+typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_THEME, RT_STYLE, RT_SETTINGS_LAYOUT, RT_FONT, RT_WALLPAPER,
                RT_WALLFIT, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
-               RT_CACHE_REBUILD, RT_ACTION, RT_LANGUAGE, RT_RTC_TIME, RT_RTC_SYNC } SRowType;
+               RT_CACHE_REBUILD, RT_ACTION, RT_OPEN_APPS, RT_LANGUAGE, RT_RTC_TIME, RT_RTC_SYNC } SRowType;
 typedef struct {
     SRowType type;
     const char *label;
@@ -1067,9 +1096,9 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_SETTINGS_LAYOUT, "Settings style" }, { RT_TOGGLE, "Decorative pills", &settings_pillboxes }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
-    { RT_HEADER, "settings.library" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
+    { RT_HEADER, "settings.library" }, { RT_TOGGLE, "Apps in Settings", &settings_apps_in_settings }, { RT_OPEN_APPS, "Open Apps" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "Rounded recents screenshots", &settings_rounded_screenshots }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
     { RT_HEADER, "settings.rtc_emulation" }, { RT_RTC_TIME, "settings.rtc_time" }, { RT_RTC_SYNC, "settings.rtc_sync_usb" }, { RT_RANGE, "settings.rtc_bump", &settings_rtc_bump_minutes, 0, 1440, 5 },
     { RT_HEADER, "settings.system" }, { RT_RANGE, "settings.volume", &settings_volume, 0, 100, 5 }, { RT_TOGGLE, "settings.file_cache", &settings_file_cache }, { RT_CACHE_REBUILD, "settings.rebuild_file_cache" }, { RT_TOGGLE, "settings.disable_sleep", &settings_disable_sleep }, { RT_ACTION, "settings.button_mapping" }, { RT_INFO, "settings.version" },
@@ -1103,6 +1132,126 @@ static int settings_section_of(int i) {
         if (strcmp(settings_rows[i].label, settings_section_names[s]) == 0)
             return s;
     return -1;
+}
+
+const char *frogui_settings_layout_get(void) {
+    return settings_layout_keys[settings_layout];
+}
+
+void frogui_settings_layout_set(const char *value) {
+    if (!value) return;
+    for (int i = 0; i < 2; i++)
+        if (strcasecmp(value, settings_layout_keys[i]) == 0) {
+            settings_layout = i;
+            settings_folder_section = -1;
+            if (settings_menu_active) settings_menu_idx = 0;
+            return;
+        }
+}
+
+int frogui_pillboxes_get(void) { return settings_pillboxes; }
+void frogui_pillboxes_set(int enabled) { settings_pillboxes = enabled != 0; }
+int frogui_prominimal_style_active(void) { return settings_style == STYLE_PROMINIMAL; }
+int frogui_apps_in_settings_get(void) { return settings_apps_in_settings; }
+
+static void settings_apply_style_defaults(void) {
+    ThemeProfile profile;
+    memset(&profile, 0, sizeof profile);
+    theme_profile_load(style_names[settings_style], &profile);
+    int ignore = profile.has_ignore_overrides && profile.ignore_overrides;
+#define APPLY_STYLE_VALUE(target, bit, field, present, value, fallback) \
+    do { \
+        if (!ignore && (settings_overrides.mask & (bit))) target = settings_overrides.field; \
+        else target = (present) ? (value) : (fallback); \
+    } while (0)
+    APPLY_STYLE_VALUE(settings_quick_resume, OV_QUICK_RESUME, quick_resume,
+                      profile.has_quick_resume, profile.quick_resume, 0);
+    APPLY_STYLE_VALUE(settings_autosave_autoload, OV_AUTOSAVE, autosave_autoload,
+                      profile.has_autosave_autoload, profile.autosave_autoload, 1);
+    int old_layout = settings_layout;
+    int layout = SETTINGS_LAYOUT_SECTIONS;
+    if (!ignore && (settings_overrides.mask & OV_LAYOUT))
+        layout = settings_overrides.layout;
+    else if (profile.has_settings_layout &&
+             strcmp(profile.settings_layout, "folder") == 0)
+        layout = SETTINGS_LAYOUT_FOLDER;
+    settings_layout = layout;
+    if (old_layout != settings_layout) settings_folder_section = -1;
+    APPLY_STYLE_VALUE(settings_pillboxes, OV_PILLBOXES, pillboxes,
+                      profile.has_pillboxes, profile.pillboxes, 1);
+    int old_backgrounds = settings_backgrounds;
+    APPLY_STYLE_VALUE(settings_backgrounds, OV_BACKGROUNDS, backgrounds,
+                      profile.has_background_images, profile.background_images, 1);
+    if (old_backgrounds && !settings_backgrounds) banner_clear();
+    APPLY_STYLE_VALUE(settings_game_switcher, OV_GAME_SWITCHER, game_switcher,
+                      profile.has_game_switcher, profile.game_switcher, 1);
+    APPLY_STYLE_VALUE(settings_apps_in_settings, OV_APPS_IN_SETTINGS, apps_in_settings,
+                      profile.has_apps_in_settings, profile.apps_in_settings, 0);
+    APPLY_STYLE_VALUE(settings_rounded_screenshots, OV_ROUNDED_SHOTS, rounded_screenshots,
+                      profile.has_rounded_screenshots, profile.rounded_screenshots, 0);
+    APPLY_STYLE_VALUE(settings_stock_battery, OV_STOCK_BATTERY, stock_battery,
+                      profile.has_stock_battery, profile.stock_battery, 1);
+    APPLY_STYLE_VALUE(settings_battery_color, OV_BATTERY_COLOR, battery_color,
+                      profile.has_battery_color, profile.battery_color, 0);
+    APPLY_STYLE_VALUE(settings_font_size, OV_FONT_SIZE, font_size,
+                      profile.has_font_size, profile.font_size, 23);
+    const char *font = "GamePocket-Regular-ZeroKern.ttf";
+    if (!ignore && (settings_overrides.mask & OV_FONT)) font = settings_overrides.font;
+    else if (profile.has_font) font = profile.font;
+    for (int i = 0; i < font_count; i++) {
+        if (strcasecmp(font_files[i], font) == 0) {
+            settings_font_idx = i;
+            font_load_file(font_files[i]);
+            break;
+        }
+    }
+    font_set_size(settings_font_size);
+    font_sync_language_fallback();
+#undef APPLY_STYLE_VALUE
+}
+
+static void settings_record_override(const SRow *r) {
+    if (!r) return;
+    if (r->type == RT_SETTINGS_LAYOUT) {
+        settings_overrides.mask |= OV_LAYOUT;
+        settings_overrides.layout = settings_layout;
+    } else if (r->type == RT_FONT) {
+        settings_overrides.mask |= OV_FONT;
+        snprintf(settings_overrides.font, sizeof settings_overrides.font, "%s",
+                 font_count > 0 ? font_files[settings_font_idx] : "");
+    } else if (r->type == RT_RANGE && r->val == &settings_font_size) {
+        settings_overrides.mask |= OV_FONT_SIZE;
+        settings_overrides.font_size = settings_font_size;
+    } else if (r->type == RT_TOGGLE) {
+        if (r->val == &settings_quick_resume) {
+            settings_overrides.mask |= OV_QUICK_RESUME;
+            settings_overrides.quick_resume = settings_quick_resume;
+        } else if (r->val == &settings_autosave_autoload) {
+            settings_overrides.mask |= OV_AUTOSAVE;
+            settings_overrides.autosave_autoload = settings_autosave_autoload;
+        } else if (r->val == &settings_pillboxes) {
+            settings_overrides.mask |= OV_PILLBOXES;
+            settings_overrides.pillboxes = settings_pillboxes;
+        } else if (r->val == &settings_backgrounds) {
+            settings_overrides.mask |= OV_BACKGROUNDS;
+            settings_overrides.backgrounds = settings_backgrounds;
+        } else if (r->val == &settings_game_switcher) {
+            settings_overrides.mask |= OV_GAME_SWITCHER;
+            settings_overrides.game_switcher = settings_game_switcher;
+        } else if (r->val == &settings_apps_in_settings) {
+            settings_overrides.mask |= OV_APPS_IN_SETTINGS;
+            settings_overrides.apps_in_settings = settings_apps_in_settings;
+        } else if (r->val == &settings_rounded_screenshots) {
+            settings_overrides.mask |= OV_ROUNDED_SHOTS;
+            settings_overrides.rounded_screenshots = settings_rounded_screenshots;
+        } else if (r->val == &settings_stock_battery) {
+            settings_overrides.mask |= OV_STOCK_BATTERY;
+            settings_overrides.stock_battery = settings_stock_battery;
+        } else if (r->val == &settings_battery_color) {
+            settings_overrides.mask |= OV_BATTERY_COLOR;
+            settings_overrides.battery_color = settings_battery_color;
+        }
+    }
 }
 
 /* ---- Collapsed-state persistence (review feedback) -----------------------
@@ -1170,6 +1319,27 @@ static int settings_vis_n = 0;
 
 static void settings_build_vis_rows(void) {
     int n = 0;
+    if (settings_layout == SETTINGS_LAYOUT_FOLDER) {
+        if (settings_folder_section < 0) {
+            for (int i = 0; i < SETTINGS_ROW_N; i++)
+                if (settings_section_of(i) >= 0) settings_vis_rows[n++] = i;
+        } else {
+            int section = -1;
+            for (int i = 0; i < SETTINGS_ROW_N; i++) {
+                int current = settings_section_of(i);
+                if (current >= 0) {
+                    if (section == settings_folder_section) break;
+                    section = current;
+                    continue;
+                }
+                if (section == settings_folder_section &&
+                    (settings_rows[i].type != RT_OPEN_APPS || settings_apps_in_settings))
+                    settings_vis_rows[n++] = i;
+            }
+        }
+        settings_vis_n = n;
+        return;
+    }
     for (int i = 0; i < SETTINGS_ROW_N; i++) {
         int sec = settings_section_of(i);
         if (sec >= 0) {
@@ -1179,7 +1349,7 @@ static void settings_build_vis_rows(void) {
                 while (i + 1 < SETTINGS_ROW_N && settings_section_of(i + 1) < 0)
                     i++;
             }
-        } else {
+        } else if (settings_rows[i].type != RT_OPEN_APPS || settings_apps_in_settings) {
             settings_vis_rows[n++] = i;
         }
     }
@@ -1199,6 +1369,15 @@ static bool settings_row_visible(int i) {
      * nearest header above it; if that section is collapsed, the row is
      * hidden (headers themselves always stay visible). */
     if (i < 0 || i >= SETTINGS_ROW_N) return false;
+    if (settings_layout == SETTINGS_LAYOUT_FOLDER) {
+        if (settings_folder_section < 0) return settings_section_of(i) >= 0;
+        int section = -1;
+        for (int row = 0; row <= i; row++) {
+            int current = settings_section_of(row);
+            if (current >= 0) section = current;
+        }
+        return section == settings_folder_section && settings_section_of(i) < 0;
+    }
     if (settings_section_of(i) >= 0) return true;   /* header */
     for (int s = i - 1; s >= 0; s--) {
         int sec = settings_section_of(s);
@@ -1209,6 +1388,7 @@ static bool settings_row_visible(int i) {
 }
 static int settings_row_selectable(int i) {
     if (i < 0 || i >= SETTINGS_ROW_N) return 0;
+    if (settings_rows[i].type == RT_OPEN_APPS) return settings_apps_in_settings;
     if (settings_rows[i].type == RT_ROM_SOURCE) return otg_roms_available();
     /* Headers are selectable now (they collapse/expand sections). */
     if (settings_rows[i].type == RT_HEADER) {
@@ -1323,6 +1503,8 @@ static void settings_volume_commit_final(void) {
     volume_last_commit_ms = monotonic_ms();
 }
 
+static void settings_save_file(void);
+
 static void settings_preview_row(const SRow *r) {
     if (!r) return;
     switch (r->type) {
@@ -1330,6 +1512,22 @@ static void settings_preview_row(const SRow *r) {
         theme_apply(settings_theme_idx);
         theme_sync_artwork_pack();
         break;
+    case RT_STYLE:
+    {
+        int selected_row = settings_menu_idx;
+        int selected_section = -1;
+        for (int i = selected_row; i >= 0; i--) {
+            selected_section = settings_section_of(i);
+            if (selected_section >= 0) break;
+        }
+        settings_apply_style_defaults();
+        if (settings_layout == SETTINGS_LAYOUT_FOLDER && selected_section >= 0)
+            settings_folder_section = selected_section;
+        settings_menu_idx = selected_row;
+        settings_build_vis_rows();
+        settings_save_file();
+        break;
+    }
     case RT_FONT:
         if (font_count > 0)
             font_load_file(font_files[settings_font_idx]);
@@ -1356,11 +1554,17 @@ static void settings_preview_row(const SRow *r) {
     default:
         break;
     }
+    settings_record_override(r);
 }
 
 static void settings_load_file(void) {
+    settings_override_meta_loaded = 0;
+    settings_overrides.mask = 0;
     FILE *f = fopen(SETTINGS_FILE, "r");
-    if (!f) return;
+    if (!f) {
+        settings_apply_style_defaults();
+        return;
+    }
     char line[256];
     extern const int theme_count;
     extern const Theme themes[];
@@ -1428,6 +1632,10 @@ static void settings_load_file(void) {
         } else if (strcmp(line, "style") == 0) {
             for (int i = 0; i < STYLE_COUNT; i++)
                 if (strcasecmp(val, style_keys[i]) == 0) { settings_style = i; break; }
+        } else if (strcmp(line, "settings_layout") == 0) {
+            frogui_settings_layout_set(val);
+        } else if (strcmp(line, "pillboxes") == 0) {
+            settings_pillboxes = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "center_text") == 0) {
             settings_center_text = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "horizontal_layout") == 0) {
@@ -1466,6 +1674,38 @@ static void settings_load_file(void) {
             settings_disable_sleep = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "game_switcher") == 0) {
             settings_game_switcher = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "apps_in_settings") == 0) {
+            settings_apps_in_settings = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "rounded_screenshots") == 0) {
+            settings_rounded_screenshots = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "overrides_mask") == 0) {
+            settings_overrides.mask = (unsigned)strtoul(val, NULL, 0);
+            settings_override_meta_loaded = 1;
+        } else if (strcmp(line, "user_quick_resume") == 0) {
+            settings_overrides.quick_resume = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_autosave_autoload") == 0) {
+            settings_overrides.autosave_autoload = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_settings_layout") == 0) {
+            settings_overrides.layout = strcmp(val, "folder") == 0
+                                      ? SETTINGS_LAYOUT_FOLDER : SETTINGS_LAYOUT_SECTIONS;
+        } else if (strcmp(line, "user_pillboxes") == 0) {
+            settings_overrides.pillboxes = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_backgrounds") == 0) {
+            settings_overrides.backgrounds = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_game_switcher") == 0) {
+            settings_overrides.game_switcher = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_apps_in_settings") == 0) {
+            settings_overrides.apps_in_settings = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_rounded_screenshots") == 0) {
+            settings_overrides.rounded_screenshots = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_stock_battery") == 0) {
+            settings_overrides.stock_battery = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_battery_color") == 0) {
+            settings_overrides.battery_color = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_font_size") == 0) {
+            settings_overrides.font_size = atoi(val);
+        } else if (strcmp(line, "user_font") == 0) {
+            snprintf(settings_overrides.font, sizeof settings_overrides.font, "%s", val);
         } else if (strcmp(line, "load_recents") == 0) {
             settings_load_recents = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "rom_source") == 0) {
@@ -1474,6 +1714,51 @@ static void settings_load_file(void) {
         }
     }
     fclose(f);
+    if (!settings_override_meta_loaded) {
+        /* Old builds persisted ProMinimal defaults as if they were user edits.
+         * Migrate known profile values as defaults, and retain other changes. */
+        ThemeProfile pm = {0};
+        theme_profile_load("ProMinimal", &pm);
+#define MIGRATE_OVERRIDE(bit, field, current, base, has_pm, pm_value) \
+        do { \
+            if ((current) != (base) && !((has_pm) && (current) == (pm_value))) { \
+                settings_overrides.mask |= (bit); \
+                settings_overrides.field = (current); \
+            } \
+        } while (0)
+        MIGRATE_OVERRIDE(OV_QUICK_RESUME, quick_resume, settings_quick_resume, 0,
+                         pm.has_quick_resume, pm.quick_resume);
+        MIGRATE_OVERRIDE(OV_AUTOSAVE, autosave_autoload, settings_autosave_autoload, 1,
+                         pm.has_autosave_autoload, pm.autosave_autoload);
+        MIGRATE_OVERRIDE(OV_LAYOUT, layout, settings_layout, SETTINGS_LAYOUT_SECTIONS,
+                         pm.has_settings_layout && strcmp(pm.settings_layout, "folder") == 0,
+                         SETTINGS_LAYOUT_FOLDER);
+        MIGRATE_OVERRIDE(OV_PILLBOXES, pillboxes, settings_pillboxes, 1,
+                         pm.has_pillboxes, pm.pillboxes);
+        MIGRATE_OVERRIDE(OV_BACKGROUNDS, backgrounds, settings_backgrounds, 1,
+                         pm.has_background_images, pm.background_images);
+        MIGRATE_OVERRIDE(OV_GAME_SWITCHER, game_switcher, settings_game_switcher, 1,
+                         pm.has_game_switcher, pm.game_switcher);
+        MIGRATE_OVERRIDE(OV_ROUNDED_SHOTS, rounded_screenshots, settings_rounded_screenshots, 0,
+                         pm.has_rounded_screenshots, pm.rounded_screenshots);
+        MIGRATE_OVERRIDE(OV_STOCK_BATTERY, stock_battery, settings_stock_battery, 1,
+                         pm.has_stock_battery, pm.stock_battery);
+        MIGRATE_OVERRIDE(OV_BATTERY_COLOR, battery_color, settings_battery_color, 0,
+                         pm.has_battery_color, pm.battery_color);
+        MIGRATE_OVERRIDE(OV_FONT_SIZE, font_size, settings_font_size, 23,
+                         pm.has_font_size, pm.font_size);
+        int current_font_is_pm = pm.has_font && font_count > 0 &&
+                                 strcasecmp(font_files[settings_font_idx], pm.font) == 0;
+        if (font_count > 0 &&
+            strcasecmp(font_files[settings_font_idx], "GamePocket-Regular-ZeroKern.ttf") != 0 &&
+            !current_font_is_pm) {
+            settings_overrides.mask |= OV_FONT;
+            snprintf(settings_overrides.font, sizeof settings_overrides.font, "%s",
+                     font_files[settings_font_idx]);
+        }
+#undef MIGRATE_OVERRIDE
+    }
+    settings_apply_style_defaults();
     /* The shared system volume (cubevol persistentmem - what the PHYSICAL
      * volume buttons last set) always wins over our saved copy: the user
      * may have changed it with the buttons since the last Settings visit. */
@@ -1548,6 +1833,8 @@ static void settings_save_file(void) {
     fprintf(f, "animations=%s\n", onoff_names[settings_anim]);
     fprintf(f, "menu_sounds=%s\n", onoff_names[settings_menu_sounds]);
     fprintf(f, "style=%s\n", style_keys[settings_style]);
+    fprintf(f, "settings_layout=%s\n", settings_layout_keys[settings_layout]);
+    fprintf(f, "pillboxes=%s\n", onoff_names[settings_pillboxes]);
     fprintf(f, "center_text=%s\n", onoff_names[settings_center_text]);
     fprintf(f, "friendly_system_names=%s\n", onoff_names[settings_friendly_names]);
     fprintf(f, "hide_empty=%s\n", onoff_names[settings_hide_empty]);
@@ -1558,6 +1845,26 @@ static void settings_save_file(void) {
     fprintf(f, "battery_color=%s\n", onoff_names[settings_battery_color]);
     fprintf(f, "stock_battery=%s\n", onoff_names[settings_stock_battery]);
     fprintf(f, "game_switcher=%s\n", onoff_names[settings_game_switcher]);
+    fprintf(f, "apps_in_settings=%s\n", onoff_names[settings_apps_in_settings]);
+    fprintf(f, "rounded_screenshots=%s\n", onoff_names[settings_rounded_screenshots]);
+    fprintf(f, "overrides_mask=%u\n", settings_overrides.mask);
+#define SAVE_OVERRIDE(bit, key, value) \
+    do { if (settings_overrides.mask & (bit)) fprintf(f, key "=%s\n", value); } while (0)
+    SAVE_OVERRIDE(OV_QUICK_RESUME, "user_quick_resume", onoff_names[settings_overrides.quick_resume]);
+    SAVE_OVERRIDE(OV_AUTOSAVE, "user_autosave_autoload", onoff_names[settings_overrides.autosave_autoload]);
+    SAVE_OVERRIDE(OV_LAYOUT, "user_settings_layout", settings_layout_keys[settings_overrides.layout]);
+    SAVE_OVERRIDE(OV_PILLBOXES, "user_pillboxes", onoff_names[settings_overrides.pillboxes]);
+    SAVE_OVERRIDE(OV_BACKGROUNDS, "user_backgrounds", onoff_names[settings_overrides.backgrounds]);
+    SAVE_OVERRIDE(OV_GAME_SWITCHER, "user_game_switcher", onoff_names[settings_overrides.game_switcher]);
+    SAVE_OVERRIDE(OV_APPS_IN_SETTINGS, "user_apps_in_settings", onoff_names[settings_overrides.apps_in_settings]);
+    SAVE_OVERRIDE(OV_ROUNDED_SHOTS, "user_rounded_screenshots", onoff_names[settings_overrides.rounded_screenshots]);
+    SAVE_OVERRIDE(OV_STOCK_BATTERY, "user_stock_battery", onoff_names[settings_overrides.stock_battery]);
+    SAVE_OVERRIDE(OV_BATTERY_COLOR, "user_battery_color", onoff_names[settings_overrides.battery_color]);
+    if (settings_overrides.mask & OV_FONT_SIZE)
+        fprintf(f, "user_font_size=%d\n", settings_overrides.font_size);
+    if (settings_overrides.mask & OV_FONT)
+        fprintf(f, "user_font=%s\n", settings_overrides.font);
+#undef SAVE_OVERRIDE
     fprintf(f, "load_recents=%s\n", onoff_names[settings_load_recents]);
     fprintf(f, "rom_source=%s\n", rom_source_names[settings_rom_source]);
     fprintf(f, "disable_sleep=%s\n", onoff_names[settings_disable_sleep]);
@@ -2282,7 +2589,8 @@ static int switcher_savestate_bmp(const char *full_path, char *out, size_t n) {
 }
 
 static void switcher_blit565(uint16_t *fb, const uint16_t *src, const uint8_t *alpha,
-                             int sw, int sh, int bx, int by, int bw, int bh) {
+                             int sw, int sh, int bx, int by, int bw, int bh,
+                             int radius) {
     if (!src || sw <= 0 || sh <= 0) return;
     int dw = bw, dh = sh * bw / sw;
     if (dh > bh) { dh = bh; dw = sw * bh / sh; }
@@ -2293,6 +2601,11 @@ static void switcher_blit565(uint16_t *fb, const uint16_t *src, const uint8_t *a
         const uint8_t  *ar = alpha ? alpha + (size_t)sy * sw : NULL;
         uint16_t *d = fb + (size_t)(oy + y) * SCREEN_WIDTH + ox;
         for (int x = 0; x < dw; x++) {
+            if (radius > 0) {
+                int cx = x < radius ? radius - x : x >= dw - radius ? x - (dw - radius - 1) : 0;
+                int cy = y < radius ? radius - y : y >= dh - radius ? y - (dh - radius - 1) : 0;
+                if (cx && cy && cx * cx + cy * cy > radius * radius) continue;
+            }
             int sx = x * sw / dw;
             unsigned a = ar ? ar[sx] : 255;
             if (a == 0) continue;
@@ -2303,6 +2616,26 @@ static void switcher_blit565(uint16_t *fb, const uint16_t *src, const uint8_t *a
             d[x] = (uint16_t)((((sr*a + dr*(255-a))/255) << 11) |
                               (((sg*a + dg*(255-a))/255) << 5)  |
                                ((sb*a + db*(255-a))/255));
+        }
+    }
+}
+
+static void switcher_blit_rgb_rounded(uint16_t *fb, const unsigned char *src,
+                                      int sw, int sh, int bx, int by,
+                                      int bw, int bh, int radius) {
+    if (!src || sw <= 0 || sh <= 0 || bw <= 0 || bh <= 0) return;
+    int dw = bw, dh = sh * bw / sw;
+    if (dh > bh) { dh = bh; dw = sw * bh / sh; }
+    int ox = bx + (bw - dw) / 2, oy = by + (bh - dh) / 2;
+    for (int y = 0; y < dh; y++) {
+        const unsigned char *row = src + (size_t)(y * sh / dh) * sw * 3;
+        uint16_t *dst = fb + (size_t)(oy + y) * SCREEN_WIDTH + ox;
+        for (int x = 0; x < dw; x++) {
+            int cx = x < radius ? radius - x : x >= dw - radius ? x - (dw - radius - 1) : 0;
+            int cy = y < radius ? radius - y : y >= dh - radius ? y - (dh - radius - 1) : 0;
+            if (cx && cy && cx * cx + cy * cy > radius * radius) continue;
+            const unsigned char *p = row + (size_t)(x * sw / dw) * 3;
+            dst[x] = ((p[0] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[2] >> 3);
         }
     }
 }
@@ -2329,16 +2662,26 @@ static void render_game_switcher(uint16_t *framebuffer) {
 
     /* Onion-style: keep the capture at full panel geometry in both modes and
      * paint UI on top. Resizing around the bars distorts gameplay captures. */
-    int bx = 0, by = 0;
-    int bw = SCREEN_WIDTH, bh = SCREEN_HEIGHT;
+    int rounded = settings_rounded_screenshots;
+    int card_x = UI_S(16), card_y = barh + UI_S(8);
+    int card_w = SCREEN_WIDTH - card_x * 2;
+    int card_h = SCREEN_HEIGHT - card_y - ITEM_HEIGHT - UI_S(12);
+    int footer_h = rounded ? UI_S(28) : 0;
+    int bx = rounded ? card_x + UI_S(3) : 0;
+    int by = rounded ? card_y + UI_S(3) : 0;
+    int bw = rounded ? card_w - UI_S(6) : SCREEN_WIDTH;
+    int bh = rounded ? card_h - footer_h - UI_S(6) : SCREEN_HEIGHT;
     /* Decoding PNG/JPG/BMP from FAT is the expensive part of entering Recents.
      * Compose the selected capture to panel-sized RGB565 once, then every
      * transition/redraw is only a memcpy. */
     static uint16_t *cached_frame = NULL;
     static int cached_pixels = 0, cached_drawn = 0;
+    static int cached_rounded = -1;
+    static uint16_t cached_card_color;
     static char cached_game[MAX_PATH_LEN] = "";
-    int pixels = bw * bh;
-    if (!cached_frame || cached_pixels != pixels ||
+    int pixels = SCREEN_WIDTH * SCREEN_HEIGHT;
+    if (!cached_frame || cached_pixels != pixels || cached_rounded != rounded ||
+        (rounded && cached_card_color != COLOR_SELECT_BG) ||
         strcmp(cached_game, g->full_path) != 0) {
         if (cached_pixels != pixels) {
             free(cached_frame);
@@ -2346,10 +2689,19 @@ static void render_game_switcher(uint16_t *framebuffer) {
             cached_pixels = cached_frame ? pixels : 0;
         }
         cached_drawn = 0;
-        if (cached_frame) memset(cached_frame, 0, (size_t)pixels * sizeof(uint16_t));
+        if (cached_frame) {
+            for (int i = 0; i < pixels; i++) cached_frame[i] = COLOR_BG;
+            if (rounded)
+                render_rounded_rect(cached_frame, card_x, card_y, card_w, card_h,
+                                    UI_S(12), COLOR_SELECT_BG);
+        }
 
         char path[1024];
         Thumbnail tb;
+        int inset = rounded ? UI_S(3) : 0;
+        int ix = bx + inset, iy = by + inset;
+        int iw = bw - inset * 2, ih = bh - inset * 2;
+        int radius = rounded ? UI_S(10) : 0;
         /* A Recents card should show where the player left off. Only use
          * curated artwork when no gameplay capture exists yet. */
         if (cached_frame && switcher_savestate_bmp(g->full_path, path, sizeof path)) {
@@ -2361,14 +2713,7 @@ static void render_game_switcher(uint16_t *framebuffer) {
              * square. Fill the switcher viewport just like live gameplay;
              * aspect-preserving fit made 640x240 captures look squashed into
              * a wide strip. Box art still uses switcher_blit565() above. */
-            for (int y = 0; y < bh; y++) {
-                const unsigned char *rr = img + (size_t)(y * h / bh) * w * 3;
-                uint16_t *d = cached_frame + (size_t)(by + y) * SCREEN_WIDTH + bx;
-                for (int x = 0; x < bw; x++) {
-                    const unsigned char *p = rr + (size_t)(x * w / bw) * 3;
-                    d[x] = ((p[0] & 0xF8) << 8) | ((p[1] & 0xFC) << 3) | (p[2] >> 3);
-                }
-            }
+            switcher_blit_rgb_rounded(cached_frame, img, w, h, ix, iy, iw, ih, radius);
                 stbi_image_free(img);
                 cached_drawn = 1;
             }
@@ -2376,19 +2721,21 @@ static void render_game_switcher(uint16_t *framebuffer) {
         if (cached_frame && !cached_drawn &&
             load_game_artwork(g->full_path, ARTWORK_BOXART, &tb) && tb.data) {
             switcher_blit565(cached_frame, tb.data, tb.alpha,
-                             tb.width, tb.height, bx, by, bw, bh);
+                             tb.width, tb.height, ix, iy, iw, ih, radius);
             free_thumbnail(&tb);
             cached_drawn = 1;
         }
         if (cached_frame && !cached_drawn &&
             load_game_artwork(g->full_path, ARTWORK_TITLE_SCREEN, &tb) && tb.data) {
             switcher_blit565(cached_frame, tb.data, tb.alpha,
-                             tb.width, tb.height, bx, by, bw, bh);
+                             tb.width, tb.height, ix, iy, iw, ih, radius);
             free_thumbnail(&tb);
             cached_drawn = 1;
         }
         strncpy(cached_game, g->full_path, sizeof cached_game - 1);
         cached_game[sizeof cached_game - 1] = '\0';
+        cached_rounded = rounded;
+        cached_card_color = COLOR_SELECT_BG;
     }
     if (cached_frame)
         memcpy(framebuffer, cached_frame, (size_t)pixels * sizeof(uint16_t));
@@ -2398,8 +2745,34 @@ static void render_game_switcher(uint16_t *framebuffer) {
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, bx + UI_S(16), by + bh/2,
                        "(no screenshot - open the in-game menu once)", COLOR_TEXT);
 
-    /* Bottom overlay: detailed mode carries play info; fullscreen keeps only
-     * the selected game and navigation, matching Onion's minimal view. */
+    /* Rounded mode keeps the title and play count in the card footer. */
+    if (rounded) {
+        int footer_y = card_y + card_h - footer_h;
+        render_fill_rect(framebuffer, card_x + UI_S(10), footer_y,
+                         card_w - UI_S(20), UI_S(1), COLOR_BG);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       card_x + UI_S(12), footer_y + UI_S(7),
+                       g->game_name, COLOR_SELECT_TEXT);
+        char info[96];
+        long secs = playtime_lookup(g->full_path);
+        if (secs >= 3600)
+            snprintf(info, sizeof info, "Played %ldh %ldm   %d/%d", secs/3600, (secs%3600)/60, selected_index + 1, n);
+        else if (secs >= 60)
+            snprintf(info, sizeof info, "Played %ldm   %d/%d", secs/60, selected_index + 1, n);
+        else if (secs > 0)
+            snprintf(info, sizeof info, "Played %lds   %d/%d", secs, selected_index + 1, n);
+        else
+            snprintf(info, sizeof info, "%d/%d", selected_index + 1, n);
+        int iw = font_measure_text(info);
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       card_x + card_w - UI_S(12) - iw,
+                       footer_y + UI_S(7), info, COLOR_SELECT_TEXT);
+        render_legend(framebuffer, LEGEND_X_NONE, 1, 1);
+        render_game_switcher_header(framebuffer, barh);
+        return;
+    }
+
+    /* Full-screen mode leaves the capture behind the header and footer. */
     int byb = SCREEN_HEIGHT - barh;
     render_fill_rect(framebuffer, 0, byb, SCREEN_WIDTH, barh, COLOR_SELECT_BG);
     if (game_switcher_fullscreen) {
@@ -2513,7 +2886,7 @@ static void render_boxart_panel(uint16_t *fb, const char *full_path, const char 
      * opaque card: covers list-text overflow, and transparent box art shows
      * the real background through it. */
     banner_fill_region(fb, px, top, pw, ph, COLOR_BG);
-    switcher_blit565(fb, ctb.data, ctb.alpha, ctb.width, ctb.height, px, top, aw, ah);
+    switcher_blit565(fb, ctb.data, ctb.alpha, ctb.width, ctb.height, px, top, aw, ah, 0);
 
     /* Name centered under the art, truncated to panel width. */
     char nm[64];
@@ -2899,6 +3272,7 @@ static int restore_games_tab_entries(void) {
 
 static int main_tab_active(void) {
     if (settings_menu_active) return MAIN_TAB_SETTINGS;
+    if (settings_apps_origin) return MAIN_TAB_SETTINGS;
     if (viewing_recents) return MAIN_TAB_RECENTS;
     if (viewing_apps || apps_browsing || viewing_activity) return MAIN_TAB_APPS;
     return MAIN_TAB_GAMES;
@@ -2908,6 +3282,7 @@ static void switch_main_tab(int target) {
     int old = main_tab_active();
     if (target < MAIN_TAB_RECENTS || target > MAIN_TAB_SETTINGS || target == old)
         return;
+    if (target != MAIN_TAB_SETTINGS) settings_apps_origin = false;
 
     ui_transition_start(target > old ? 1 : -1);
     if (old == MAIN_TAB_GAMES) {
@@ -2971,6 +3346,7 @@ static void switch_main_tab(int target) {
         apps_browsing = false;
         viewing_search = false;
         settings_menu_active = true;
+        settings_folder_section = -1;
         /* Headers are selectable now (they collapse/expand sections); just
          * make sure the cursor sits on a VISIBLE row. */
         settings_build_vis_rows();
@@ -3731,7 +4107,7 @@ static void handle_settings_menu(void) {
         settings_menu_idx = settings_vis_rows[cur];
     }
     int sec = settings_section_of(settings_menu_idx);
-    if ((left || right) && sec >= 0) {
+    if ((left || right) && sec >= 0 && settings_layout != SETTINGS_LAYOUT_FOLDER) {
         /* LEFT/RIGHT on a ">>" header collapses/expands its section, same
          * interaction as the SELECT picker sections. */
         settings_section_open[sec] = left ? !settings_section_open[sec] : true;
@@ -3747,6 +4123,12 @@ static void handle_settings_menu(void) {
             break;
         case RT_STYLE:
             settings_style = (settings_style + delta + STYLE_COUNT) % STYLE_COUNT;
+            break;
+        case RT_SETTINGS_LAYOUT:
+            /* This is a two-state presentation choice; use the initial key
+             * edge so a held d-pad cannot toggle straight back. */
+            if (input_was_pressed(right ? FROG_BTN_RIGHT : FROG_BTN_LEFT))
+                frogui_settings_layout_set(settings_layout_keys[(settings_layout + delta + 2) % 2]);
             break;
         case RT_FONT:
             if (font_count > 0)
@@ -3798,12 +4180,30 @@ static void handle_settings_menu(void) {
         default: break;
         }
         settings_preview_row(r);
+        if (r->val == &settings_apps_in_settings)
+            settings_build_vis_rows();
     }
-    if (input_was_pressed(FROG_BTN_A) && sec >= 0) {
+    if (input_was_pressed(FROG_BTN_A) && sec >= 0 && settings_layout != SETTINGS_LAYOUT_FOLDER) {
         /* A on a header flips its section (same as LEFT) and stays in the
          * menu — it must not fall through to the save/close path below. */
         settings_section_open[sec] = !settings_section_open[sec];
         settings_sections_save();   /* persist immediately (review request) */
+        settings_build_vis_rows();
+        return;
+    }
+    if (settings_layout == SETTINGS_LAYOUT_FOLDER && input_was_pressed(FROG_BTN_A) &&
+        settings_folder_section < 0 && sec >= 0) {
+        settings_folder_section = sec;
+        settings_build_vis_rows();
+        if (settings_vis_n > 0) settings_menu_idx = settings_vis_rows[0];
+        return;
+    }
+    if (input_was_pressed(FROG_BTN_A) &&
+        settings_rows[settings_menu_idx].type == RT_SETTINGS_LAYOUT) {
+        frogui_settings_layout_set(settings_layout_keys[
+            settings_layout == SETTINGS_LAYOUT_FOLDER
+                ? SETTINGS_LAYOUT_SECTIONS : SETTINGS_LAYOUT_FOLDER]);
+        settings_record_override(&settings_rows[settings_menu_idx]);
         settings_build_vis_rows();
         return;
     }
@@ -3836,12 +4236,27 @@ static void handle_settings_menu(void) {
         rtc_sync_from_usb();
         return;
     }
+    if (input_was_pressed(FROG_BTN_A) &&
+        settings_rows[settings_menu_idx].type == RT_OPEN_APPS && settings_apps_in_settings) {
+        settings_save_file();
+        settings_apps_origin = true;
+        settings_menu_active = false;
+        scan_apps_tab();
+        return;
+    }
     if (input_was_pressed(FROG_BTN_A) && settings_rows[settings_menu_idx].type == RT_ACTION) {
         remap_step = 0;
         remap_prev_raw = input_get_raw_state();
         remap_wizard_active = true;
         settings_menu_active = false;
         dbg("remap: start from settings");
+        return;
+    }
+    if (settings_layout == SETTINGS_LAYOUT_FOLDER && settings_folder_section >= 0 &&
+        input_was_pressed(FROG_BTN_B)) {
+        settings_folder_section = -1;
+        settings_build_vis_rows();
+        settings_menu_idx = settings_vis_rows[0];
         return;
     }
     if ((input_was_pressed(FROG_BTN_A) && settings_rows[settings_menu_idx].type != RT_ACTION) ||
@@ -4146,9 +4561,12 @@ static void render_system_carousel(uint16_t *fb) {
         if (i == selected_index) {
             render_text_pillbox(fb, x, text_y, label,
                                 COLOR_SELECT_BG, COLOR_SELECT_TEXT, UI_S(7), 0);
-        } else {
+        } else if (frogui_pillboxes_get()) {
             render_text_pillbox(fb, x, text_y, label,
                                 COLOR_LEGEND_BG, COLOR_DISABLED, UI_S(7), 0);
+        } else {
+            font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, label,
+                           COLOR_DISABLED);
         }
     }
 
@@ -4563,11 +4981,15 @@ static void handle_input(void) {
         if (prev) l1_tab_pending = false;
         bool next = input_was_pressed(FROG_BTN_R1);
         if (at_tabs && prev && tab > MAIN_TAB_RECENTS) {
-            switch_main_tab(tab - 1);
+            int target = tab - 1;
+            if (settings_apps_in_settings && target == MAIN_TAB_APPS) target--;
+            switch_main_tab(target);
             return;
         }
         if (at_tabs && next && tab < MAIN_TAB_SETTINGS) {
-            switch_main_tab(tab + 1);
+            int target = tab + 1;
+            if (settings_apps_in_settings && target == MAIN_TAB_APPS) target++;
+            switch_main_tab(target);
             return;
         }
     }
@@ -4798,6 +5220,7 @@ static void handle_input(void) {
         } else {
             if (strcmp(entries[selected_index].name, SETTINGS_ENTRY_NAME) == 0) {
                 settings_menu_active = true;
+                settings_folder_section = -1;
                 settings_menu_idx = 0;
                 settings_filter_idx_on_enter = settings_filter_idx;
             } else {
@@ -4813,6 +5236,11 @@ static void handle_input(void) {
             /* back to the keyboard to refine the query */
             viewing_search = false;
             search_kbd_active = true;
+        } else if (settings_apps_origin && viewing_apps) {
+            settings_apps_origin = false;
+            settings_menu_active = true;
+            settings_build_vis_rows();
+            return;
         } else if (viewing_activity) {
             ui_transition_start(-1);
             scan_apps_tab();
@@ -5183,6 +5611,7 @@ static void render_port_migration(const PortMigration *port, int index,
 
 void retro_init(void) {
     dbg("retro_init start");
+    settings_apps_origin = false;
     input_log_start();
     /* Runtime panel geometry from picoarch (device-detected). Must run before
      * font_init / any layout use. Falls back to render.c defaults if env unset. */
@@ -5328,32 +5757,41 @@ static void render_settings_menu(void) {
      * list) so the selected row always stays on screen. */
     settings_build_vis_rows();
     int cur = settings_vis_cursor();
+    bool folder_detail = settings_layout == SETTINGS_LAYOUT_FOLDER &&
+                         settings_folder_section >= 0;
+    int list_start_y = START_Y + (folder_detail ? ITEM_HEIGHT : 0);
+    int list_visible = VISIBLE_ENTRIES - (folder_detail ? 1 : 0);
+    if (list_visible < 1) list_visible = 1;
     static int soff = 0;
     if (cur < soff) soff = cur;
-    if (cur >= soff + VISIBLE_ENTRIES) soff = cur - VISIBLE_ENTRIES + 1;
-    if (soff > settings_vis_n - VISIBLE_ENTRIES) soff = settings_vis_n - VISIBLE_ENTRIES;
+    if (cur >= soff + list_visible) soff = cur - list_visible + 1;
+    if (soff > settings_vis_n - list_visible) soff = settings_vis_n - list_visible;
     if (soff < 0) soff = 0;
 
     int vis = settings_vis_n - soff;
-    if (vis > VISIBLE_ENTRIES) vis = VISIBLE_ENTRIES;
+    if (vis > list_visible) vis = list_visible;
     for (int i = 0; i < vis; i++) {
         int idx = settings_vis_rows[soff + i];
         const SRow *r = &settings_rows[idx];
-        int y = START_Y + i * ITEM_HEIGHT;
+        int y = list_start_y + i * ITEM_HEIGHT;
         if (r->type == RT_HEADER) {
             /* Category divider: TreeFrogUI ">> " marker, accent color, no
              * pillbox when idle ??? but selectable, so pillbox under cursor. */
-            snprintf(line, sizeof line, ">> %s", tr(r->label));
+            if (settings_layout == SETTINGS_LAYOUT_FOLDER)
+                snprintf(line, sizeof line, "%s", tr(r->label));
+            else
+                snprintf(line, sizeof line, ">> %s", tr(r->label));
             if (settings_menu_idx == idx)
                 render_text_pillbox(framebuffer, PADDING, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
-                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, line, COLOR_SELECT_BG);
+                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, line, COLOR_FOLDER);
             continue;
         }
         switch (r->type) {
         case RT_INFO:   snprintf(line, sizeof line, "%s: %s", tr(r->label), treefrogui_version()); break;
         case RT_THEME:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), themes[settings_theme_idx].name); break;
         case RT_STYLE:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), style_names[settings_style]); break;
+        case RT_SETTINGS_LAYOUT: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), settings_layout_names[settings_layout]); break;
         case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
         case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_disp[settings_wallpaper_idx]); break;
         case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_fit_names[settings_wallpaper_fit]); break;
@@ -5432,7 +5870,10 @@ static void render_settings_menu(void) {
             font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, ix, y, line, color);
         }
     }
-    render_scroll_indicator(framebuffer, settings_vis_n, cur, VISIBLE_ENTRIES);
+    if (folder_detail)
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING,
+                       START_Y, tr(settings_section_names[settings_folder_section]), COLOR_HEADER);
+    render_scroll_indicator(framebuffer, settings_vis_n, cur, list_visible);
     render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
 }
 
@@ -5605,12 +6046,14 @@ static void render_usb_confirm(void) {
                        (SCREEN_WIDTH - font_measure_text(a)) / 2,
                        SCREEN_HEIGHT / 2 - UI_S(18), a, COLOR_TEXT);
     const char *pill = usb_mode_initiated_active ? tr("usb.initiated") : tr("usb.ready");
-    render_text_pillbox(framebuffer, (SCREEN_WIDTH - font_measure_text(pill)) / 2,
-                        SCREEN_HEIGHT / 2 - UI_S(48), pill,
-                        /* Keep the selected-theme contrast pair inside the
-                         * pillbox; COLOR_TEXT can equal the pill background
-                         * on light themes. */
-                        COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+    if (frogui_pillboxes_get())
+        render_text_pillbox(framebuffer, (SCREEN_WIDTH - font_measure_text(pill)) / 2,
+                            SCREEN_HEIGHT / 2 - UI_S(48), pill,
+                            COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+    else
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
+                       (SCREEN_WIDTH - font_measure_text(pill)) / 2,
+                       SCREEN_HEIGHT / 2 - UI_S(48), pill, COLOR_HEADER);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
                    (SCREEN_WIDTH - font_measure_text(b)) / 2,
                    SCREEN_HEIGHT / 2 + UI_S(12), b, COLOR_TEXT);

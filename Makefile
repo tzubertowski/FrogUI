@@ -35,6 +35,7 @@ OBJS := $(APP_OUTDIR)/frogui_libretro.lo \
         $(APP_OUTDIR)/font.lo \
         $(APP_OUTDIR)/recent_games.lo \
         $(APP_OUTDIR)/theme.lo \
+        $(APP_OUTDIR)/theme_profile.lo \
         $(APP_OUTDIR)/favorites.lo \
         $(APP_OUTDIR)/banner.lo \
         $(APP_OUTDIR)/backlight.lo \
