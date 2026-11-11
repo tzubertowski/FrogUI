@@ -10,6 +10,7 @@ typedef struct {
     int has_background_images, background_images;
     int has_game_switcher, game_switcher;
     int has_apps_in_settings, apps_in_settings;
+    int has_load_recents, load_recents;
     int has_rounded_screenshots, rounded_screenshots;
     int has_stock_battery, stock_battery;
     int has_battery_color, battery_color;

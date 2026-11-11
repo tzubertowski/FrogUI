@@ -968,7 +968,7 @@ static void font_scan(void) {
         strncpy(font_files[j + 1], key, FONT_STR_MAX);
     }
     for (int i = 0; i < font_count; i++) {
-        if (strcasecmp(font_files[i], "GamePocket-Regular-ZeroKern.ttf") == 0) {
+        if (strcasecmp(font_files[i], "alium_Nunito.ttf") == 0) {
             settings_font_idx = i;
             break;
         }
@@ -1028,7 +1028,7 @@ static int settings_language;
 typedef struct {
     unsigned mask;
     int quick_resume, autosave_autoload, layout, pillboxes;
-    int backgrounds, game_switcher, apps_in_settings, rounded_screenshots, stock_battery;
+    int backgrounds, game_switcher, apps_in_settings, load_recents, rounded_screenshots, stock_battery;
     int battery_color, font_size;
     char font[FONT_STR_MAX];
 } SettingsOverrides;
@@ -1038,7 +1038,8 @@ enum {
     OV_BACKGROUNDS = 1u << 4, OV_GAME_SWITCHER = 1u << 5,
     OV_ROUNDED_SHOTS = 1u << 6, OV_STOCK_BATTERY = 1u << 7,
     OV_BATTERY_COLOR = 1u << 8, OV_FONT = 1u << 9,
-    OV_FONT_SIZE = 1u << 10, OV_APPS_IN_SETTINGS = 1u << 11
+    OV_FONT_SIZE = 1u << 10, OV_APPS_IN_SETTINGS = 1u << 11,
+    OV_LOAD_RECENTS = 1u << 12
 };
 static SettingsOverrides settings_overrides;
 static int settings_override_meta_loaded;
@@ -1187,6 +1188,8 @@ static void settings_apply_style_defaults(void) {
                       profile.has_game_switcher, profile.game_switcher, 1);
     APPLY_STYLE_VALUE(settings_apps_in_settings, OV_APPS_IN_SETTINGS, apps_in_settings,
                       profile.has_apps_in_settings, profile.apps_in_settings, 0);
+    APPLY_STYLE_VALUE(settings_load_recents, OV_LOAD_RECENTS, load_recents,
+                      profile.has_load_recents, profile.load_recents, 0);
     APPLY_STYLE_VALUE(settings_rounded_screenshots, OV_ROUNDED_SHOTS, rounded_screenshots,
                       profile.has_rounded_screenshots, profile.rounded_screenshots, 0);
     APPLY_STYLE_VALUE(settings_stock_battery, OV_STOCK_BATTERY, stock_battery,
@@ -1195,7 +1198,7 @@ static void settings_apply_style_defaults(void) {
                       profile.has_battery_color, profile.battery_color, 0);
     APPLY_STYLE_VALUE(settings_font_size, OV_FONT_SIZE, font_size,
                       profile.has_font_size, profile.font_size, 23);
-    const char *font = "GamePocket-Regular-ZeroKern.ttf";
+    const char *font = "alium_Nunito.ttf";
     if (!ignore && (settings_overrides.mask & OV_FONT)) font = settings_overrides.font;
     else if (profile.has_font) font = profile.font;
     for (int i = 0; i < font_count; i++) {
@@ -1241,6 +1244,9 @@ static void settings_record_override(const SRow *r) {
         } else if (r->val == &settings_apps_in_settings) {
             settings_overrides.mask |= OV_APPS_IN_SETTINGS;
             settings_overrides.apps_in_settings = settings_apps_in_settings;
+        } else if (r->val == &settings_load_recents) {
+            settings_overrides.mask |= OV_LOAD_RECENTS;
+            settings_overrides.load_recents = settings_load_recents;
         } else if (r->val == &settings_rounded_screenshots) {
             settings_overrides.mask |= OV_ROUNDED_SHOTS;
             settings_overrides.rounded_screenshots = settings_rounded_screenshots;
@@ -1560,6 +1566,7 @@ static void settings_preview_row(const SRow *r) {
 static void settings_load_file(void) {
     settings_override_meta_loaded = 0;
     settings_overrides.mask = 0;
+    int settings_profile_version = 0;
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) {
         settings_apply_style_defaults();
@@ -1678,6 +1685,8 @@ static void settings_load_file(void) {
             settings_apps_in_settings = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "rounded_screenshots") == 0) {
             settings_rounded_screenshots = (strcmp(val, "on") == 0) ? 1 : 0;
+        } else if (strcmp(line, "settings_profile_version") == 0) {
+            settings_profile_version = atoi(val);
         } else if (strcmp(line, "overrides_mask") == 0) {
             settings_overrides.mask = (unsigned)strtoul(val, NULL, 0);
             settings_override_meta_loaded = 1;
@@ -1696,6 +1705,8 @@ static void settings_load_file(void) {
             settings_overrides.game_switcher = strcmp(val, "on") == 0;
         } else if (strcmp(line, "user_apps_in_settings") == 0) {
             settings_overrides.apps_in_settings = strcmp(val, "on") == 0;
+        } else if (strcmp(line, "user_load_recents") == 0) {
+            settings_overrides.load_recents = strcmp(val, "on") == 0;
         } else if (strcmp(line, "user_rounded_screenshots") == 0) {
             settings_overrides.rounded_screenshots = strcmp(val, "on") == 0;
         } else if (strcmp(line, "user_stock_battery") == 0) {
@@ -1714,6 +1725,12 @@ static void settings_load_file(void) {
         }
     }
     fclose(f);
+    /* Before profile defaults, a saved ON value for Start in Recents could
+     * only have come from the user. Migrate that preference once. */
+    if (settings_profile_version < 1 && settings_load_recents) {
+        settings_overrides.mask |= OV_LOAD_RECENTS;
+        settings_overrides.load_recents = 1;
+    }
     if (!settings_override_meta_loaded) {
         /* Old builds persisted ProMinimal defaults as if they were user edits.
          * Migrate known profile values as defaults, and retain other changes. */
@@ -1741,6 +1758,8 @@ static void settings_load_file(void) {
                          pm.has_game_switcher, pm.game_switcher);
         MIGRATE_OVERRIDE(OV_ROUNDED_SHOTS, rounded_screenshots, settings_rounded_screenshots, 0,
                          pm.has_rounded_screenshots, pm.rounded_screenshots);
+        MIGRATE_OVERRIDE(OV_LOAD_RECENTS, load_recents, settings_load_recents, 0,
+                         pm.has_load_recents, pm.load_recents);
         MIGRATE_OVERRIDE(OV_STOCK_BATTERY, stock_battery, settings_stock_battery, 1,
                          pm.has_stock_battery, pm.stock_battery);
         MIGRATE_OVERRIDE(OV_BATTERY_COLOR, battery_color, settings_battery_color, 0,
@@ -1847,6 +1866,7 @@ static void settings_save_file(void) {
     fprintf(f, "game_switcher=%s\n", onoff_names[settings_game_switcher]);
     fprintf(f, "apps_in_settings=%s\n", onoff_names[settings_apps_in_settings]);
     fprintf(f, "rounded_screenshots=%s\n", onoff_names[settings_rounded_screenshots]);
+    fprintf(f, "settings_profile_version=1\n");
     fprintf(f, "overrides_mask=%u\n", settings_overrides.mask);
 #define SAVE_OVERRIDE(bit, key, value) \
     do { if (settings_overrides.mask & (bit)) fprintf(f, key "=%s\n", value); } while (0)
@@ -1857,6 +1877,7 @@ static void settings_save_file(void) {
     SAVE_OVERRIDE(OV_BACKGROUNDS, "user_backgrounds", onoff_names[settings_overrides.backgrounds]);
     SAVE_OVERRIDE(OV_GAME_SWITCHER, "user_game_switcher", onoff_names[settings_overrides.game_switcher]);
     SAVE_OVERRIDE(OV_APPS_IN_SETTINGS, "user_apps_in_settings", onoff_names[settings_overrides.apps_in_settings]);
+    SAVE_OVERRIDE(OV_LOAD_RECENTS, "user_load_recents", onoff_names[settings_overrides.load_recents]);
     SAVE_OVERRIDE(OV_ROUNDED_SHOTS, "user_rounded_screenshots", onoff_names[settings_overrides.rounded_screenshots]);
     SAVE_OVERRIDE(OV_STOCK_BATTERY, "user_stock_battery", onoff_names[settings_overrides.stock_battery]);
     SAVE_OVERRIDE(OV_BATTERY_COLOR, "user_battery_color", onoff_names[settings_overrides.battery_color]);

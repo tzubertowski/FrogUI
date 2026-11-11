@@ -103,6 +103,8 @@ static int apply_field(ThemeProfile *p, const char *key, JsonValue *v) {
         return bool_field(v, &p->has_game_switcher, &p->game_switcher);
     if (strcmp(key, "apps_in_settings") == 0)
         return bool_field(v, &p->has_apps_in_settings, &p->apps_in_settings);
+    if (strcmp(key, "start_in_recents") == 0)
+        return bool_field(v, &p->has_load_recents, &p->load_recents);
     if (strcmp(key, "rounded_screenshots") == 0)
         return bool_field(v, &p->has_rounded_screenshots, &p->rounded_screenshots);
     if (strcmp(key, "stock_battery") == 0)
