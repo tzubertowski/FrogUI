@@ -48,8 +48,8 @@ void render_set_geometry(int w, int h, int ui_scale);
 // Thumbnail layout
 #define THUMBNAIL_AREA_X UI_S(160)
 #define THUMBNAIL_AREA_Y UI_S(40)
-#define THUMBNAIL_MAX_WIDTH UI_S(render_theme_current()->thumbnail_width)
-#define THUMBNAIL_MAX_HEIGHT UI_S(render_theme_current()->thumbnail_height)
+#define THUMBNAIL_MAX_WIDTH (render_theme_current()->thumbnail_width)
+#define THUMBNAIL_MAX_HEIGHT (render_theme_current()->thumbnail_height)
 
 // Text — more chars visible at larger scales (wider screen)
 #define MAX_FILENAME_DISPLAY_LEN (20 * UI_SCALE / 100)
