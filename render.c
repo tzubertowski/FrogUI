@@ -269,7 +269,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     return;
 
   font_set_render_scale(85);
-  int pill_h = UI_S(26);
+  int pill_h = UI_S(render_theme_current()->legend_height);
   int legend_y = SCREEN_HEIGHT - pill_h - UI_S(6);
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
@@ -385,7 +385,10 @@ static void render_text_pillbox_moving(uint16_t *framebuffer, int x, int text_y,
   int height = cap_h + 2 * pad;
   render_rounded_rect(framebuffer, x - pad,
                       pill_y + (baseline - cap_h) - pad,
-                      width, height, frogui_prominimal_style_active() ? UI_S(5) : 6,
+                      width, height,
+                      frogui_prominimal_style_active()
+                          ? UI_S(render_theme_current()->selected_radius)
+                          : render_theme_current()->selected_radius,
                       COLOR_SELECT_BG);
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, text,
                  COLOR_SELECT_TEXT, 0);

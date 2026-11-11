@@ -2,6 +2,7 @@
 #define RENDER_H
 
 #include "theme.h"
+#include "render_theme.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -38,18 +39,17 @@ void render_set_geometry(int w, int h, int ui_scale);
 #define COLOR_DISABLED theme_disabled()
 
 // Layout — all derived from UI_SCALE
-#define HEADER_HEIGHT UI_S(30)
-#define ITEM_HEIGHT UI_S(32) /* taller rows for the larger NextUI-style font   \
-                              */
-#define PADDING UI_S(16)
-#define START_Y UI_S(40)
+#define HEADER_HEIGHT UI_S(render_theme_current()->header_height)
+#define ITEM_HEIGHT UI_S(render_theme_current()->row_height)
+#define PADDING UI_S(render_theme_current()->horizontal_padding)
+#define START_Y UI_S(render_theme_current()->content_top)
 #define VISIBLE_ENTRIES ((SCREEN_HEIGHT - START_Y - ITEM_HEIGHT) / ITEM_HEIGHT)
 
 // Thumbnail layout
 #define THUMBNAIL_AREA_X UI_S(160)
 #define THUMBNAIL_AREA_Y UI_S(40)
-#define THUMBNAIL_MAX_WIDTH 250
-#define THUMBNAIL_MAX_HEIGHT 250
+#define THUMBNAIL_MAX_WIDTH UI_S(render_theme_current()->thumbnail_width)
+#define THUMBNAIL_MAX_HEIGHT UI_S(render_theme_current()->thumbnail_height)
 
 // Text — more chars visible at larger scales (wider screen)
 #define MAX_FILENAME_DISPLAY_LEN (20 * UI_SCALE / 100)

@@ -34,6 +34,7 @@
 #include "theme.h"
 #include "frogui_settings.h"
 #include "theme_profile.h"
+#include "render_theme.h"
 #include "recent_games.h"
 #include "favorites.h"
 #include "settings.h"
@@ -1157,6 +1158,7 @@ int frogui_apps_in_settings_get(void) { return settings_apps_in_settings; }
 static void settings_apply_style_defaults(void) {
     ThemeProfile profile;
     memset(&profile, 0, sizeof profile);
+    render_theme_load(style_keys[settings_style]);
     theme_profile_load(style_names[settings_style], &profile);
     int ignore = profile.has_ignore_overrides && profile.ignore_overrides;
 #define APPLY_STYLE_VALUE(target, bit, field, present, value, fallback) \

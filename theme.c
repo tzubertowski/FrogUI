@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "render_theme.h"
 #include "settings.h"
 #include <string.h>
 
@@ -586,16 +587,19 @@ const char* theme_get_name(int index) {
 }
 
 // Color accessors
-uint16_t theme_bg(void) { return bg_override_active ? bg_override_color : current_theme->bg; }
+uint16_t theme_bg(void) {
+    return bg_override_active ? bg_override_color :
+           render_theme_colour(RENDER_COLOUR_BACKGROUND, current_theme->bg);
+}
 void theme_set_bg_override(int enabled, uint16_t color) {
     bg_override_active = enabled;
     bg_override_color = color;
 }
-uint16_t theme_text(void) { return current_theme->text; }
-uint16_t theme_select_bg(void) { return current_theme->select_bg; }
-uint16_t theme_select_text(void) { return current_theme->select_text; }
-uint16_t theme_header(void) { return current_theme->header; }
-uint16_t theme_folder(void) { return current_theme->folder; }
-uint16_t theme_legend(void) { return current_theme->legend; }
-uint16_t theme_legend_bg(void) { return current_theme->legend_bg; }
-uint16_t theme_disabled(void) { return current_theme->disabled; }
+uint16_t theme_text(void) { return render_theme_colour(RENDER_COLOUR_TEXT, current_theme->text); }
+uint16_t theme_select_bg(void) { return render_theme_colour(RENDER_COLOUR_SELECTION, current_theme->select_bg); }
+uint16_t theme_select_text(void) { return render_theme_colour(RENDER_COLOUR_SELECTION_TEXT, current_theme->select_text); }
+uint16_t theme_header(void) { return render_theme_colour(RENDER_COLOUR_HEADER, current_theme->header); }
+uint16_t theme_folder(void) { return render_theme_colour(RENDER_COLOUR_FOLDER, current_theme->folder); }
+uint16_t theme_legend(void) { return render_theme_colour(RENDER_COLOUR_LEGEND, current_theme->legend); }
+uint16_t theme_legend_bg(void) { return render_theme_colour(RENDER_COLOUR_LEGEND_BACKGROUND, current_theme->legend_bg); }
+uint16_t theme_disabled(void) { return render_theme_colour(RENDER_COLOUR_DISABLED, current_theme->disabled); }
