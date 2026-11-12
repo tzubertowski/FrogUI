@@ -858,3 +858,71 @@ void render_thumbnail(uint16_t *framebuffer, const Thumbnail *thumb) {
     }
   }
 }
+
+void render_thumbnail_contained(uint16_t *framebuffer, const Thumbnail *thumb,
+                                int x, int y, int width, int height) {
+  if (!framebuffer || !thumb || !thumb->data || thumb->width <= 0 ||
+      thumb->height <= 0 || width <= 0 || height <= 0) return;
+  int dw = width, dh = height;
+  if ((int64_t)width * thumb->height > (int64_t)height * thumb->width) {
+    dw = height * thumb->width / thumb->height;
+  } else {
+    dh = width * thumb->height / thumb->width;
+  }
+  if (dw < 1) dw = 1;
+  if (dh < 1) dh = 1;
+  int left = x + (width - dw) / 2;
+  int top = y + (height - dh) / 2;
+  for (int py = 0; py < dh; py++) {
+    int sy = py * thumb->height / dh;
+    for (int px = 0; px < dw; px++) {
+      int dx = left + px, dy = top + py;
+      if (dx < 0 || dx >= SCREEN_WIDTH || dy < 0 || dy >= SCREEN_HEIGHT) continue;
+      int sx = px * thumb->width / dw;
+      int si = sy * thumb->width + sx;
+      unsigned a = thumb->alpha ? thumb->alpha[si] : 255;
+      if (!a) continue;
+      uint16_t *dst = &framebuffer[dy * SCREEN_WIDTH + dx];
+      if (a == 255) {
+        *dst = thumb->data[si];
+      } else {
+        uint16_t src = thumb->data[si], bg = *dst;
+        unsigned r = (((src >> 11) & 31u) * a + ((bg >> 11) & 31u) * (255 - a)) / 255;
+        unsigned g = (((src >> 5) & 63u) * a + ((bg >> 5) & 63u) * (255 - a)) / 255;
+        unsigned b = ((src & 31u) * a + (bg & 31u) * (255 - a)) / 255;
+        *dst = (uint16_t)((r << 11) | (g << 5) | b);
+      }
+    }
+  }
+}
+
+int render_theme_canvas(uint16_t *framebuffer, const char *path) {
+  if (!framebuffer || !path) return 0;
+  /* shortcut: accepts MuOS 640x480 canvases; add per-resolution lookup for other package sizes. */
+  int sw = 0, sh = 0, channels = 0;
+  if (!stbi_info(path, &sw, &sh, &channels) || sw != 640 || sh != 480) return 0;
+  unsigned char *rgba = stbi_load(path, &sw, &sh, &channels, 4);
+  if (!rgba) return 0;
+  int dw = SCREEN_WIDTH, dh = dw * sh / sw;
+  if (dh > SCREEN_HEIGHT) { dh = SCREEN_HEIGHT; dw = dh * sw / sh; }
+  int left = (SCREEN_WIDTH - dw) / 2, top = (SCREEN_HEIGHT - dh) / 2;
+  for (int y = 0; y < dh; y++) {
+    int sy = y * sh / dh;
+    for (int x = 0; x < dw; x++) {
+      const unsigned char *src = rgba + ((size_t)sy * sw + x * sw / dw) * 4;
+      unsigned a = src[3];
+      if (!a) continue;
+      uint16_t *dst = &framebuffer[(top + y) * SCREEN_WIDTH + left + x];
+      if (a == 255) {
+        *dst = (uint16_t)(((src[0] >> 3) << 11) | ((src[1] >> 2) << 5) | (src[2] >> 3));
+      } else {
+        unsigned r = (((src[0] >> 3) * a) + (((*dst >> 11) & 31u) * (255 - a))) / 255;
+        unsigned g = (((src[1] >> 2) * a) + (((*dst >> 5) & 63u) * (255 - a))) / 255;
+        unsigned b = (((src[2] >> 3) * a) + ((*dst & 31u) * (255 - a))) / 255;
+        *dst = (uint16_t)((r << 11) | (g << 5) | b);
+      }
+    }
+  }
+  stbi_image_free(rgba);
+  return 1;
+}

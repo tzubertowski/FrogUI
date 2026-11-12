@@ -43,7 +43,9 @@ void render_set_geometry(int w, int h, int ui_scale);
 #define ITEM_HEIGHT UI_S(render_theme_current()->row_height)
 #define PADDING UI_S(render_theme_current()->horizontal_padding)
 #define START_Y UI_S(render_theme_current()->content_top)
-#define VISIBLE_ENTRIES ((SCREEN_HEIGHT - START_Y - ITEM_HEIGHT) / ITEM_HEIGHT)
+#define VISIBLE_ENTRIES (render_theme_current()->visible_rows > 0 ? \
+                         render_theme_current()->visible_rows : \
+                         ((SCREEN_HEIGHT - START_Y - ITEM_HEIGHT) / ITEM_HEIGHT))
 
 // Thumbnail layout
 #define THUMBNAIL_AREA_X UI_S(160)
@@ -143,6 +145,10 @@ void free_thumbnail(Thumbnail *thumb);
 
 // Draw thumbnail in the thumbnail area
 void render_thumbnail(uint16_t *framebuffer, const Thumbnail *thumb);
+void render_thumbnail_contained(uint16_t *framebuffer, const Thumbnail *thumb,
+                                int x, int y, int width, int height);
+/* Draw an RGBA theme canvas centered and aspect-fitted to the current panel. */
+int render_theme_canvas(uint16_t *framebuffer, const char *path);
 
 // Get thumbnail path for a given game file
 void get_thumbnail_path(const char *game_path, char *thumb_path,

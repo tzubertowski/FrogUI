@@ -19,6 +19,7 @@
 #define UI_SCALE 100
 #endif
 #define DEFAULT_FONT_SIZE 23
+#define MAX_FONT_SIZE 26
 static float ui_font_size = DEFAULT_FONT_SIZE * UI_SCALE / 100.0f;
 
 #define GLYPH_CACHE_SIZE 4096
@@ -224,8 +225,8 @@ static void ensure_render_size(void) {
 void font_set_size(int pixels) {
   if (pixels < 18)
     pixels = 18;
-  if (pixels > DEFAULT_FONT_SIZE)
-    pixels = DEFAULT_FONT_SIZE;
+  if (pixels > MAX_FONT_SIZE)
+    pixels = MAX_FONT_SIZE;
   ui_font_size = pixels * UI_SCALE / 100.0f;
 
   active_face_size = 0;
