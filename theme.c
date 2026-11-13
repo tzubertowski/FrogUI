@@ -588,8 +588,8 @@ const char* theme_get_name(int index) {
 
 // Color accessors
 uint16_t theme_bg(void) {
-    return bg_override_active ? bg_override_color :
-           render_theme_colour(RENDER_COLOUR_BACKGROUND, current_theme->bg);
+    return render_theme_colour(RENDER_COLOUR_BACKGROUND,
+                              bg_override_active ? bg_override_color : current_theme->bg);
 }
 void theme_set_bg_override(int enabled, uint16_t color) {
     bg_override_active = enabled;

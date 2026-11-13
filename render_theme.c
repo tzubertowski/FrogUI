@@ -10,6 +10,74 @@
 #define COLOUR_BIT(n) (1u << (n))
 
 static RenderTheme current;
+static RenderTheme base_theme;
+static int active_screen = -1;
+static RenderTheme parsing_base;
+static int parse_int(const char *s, int min, int max, int *out);
+
+static RenderColour alpha_backdrop(RenderColour colour) {
+    switch (colour) {
+    case RENDER_COLOUR_HEADER_BACKGROUND:
+    case RENDER_COLOUR_LIST_BACKGROUND:
+    case RENDER_COLOUR_LEGEND_BACKGROUND:
+    case RENDER_COLOUR_DISABLED:
+        return RENDER_COLOUR_BACKGROUND;
+    case RENDER_COLOUR_HEADER:
+        return RENDER_COLOUR_HEADER_BACKGROUND;
+    case RENDER_COLOUR_TEXT:
+        return RENDER_COLOUR_LIST_BACKGROUND;
+    case RENDER_COLOUR_SELECTION:
+        return RENDER_COLOUR_LIST_BACKGROUND;
+    case RENDER_COLOUR_SELECTION_TEXT:
+        return RENDER_COLOUR_SELECTION;
+    case RENDER_COLOUR_LEGEND:
+        return RENDER_COLOUR_LEGEND_BACKGROUND;
+    default:
+        return RENDER_COLOUR_BACKGROUND;
+    }
+}
+
+static int apply_muos_alpha(const char *section, const char *key, const char *value) {
+    static const struct { const char *section, *key; RenderColour colour; } alphas[] = {
+        {"background", "background_alpha", RENDER_COLOUR_BACKGROUND},
+        {"header", "header_background_alpha", RENDER_COLOUR_HEADER_BACKGROUND},
+        {"header", "header_text_alpha", RENDER_COLOUR_HEADER},
+        {"footer", "footer_background_alpha", RENDER_COLOUR_LEGEND_BACKGROUND},
+        {"footer", "footer_text_alpha", RENDER_COLOUR_LEGEND},
+        {"list", "list_default_text_alpha", RENDER_COLOUR_TEXT},
+        {"list", "list_default_background_alpha", RENDER_COLOUR_LIST_BACKGROUND},
+        {"list", "list_focus_background_alpha", RENDER_COLOUR_SELECTION},
+        {"list", "list_focus_text_alpha", RENDER_COLOUR_SELECTION_TEXT},
+        {"list", "list_disabled_text_alpha", RENDER_COLOUR_DISABLED},
+    };
+    for (size_t i = 0; i < sizeof alphas / sizeof alphas[0]; i++) {
+        int alpha;
+        if (strcmp(section, alphas[i].section) != 0 || strcmp(key, alphas[i].key) != 0)
+            continue;
+        if (!parse_int(value, 0, 255, &alpha)) return 1;
+        current.colour_alpha[alphas[i].colour] = (uint8_t)alpha;
+        if (alpha == 0) {
+            RenderColour colour = alphas[i].colour;
+            if (colour == RENDER_COLOUR_BACKGROUND) return 1;
+            if (colour == RENDER_COLOUR_HEADER_BACKGROUND ||
+                colour == RENDER_COLOUR_LIST_BACKGROUND ||
+                colour == RENDER_COLOUR_SELECTION ||
+                colour == RENDER_COLOUR_LEGEND_BACKGROUND) {
+                RenderColour backdrop = alpha_backdrop(colour);
+                if (current.colour_mask & COLOUR_BIT(backdrop))
+                    current.colours[colour] = current.colours[backdrop];
+                else if (parsing_base.colour_mask & COLOUR_BIT(backdrop))
+                    current.colours[colour] = parsing_base.colours[backdrop];
+                current.colour_mask |= COLOUR_BIT(colour);
+            } else if (parsing_base.colour_mask & COLOUR_BIT(colour)) {
+                current.colours[colour] = parsing_base.colours[colour];
+                current.colour_mask |= COLOUR_BIT(colour);
+            }
+        }
+        return 1;
+    }
+    return 0;
+}
 
 static char *trim(char *s) {
     while (isspace((unsigned char)*s)) s++;
@@ -43,7 +111,7 @@ static int parse_colour(const char *s, uint16_t *out) {
 
 static int colour_key(const char *key) {
     static const char *keys[RENDER_COLOUR_COUNT] = {
-        "background", "text", "selection", "selection_text", "header",
+        "background", "header_background", "list_background", "text", "selection", "selection_text", "header",
         "folder", "legend", "legend_background", "disabled"
     };
     for (int i = 0; i < RENDER_COLOUR_COUNT; i++)
@@ -52,14 +120,15 @@ static int colour_key(const char *key) {
 }
 
 static void apply_muos_line(const char *section, const char *key, const char *value) {
+    if (apply_muos_alpha(section, key, value)) return;
     static const struct { const char *section, *key; RenderColour colour; } colours[] = {
         {"background", "background", RENDER_COLOUR_BACKGROUND},
-        {"header", "header_background", RENDER_COLOUR_BACKGROUND},
+        {"header", "header_background", RENDER_COLOUR_HEADER_BACKGROUND},
         {"header", "header_text", RENDER_COLOUR_HEADER},
         {"footer", "footer_background", RENDER_COLOUR_LEGEND_BACKGROUND},
         {"footer", "footer_text", RENDER_COLOUR_LEGEND},
         {"list", "list_default_text", RENDER_COLOUR_TEXT},
-        {"list", "list_default_background", RENDER_COLOUR_BACKGROUND},
+        {"list", "list_default_background", RENDER_COLOUR_LIST_BACKGROUND},
         {"list", "list_default_glyph_recolour", RENDER_COLOUR_FOLDER},
         {"list", "list_focus_background", RENDER_COLOUR_SELECTION},
         {"list", "list_focus_text", RENDER_COLOUR_SELECTION_TEXT},
@@ -71,6 +140,7 @@ static void apply_muos_line(const char *section, const char *key, const char *va
         if (strcmp(section, colours[i].section) == 0 && strcmp(key, colours[i].key) == 0 &&
             parse_colour(value, &colour)) {
             current.colours[colours[i].colour] = colour;
+            current.colour_alpha[colours[i].colour] = 255;
             current.colour_mask |= COLOUR_BIT(colours[i].colour);
             return;
         }
@@ -92,6 +162,10 @@ static void apply_muos_line(const char *section, const char *key, const char *va
             }
         }
     }
+    if (strcmp(section, "list") == 0 && strcmp(key, "list_default_glyph_pad_left") == 0) {
+        (void)parse_int(value, 0, 64, &current.list_glyph_padding_left);
+        return;
+    }
 
     if (strcmp(section, "frogui") == 0 &&
         (strcmp(key, "font_file") == 0 || strcmp(key, "background_image") == 0)) {
@@ -108,8 +182,10 @@ static void apply_muos_line(const char *section, const char *key, const char *va
     }
 
     if (strcmp(section, "frogui") == 0 && strcmp(key, "home_layout") == 0) {
-        current.home_layout = strcmp(value, "switch") == 0
-                            ? RENDER_HOME_SWITCH : RENDER_HOME_DEFAULT;
+        current.home_layout = strcmp(value, "switch") == 0 ? RENDER_HOME_SWITCH :
+                              strcmp(value, "catos") == 0 ? RENDER_HOME_CATOS :
+                              strcmp(value, "vertical") == 0 ? RENDER_HOME_VERTICAL :
+                              RENDER_HOME_DEFAULT;
         return;
     }
 
@@ -128,6 +204,18 @@ static void apply_muos_line(const char *section, const char *key, const char *va
         field = &current.horizontal_padding; min = 0; max = 64;
     } else if (strcmp(section, "misc") == 0 && strcmp(key, "content_padding_top") == 0) {
         field = &current.content_top; min = 0; max = 120;
+    } else if (strcmp(section, "misc") == 0 && strcmp(key, "content_width") == 0) {
+        field = &current.content_width; min = 0; max = 640;
+    } else if (strcmp(section, "misc") == 0 && strcmp(key, "content_height") == 0) {
+        field = &current.content_height; min = 0; max = 480;
+    } else if (strcmp(section, "misc") == 0 && strcmp(key, "content_alignment") == 0) {
+        field = &current.content_alignment; min = 0; max = 2;
+    } else if (strcmp(section, "font") == 0 && strcmp(key, "font_list_pad_left") == 0) {
+        field = &current.list_padding_left; min = 0; max = 64;
+    } else if (strcmp(section, "font") == 0 && strcmp(key, "font_list_pad_top") == 0) {
+        field = &current.list_padding_top; min = 0; max = 64;
+    } else if (strcmp(section, "font") == 0 && strcmp(key, "font_list_pad_bottom") == 0) {
+        field = &current.list_padding_bottom; min = 0; max = 64;
     } else if (strcmp(section, "list") == 0 && strcmp(key, "list_focus_radius") == 0) {
         field = &current.selected_radius; min = 0; max = 32;
     } else if (strcmp(section, "grid") == 0 && strcmp(key, "column_count") == 0) {
@@ -153,14 +241,19 @@ static void apply_muos_line(const char *section, const char *key, const char *va
 static void apply_line(const char *section, char *key, char *value) {
     static const char *geometry[] = {
         "header_height", "row_height", "horizontal_padding", "content_top",
+        "content_width", "content_height", "content_alignment",
+        "list_padding_left", "list_glyph_padding_left", "list_padding_top", "list_padding_bottom",
         "legend_height", "selected_radius",
         "thumbnail_width", "thumbnail_height"
     };
-    static const int minimum[] = { 1, 1, 0, 0, 1, 0, 1, 1 };
-    static const int maximum[] = { 80, 100, 64, 120, 80, 32, 512, 512 };
+    static const int minimum[] = { 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1 };
+    static const int maximum[] = { 80, 100, 64, 120, 640, 480, 2, 64, 64, 64, 64, 80, 32, 512, 512 };
     int *fields[] = {
         &current.header_height, &current.row_height, &current.horizontal_padding,
-        &current.content_top, &current.legend_height, &current.selected_radius,
+        &current.content_top, &current.content_width, &current.content_height,
+        &current.content_alignment, &current.list_padding_left, &current.list_glyph_padding_left,
+        &current.list_padding_top,
+        &current.list_padding_bottom, &current.legend_height, &current.selected_radius,
         &current.thumbnail_width, &current.thumbnail_height
     };
     if (strcmp(section, "renderer") == 0) {
@@ -174,6 +267,7 @@ static void apply_line(const char *section, char *key, char *value) {
         uint16_t colour;
         if (i >= 0 && parse_colour(value, &colour)) {
             current.colours[i] = colour;
+            current.colour_alpha[i] = 255;
             current.colour_mask |= COLOUR_BIT(i);
         }
     }
@@ -187,9 +281,10 @@ static void lowercase(char *s) {
 static void parse_scheme(FILE *file) {
     char line[SCHEME_LINE_MAX], section[32] = "";
     size_t total = 0;
+    parsing_base = current;
     while (fgets(line, sizeof line, file)) {
         total += strlen(line);
-        if (total > 4096) return;
+        if (total > 8192) return;
         if (!strchr(line, '\n') && !feof(file)) {
             int c;
             while ((c = fgetc(file)) != '\n' && c != EOF) {}
@@ -233,12 +328,31 @@ static void load_file(const char *name) {
     fclose(file);
 }
 
+static void load_screen_file(const char *name) {
+    char path[256];
+    const char *theme = current.scheme_name[0] ? current.scheme_name : current.style_name;
+    if (!valid_style_name(theme) || !valid_style_name(name)) return;
+    int n = snprintf(path, sizeof path,
+                     "/mnt/sdcard/frogui/schemes/%s/640x480/scheme/%s.ini", theme, name);
+    FILE *file = n >= 0 && (size_t)n < sizeof path ? fopen(path, "r") : NULL;
+    if (!file) {
+        n = snprintf(path, sizeof path, "schemes/%s/640x480/scheme/%s.ini", theme, name);
+        if (n >= 0 && (size_t)n < sizeof path) file = fopen(path, "r");
+    }
+    if (!file) return;
+    parse_scheme(file);
+    fclose(file);
+}
+
 void render_theme_load(const char *style_name, const char *scheme_name) {
     memset(&current, 0, sizeof current);
     current.header_height = 30;
     current.row_height = 32;
     current.horizontal_padding = 16;
     current.content_top = 40;
+    current.content_width = 0;
+    current.content_height = 0;
+    current.content_alignment = 0;
     current.legend_height = 26;
     current.selected_radius = 6;
     current.thumbnail_width = 250;
@@ -249,6 +363,8 @@ void render_theme_load(const char *style_name, const char *scheme_name) {
     current.grid_row_gap = 8;
     current.grid_cell_radius = 10;
     current.grid_image_padding_top = 5;
+    current.list_padding_left = 35;
+    current.list_glyph_padding_left = 5;
     if (style_name) snprintf(current.style_name, sizeof current.style_name, "%s", style_name);
     if (style_name && strcmp(style_name, "prominimal") == 0)
         current.selected_radius = 5;
@@ -257,6 +373,21 @@ void render_theme_load(const char *style_name, const char *scheme_name) {
         snprintf(current.scheme_name, sizeof current.scheme_name, "%s", scheme_name);
         load_file(scheme_name);
     }
+    base_theme = current;
+    active_screen = -1;
+    render_theme_set_screen(RENDER_SCREEN_BROWSER);
+}
+
+void render_theme_set_screen(RenderThemeScreen screen) {
+    static const char *const screen_files[] = {
+        "muxplore", "muxlaunch", "muxplore", "default", "default"
+    };
+    if (screen < RENDER_SCREEN_BROWSER || screen > RENDER_SCREEN_SETTINGS)
+        screen = RENDER_SCREEN_BROWSER;
+    if ((int)screen == active_screen) return;
+    active_screen = screen;
+    current = base_theme;
+    load_screen_file(screen_files[screen]);
 }
 
 const RenderTheme *render_theme_current(void) { return &current; }
@@ -276,6 +407,12 @@ uint16_t render_theme_colour(RenderColour colour, uint16_t palette_default) {
     if (colour < 0 || colour >= RENDER_COLOUR_COUNT ||
         !(current.colour_mask & COLOUR_BIT(colour))) return palette_default;
     return current.colours[colour];
+}
+
+uint8_t render_theme_colour_alpha(RenderColour colour) {
+    return colour < 0 || colour >= RENDER_COLOUR_COUNT ||
+           !(current.colour_mask & COLOUR_BIT(colour))
+         ? 255 : current.colour_alpha[colour];
 }
 
 uint16_t render_theme_grid_colour(RenderGridColour colour, uint16_t default_colour) {

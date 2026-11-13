@@ -102,6 +102,7 @@ static bool port_migration_current_ok;
 #define FROGSHELL_CORE CORES_PATH "/frogshell_libretro.so" /* file manager via picoarch */
 #define USB_MODE_BIN SDCARD_BASE "/cubegm/usb_mtp.sh"  /* expose the SD card to a USB host */
 #define SHUTDOWN_BIN SDCARD_BASE "/cubegm/shutdown.sh"  /* power off the console */
+#define REBOOT_BIN   "/sbin/reboot"
 
 /* Console → core mapping (folder name → libretro .so)
  * Folder names match /mnt/sdcard/roms/ subdirectories (gb300_multicore convention). */
@@ -832,6 +833,7 @@ static void render_scheme_scan(void) {
         char name[FONT_STR_MAX];
         memcpy(name, e->d_name, n); name[n] = '\0';
         int skip = 0;
+        if (strcasecmp(name, "Preview") == 0) skip = 1;
         for (size_t i = 0; i < sizeof layout_schemes / sizeof layout_schemes[0]; i++)
             if (strcasecmp(name, layout_schemes[i]) == 0) skip = 1;
         if (skip) continue;
@@ -844,7 +846,9 @@ static void render_scheme_scan(void) {
             if (strcasecmp(render_scheme_files[i], name) == 0) duplicate = 1;
         if (duplicate) continue;
         snprintf(render_scheme_files[render_scheme_count], FONT_STR_MAX, "%s", name);
-        snprintf(render_scheme_disp[render_scheme_count], FONT_STR_MAX, "%s", name);
+        snprintf(render_scheme_disp[render_scheme_count], FONT_STR_MAX, "%s",
+                 strcasecmp(name, "MinUIfied") == 0 ? "MinUIfied Grid" :
+                 strcasecmp(name, "MinUIfiedVertical") == 0 ? "MinUIfied Vertical" : name);
         render_scheme_count++;
     }
     closedir(dp);
@@ -1025,8 +1029,12 @@ static void font_scan(void) {
 }
 
 static bool settings_menu_active = false;
+static bool viewing_info = false;
 static int switch_home_open = 1;
 static int switch_home_index;
+static Thumbnail catos_home_normal[8], catos_home_focused;
+static bool catos_home_normal_loaded[8];
+static int catos_home_focused_index = -1;
 /* Bump this for a runtime change that alters rendered strings but not the
  * browser's directory state.  The idle renderer otherwise intentionally keeps
  * presenting its last frame. */
@@ -1051,6 +1059,7 @@ static int settings_anim = 1;           /* UI animations: 0=off, 1=on */
 static int settings_menu_sounds = 0;    /* short navigation tick: 0=off, 1=on */
 enum { STYLE_VERTICAL, STYLE_HORIZONTAL, STYLE_SYSTEM, STYLE_PROMINIMAL, STYLE_COUNT };
 static int settings_style = STYLE_VERTICAL;
+static int settings_explore_layout = STYLE_VERTICAL;
 enum { SETTINGS_LAYOUT_SECTIONS, SETTINGS_LAYOUT_FOLDER };
 static int settings_layout = SETTINGS_LAYOUT_SECTIONS;
 /* Controls decorative pills; renderers must keep selected-row pills visible. */
@@ -1118,8 +1127,45 @@ static int settings_volume = 100;       /* global output volume 0..100 → cubeg
 static int settings_rtc_bump_minutes = 0;
 static const char *filter_names[] = {"nearest", "bilinear"};
 static const char *onoff_names[] = {"off", "on"};
-static const char *style_names[STYLE_COUNT] = {"Vertical", "Horizontal", "System View", "ProMinimal"};
+enum { UI_BUILTIN_THEME_COUNT = 2 };
+static const int ui_builtin_styles[UI_BUILTIN_THEME_COUNT] = {STYLE_VERTICAL, STYLE_PROMINIMAL};
+static const char *style_names[UI_BUILTIN_THEME_COUNT] = {"TreeFrogUI", "ProMinimal"};
 static const char *style_keys[STYLE_COUNT] = {"vertical", "horizontal", "system", "prominimal"};
+static const char *style_profile_names[STYLE_COUNT] = {"Vertical", "Horizontal", "System View", "ProMinimal"};
+
+static int ui_theme_count(void) { return UI_BUILTIN_THEME_COUNT + render_scheme_count - 1; }
+static int ui_theme_index(void) {
+    if (settings_render_scheme_idx > 0)
+        return UI_BUILTIN_THEME_COUNT + settings_render_scheme_idx - 1;
+    return settings_style == STYLE_PROMINIMAL ? 1 : 0;
+}
+static const char *ui_theme_name(int index) {
+    if (index < UI_BUILTIN_THEME_COUNT) return style_names[index];
+    index -= UI_BUILTIN_THEME_COUNT;
+    return index >= 0 && index + 1 < render_scheme_count ? render_scheme_disp[index + 1] : "Vertical";
+}
+
+static void render_theme_heading(uint16_t *fb, int active, uint16_t bg,
+                                 const char *title) {
+    if (settings_render_scheme_idx == 0)
+        render_tabs(fb, active, bg);
+    else if (title)
+        render_header(fb, title);
+}
+
+static void ui_theme_select(int index) {
+    if (index < UI_BUILTIN_THEME_COUNT) {
+        settings_style = ui_builtin_styles[index];
+        settings_render_scheme_idx = 0;
+    } else {
+        settings_style = STYLE_VERTICAL;
+        settings_render_scheme_idx = index - UI_BUILTIN_THEME_COUNT + 1;
+        const char *scheme = render_scheme_files[settings_render_scheme_idx];
+        if (strcasecmp(scheme, "MinUIfied") == 0 ||
+            strcasecmp(scheme, "MinUIfiedVertical") == 0)
+            settings_explore_layout = STYLE_VERTICAL;
+    }
+}
 static const char *settings_layout_names[] = {"Sections", "Folders"};
 static const char *settings_layout_keys[] = {"sections", "folder"};
 #define FILTER_COUNT 2
@@ -1130,7 +1176,7 @@ static const char *settings_layout_keys[] = {"sections", "folder"};
  * options. Adding, reordering, or grouping = just editing this table; the nav,
  * adjust, and render code all iterate it. TOGGLE/RANGE point at their int; THEME
  * and FONT are special (dynamic option lists); ACTION opens the remap wizard. */
-typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_THEME, RT_RENDER_SCHEME, RT_STYLE, RT_SETTINGS_LAYOUT, RT_FONT, RT_WALLPAPER,
+typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_UI_THEME, RT_SETTINGS_LAYOUT, RT_FONT, RT_WALLPAPER,
                RT_WALLFIT, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
                RT_CACHE_REBUILD, RT_ACTION, RT_OPEN_APPS, RT_LANGUAGE, RT_RTC_TIME, RT_RTC_SYNC } SRowType;
 typedef struct {
@@ -1141,7 +1187,7 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "settings.appearance" }, { RT_THEME, "settings.theme" }, { RT_RENDER_SCHEME, "UI theme scheme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_STYLE, "settings.style" }, { RT_SETTINGS_LAYOUT, "Settings style" }, { RT_TOGGLE, "Decorative pills", &settings_pillboxes }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.appearance" }, { RT_UI_THEME, "UI theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_SETTINGS_LAYOUT, "Settings style" }, { RT_TOGGLE, "Decorative pills", &settings_pillboxes }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_TOGGLE, "Apps in Settings", &settings_apps_in_settings }, { RT_OPEN_APPS, "Open Apps" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "Rounded recents screenshots", &settings_rounded_screenshots }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
@@ -1155,6 +1201,10 @@ static bool otg_roms_available(void);
  * but cannot be changed until its prerequisite is enabled. */
 static bool settings_row_enabled(const SRow *r) {
     if (!r) return false;
+    if (settings_render_scheme_idx > 0 &&
+        (r->type == RT_THEME_PACK || r->type == RT_WALLPAPER || r->type == RT_WALLFIT ||
+         (r->type == RT_TOGGLE && r->val == &settings_backgrounds) ||
+         (r->type == RT_RANGE && r->val == &settings_background_dim))) return false;
     if (r->type == RT_THEME_PACK) return settings_backgrounds != 0;
     if (r->type == RT_ICON_PACK) return settings_style == STYLE_SYSTEM;
     return true;
@@ -1205,9 +1255,14 @@ static void settings_apply_style_defaults(void) {
     render_theme_load(style_keys[settings_style],
                       settings_render_scheme_idx > 0 && settings_render_scheme_idx < render_scheme_count
                           ? render_scheme_files[settings_render_scheme_idx] : NULL);
-    switch_home_open = render_theme_current()->home_layout == RENDER_HOME_SWITCH;
+    banner_set_dim(settings_render_scheme_idx == 0 ? settings_background_dim : 0);
+    switch_home_open = render_theme_current()->home_layout != RENDER_HOME_DEFAULT;
     switch_home_index = 0;
-    theme_profile_load(style_names[settings_style], &profile);
+    const char *profile_name = style_profile_names[settings_style];
+    if (settings_render_scheme_idx > 0 && settings_render_scheme_idx < render_scheme_count)
+        profile_name = render_scheme_files[settings_render_scheme_idx];
+    if (!theme_profile_load(profile_name, &profile) && settings_render_scheme_idx > 0)
+        theme_profile_load(style_profile_names[settings_style], &profile);
     int ignore = profile.has_ignore_overrides && profile.ignore_overrides;
 #define APPLY_STYLE_VALUE(target, bit, field, present, value, fallback) \
     do { \
@@ -1522,7 +1577,7 @@ static void settings_apply(void) {
      * shows the right brightness instead of flashing its stored default. */
     cube_pmem_backlight_sync(settings_brightness);
     banner_set_anim(settings_anim);
-    banner_set_dim(settings_background_dim);
+    banner_set_dim(settings_render_scheme_idx == 0 ? settings_background_dim : 0);
     /* Global output volume: there's no system mixer on this hardware, so every
      * frontend (picoarch, pcsx4all, lgpt) reads this percent from sndgain.txt and
      * scales its own audio. FrogUI is the single place to set it. */
@@ -1570,15 +1625,7 @@ static void settings_save_file(void);
 static void settings_preview_row(const SRow *r) {
     if (!r) return;
     switch (r->type) {
-    case RT_THEME:
-        theme_apply(settings_theme_idx);
-        theme_sync_artwork_pack();
-        break;
-    case RT_RENDER_SCHEME:
-        settings_apply_style_defaults();
-        banner_clear();
-        break;
-    case RT_STYLE:
+    case RT_UI_THEME:
     {
         int selected_row = settings_menu_idx;
         int selected_section = -1;
@@ -1604,7 +1651,7 @@ static void settings_preview_row(const SRow *r) {
         else if (r->val == &settings_brightness)
             cube_set_backlight(settings_brightness);
         else if (r->val == &settings_background_dim)
-            banner_set_dim(settings_background_dim);
+            banner_set_dim(settings_render_scheme_idx == 0 ? settings_background_dim : 0);
         else if (r->val == &settings_volume) {
             /* Live on EVERY step: the hardware mirror makes the change
              * audible immediately, and the debounced commit keeps the
@@ -1648,6 +1695,7 @@ static void settings_load_file(void) {
             if (strcmp(val, "Horizontal") == 0) {
                 settings_theme_idx = 0;
                 settings_style = STYLE_HORIZONTAL;
+                settings_explore_layout = STYLE_HORIZONTAL;
                 settings_friendly_names = 1;
             } else {
                 for (int i = 0; i < theme_count; i++)
@@ -1698,12 +1746,32 @@ static void settings_load_file(void) {
             settings_menu_sounds = (strcmp(val, "on") == 0) ? 1 : 0;
         } else if (strcmp(line, "style") == 0) {
             for (int i = 0; i < STYLE_COUNT; i++)
-                if (strcasecmp(val, style_keys[i]) == 0) { settings_style = i; break; }
+                if (strcasecmp(val, style_keys[i]) == 0) {
+                    settings_style = i;
+                    if (i <= STYLE_SYSTEM) settings_explore_layout = i;
+                    break;
+                }
+        } else if (strcmp(line, "explore_layout") == 0) {
+            for (int i = 0; i <= STYLE_SYSTEM; i++)
+                if (strcasecmp(val, style_keys[i]) == 0) {
+                    settings_explore_layout = i;
+                    break;
+                }
         } else if (strcmp(line, "renderer_scheme") == 0) {
             settings_render_scheme_idx = 0;
             for (int i = 1; i < render_scheme_count; i++)
                 if (strcasecmp(val, render_scheme_files[i]) == 0)
                     settings_render_scheme_idx = i;
+        } else if (strcmp(line, "ui_theme") == 0) {
+            for (int i = 0; i < STYLE_COUNT; i++)
+                if (strcasecmp(val, style_keys[i]) == 0) {
+                    settings_style = i;
+                    settings_render_scheme_idx = 0;
+                    break;
+                }
+            for (int i = 1; i < render_scheme_count; i++)
+                if (strcasecmp(val, render_scheme_files[i]) == 0)
+                    ui_theme_select(UI_BUILTIN_THEME_COUNT + i - 1);
         } else if (strcmp(line, "settings_layout") == 0) {
             frogui_settings_layout_set(val);
         } else if (strcmp(line, "pillboxes") == 0) {
@@ -1715,6 +1783,7 @@ static void settings_load_file(void) {
              * user's carousel labels looked. */
             settings_style = (strcmp(val, "on") == 0)
                            ? STYLE_HORIZONTAL : STYLE_VERTICAL;
+            settings_explore_layout = settings_style;
             if (settings_style == STYLE_HORIZONTAL)
                 settings_friendly_names = 1;
         } else if (strcmp(line, "friendly_system_names") == 0) {
@@ -1916,10 +1985,10 @@ static void settings_save_file(void) {
     fprintf(f, "custom_aspect_ratios=%s\n", onoff_names[settings_custom_aspect_ratios]);
     fprintf(f, "animations=%s\n", onoff_names[settings_anim]);
     fprintf(f, "menu_sounds=%s\n", onoff_names[settings_menu_sounds]);
-    fprintf(f, "style=%s\n", style_keys[settings_style]);
-    fprintf(f, "renderer_scheme=%s\n", settings_render_scheme_idx > 0 &&
+    fprintf(f, "ui_theme=%s\n", settings_render_scheme_idx > 0 &&
             settings_render_scheme_idx < render_scheme_count
-                ? render_scheme_files[settings_render_scheme_idx] : "default");
+                ? render_scheme_files[settings_render_scheme_idx] : style_keys[settings_style]);
+    fprintf(f, "explore_layout=%s\n", style_keys[settings_explore_layout]);
     fprintf(f, "settings_layout=%s\n", settings_layout_keys[settings_layout]);
     fprintf(f, "pillboxes=%s\n", onoff_names[settings_pillboxes]);
     fprintf(f, "center_text=%s\n", onoff_names[settings_center_text]);
@@ -2122,7 +2191,25 @@ static const char *system_display_name(const char *folder) {
 #define BANNER_DIR SDCARD_BASE "/frogui"
 
 static void load_banner_for_view(const char *path, bool is_recents, bool is_favourites) {
-    if (!settings_backgrounds) { banner_clear(); return; }   /* solid theme bg */
+    if (settings_render_scheme_idx > 0) {
+        char theme_background[512];
+        if (render_theme_background(theme_background, sizeof theme_background) &&
+            access(theme_background, R_OK) == 0) {
+            banner_load_fit(theme_background, BANNER_FIT_FILL, COLOR_BG);
+            return;
+        }
+        if (render_theme_asset_path(theme_background, sizeof theme_background,
+                                    "640x480/image/wall/default.png")) {
+            banner_load_fit(theme_background, BANNER_FIT_FILL, COLOR_BG);
+            return;
+        }
+        banner_clear();
+        return;
+    }
+    if (!settings_backgrounds) {
+        banner_clear();
+        return;
+    }
     /* Single wallpaper (if picked): same image in every view, overrides the
      * per-system art. */
     if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
@@ -2247,7 +2334,7 @@ static int is_banner_image(const char *name) {
 
 static int prefetch_last_bg = -1, prefetch_last_wp = -1;
 static int prefetch_last_wpfit = -1, prefetch_last_pack = -1;
-static int prefetch_last_dim = -1, prefetch_last_theme = -1;
+static int prefetch_last_dim = -1, prefetch_last_theme = -1, prefetch_last_renderer = -1;
 
 static void prefetch_banner_directory(const char *directory) {
     DIR *dp = opendir(directory);
@@ -2266,6 +2353,13 @@ static void prefetch_banner_directory(const char *directory) {
 
 static void prefetch_active_theme(void) {
     banner_prefetch_clear();
+    if (settings_render_scheme_idx > 0) {
+        char path[512];
+        if (render_theme_background(path, sizeof path) ||
+            render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png"))
+            banner_prefetch(path, BANNER_FIT_FILL, COLOR_BG);
+        return;
+    }
     if (!settings_backgrounds) return;
     if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
         char path[512];
@@ -2737,13 +2831,14 @@ static void switcher_blit_rgb_rounded(uint16_t *fb, const unsigned char *src,
 
 static void render_game_switcher_header(uint16_t *framebuffer, int barh) {
     render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, barh, COLOR_LEGEND_BG);
-    render_tabs(framebuffer, MAIN_TAB_RECENTS, COLOR_LEGEND_BG);
+    render_theme_heading(framebuffer, MAIN_TAB_RECENTS, COLOR_LEGEND_BG,
+                         "RECENT GAMES");
 }
 
 static void render_game_switcher(uint16_t *framebuffer) {
     const RecentGame *list = recent_games_get_list();
     int n = recent_games_get_count();
-    int barh = UI_S(30);
+    int barh = HEADER_HEIGHT;
     if (n <= 0) {
         render_game_switcher_header(framebuffer, barh);
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, SCREEN_HEIGHT/2,
@@ -3209,26 +3304,27 @@ static void activity_draw_title(uint16_t *fb, const char *text, int x, int y,
 static void render_activity_page(uint16_t *fb) {
     if (!fb) return;
     render_fill_rect(fb, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_BG);
-    render_tabs(fb, MAIN_TAB_APPS, COLOR_BG);
+    render_theme_heading(fb, MAIN_TAB_APPS, COLOR_BG, NULL);
     long total = 0, runs = 0;
     for (int i = 0; i < activity_count; i++) { total += activity_seconds[i]; runs += activity_runs[i]; }
     char summary[128];
     snprintf(summary, sizeof summary, "%d GAMES   %ld RUNS   %ldH %02ldM TOTAL",
              activity_count, runs, total / 3600, (total % 3600) / 60);
-    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, UI_S(48), "PLAY ACTIVITY", COLOR_HEADER);
-    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, UI_S(70), summary, COLOR_TEXT);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, START_Y, "PLAY ACTIVITY", COLOR_HEADER);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, START_Y + ITEM_HEIGHT, summary, COLOR_TEXT);
     if (activity_count <= 0) {
-        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, UI_S(125),
+        font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, START_Y + ITEM_HEIGHT * 3,
                        "Play a game to start your activity history.", COLOR_TEXT);
         return;
     }
     long max_seconds = 1;
     for (int i = 0; i < activity_count; i++) if (activity_seconds[i] > max_seconds) max_seconds = activity_seconds[i];
     int row_h = UI_S(54), first = scroll_offset;
-    int visible = (SCREEN_HEIGHT - UI_S(92) - UI_S(34)) / row_h;
+    int list_y = START_Y + ITEM_HEIGHT * 2;
+    int visible = (SCREEN_HEIGHT - list_y - UI_S(34)) / row_h;
     if (visible < 1) visible = 1;
     for (int n = 0; n < visible && first + n < activity_count; n++) {
-        int i = first + n, y = UI_S(94) + n * row_h;
+        int i = first + n, y = list_y + n * row_h;
         if (i == selected_index) render_fill_rect(fb, 0, y - UI_S(4), SCREEN_WIDTH, row_h - UI_S(4), COLOR_LEGEND_BG);
         const char *base = strrchr(activity_paths[i], '/'); base = base ? base + 1 : activity_paths[i];
         char name[96]; strncpy(name, base, sizeof name - 1); name[sizeof name - 1] = '\0';
@@ -3282,6 +3378,7 @@ static const AppEntry app_defs[] = {
     {"videos", "app.videos", "Videos", "videos", "video", NULL},
     {"music", "app.music_mp3", "Music / MP3", "music", "audio", NULL},
     {"rockbox", "app.rockbox", "Rockbox", "rockbox", NULL, NULL},
+    {"reboot", "app.reboot", "Reboot", NULL, NULL, REBOOT_BIN},
     {"shutdown", "app.shutdown", "Shutdown", NULL, NULL, SHUTDOWN_BIN},
 };
 
@@ -3434,7 +3531,7 @@ static void switch_main_tab(int target) {
         apps_browsing = false;
         viewing_activity = false;
         viewing_search = false;
-        switch_home_open = render_theme_current()->home_layout == RENDER_HOME_SWITCH;
+        switch_home_open = render_theme_current()->home_layout != RENDER_HOME_DEFAULT;
         strncpy(current_path, ROMS_PATH, MAX_PATH_LEN - 1);
         current_path[MAX_PATH_LEN - 1] = '\0';
         if (!restore_games_tab_entries())
@@ -4234,15 +4331,8 @@ static void handle_settings_menu(void) {
         int delta = right ? 1 : -1;
         const SRow *r = &settings_rows[settings_menu_idx];
         switch (r->type) {
-        case RT_THEME:
-            settings_theme_idx = (settings_theme_idx + delta + theme_count) % theme_count;
-            break;
-        case RT_RENDER_SCHEME:
-            settings_render_scheme_idx =
-                (settings_render_scheme_idx + delta + render_scheme_count) % render_scheme_count;
-            break;
-        case RT_STYLE:
-            settings_style = (settings_style + delta + STYLE_COUNT) % STYLE_COUNT;
+        case RT_UI_THEME:
+            ui_theme_select((ui_theme_index() + delta + ui_theme_count()) % ui_theme_count());
             break;
         case RT_SETTINGS_LAYOUT:
             /* This is a two-state presentation choice; use the initial key
@@ -4394,14 +4484,14 @@ static void handle_settings_menu(void) {
 }
 
 static bool horizontal_system_view(void) {
-    return settings_style == STYLE_HORIZONTAL &&
+    return settings_explore_layout == STYLE_HORIZONTAL &&
            strcmp(current_path, ROMS_PATH) == 0 &&
            !viewing_recents && !viewing_favourites && !viewing_apps &&
            !apps_browsing && !viewing_search;
 }
 
 static bool icon_system_view(void) {
-    return settings_style == STYLE_SYSTEM &&
+    return settings_explore_layout == STYLE_SYSTEM &&
            strcmp(current_path, ROMS_PATH) == 0 &&
            !viewing_recents && !viewing_favourites && !viewing_apps &&
            !apps_browsing && !viewing_search;
@@ -4410,28 +4500,195 @@ static bool icon_system_view(void) {
 static bool browser_grid_view(void) {
     const RenderTheme *theme = render_theme_current();
     return theme->grid_columns > 0 && theme->grid_rows > 0 &&
+           strcmp(current_path, ROMS_PATH) != 0 &&
            !settings_menu_active && !viewing_recents && !viewing_favourites &&
            !viewing_apps && !apps_browsing && !viewing_search && !viewing_activity;
 }
 
 static bool switch_home_view(void) {
     return switch_home_open &&
-           render_theme_current()->home_layout == RENDER_HOME_SWITCH &&
+           render_theme_current()->home_layout != RENDER_HOME_DEFAULT &&
            !settings_menu_active && !viewing_recents && !viewing_favourites &&
            !viewing_apps && !apps_browsing && !viewing_activity && !viewing_search &&
+           !viewing_info &&
            strcmp(current_path, ROMS_PATH) == 0;
 }
 
+static bool switch_home_artbook(void) {
+    return strcmp(render_theme_current()->scheme_name, "ArtBookNext") == 0;
+}
+
+static bool switch_home_fullscreen_art(void) {
+    char path[512];
+    return render_theme_asset_path(path, sizeof path,
+        "640x480/image/wall/muxlaunch/explore.png") ||
+        render_theme_asset_path(path, sizeof path,
+        "640x480/image/static/muxlaunch/explore.png");
+}
+
+static bool switch_home_catos(void) {
+    return render_theme_current()->home_layout == RENDER_HOME_CATOS;
+}
+
+static bool switch_home_vertical(void) {
+    return render_theme_current()->home_layout == RENDER_HOME_VERTICAL;
+}
+
+static bool switch_home_has_reboot(void) {
+    return access(REBOOT_BIN, X_OK) == 0;
+}
+
+static bool switch_home_has_shutdown(void) {
+    const char *device = getenv("TF_DEVICE");
+    return (!device || strcasecmp(device, "SF3000") != 0) &&
+           access(SHUTDOWN_BIN, X_OK) == 0;
+}
+
+static int load_thumbnail_copy(const char *path_without_extension, Thumbnail *copy) {
+    Thumbnail loaded = {0};
+    if (!load_thumbnail(path_without_extension, &loaded)) return 0;
+    size_t pixels = (size_t)loaded.width * (size_t)loaded.height;
+    copy->data = malloc(pixels * sizeof(*copy->data));
+    copy->alpha = loaded.alpha ? malloc(pixels) : NULL;
+    if (!copy->data || (loaded.alpha && !copy->alpha)) {
+        free(copy->data);
+        free((void *)copy->alpha);
+        memset(copy, 0, sizeof(*copy));
+        return 0;
+    }
+    memcpy(copy->data, loaded.data, pixels * sizeof(*copy->data));
+    if (loaded.alpha) memcpy((void *)copy->alpha, loaded.alpha, pixels);
+    copy->width = loaded.width;
+    copy->height = loaded.height;
+    return 1;
+}
+
+static void free_thumbnail_copy(Thumbnail *copy) {
+    if (!copy) return;
+    free(copy->data);
+    free((void *)copy->alpha);
+    memset(copy, 0, sizeof(*copy));
+}
+
+static int switch_home_item_count(void) {
+    if (switch_home_artbook()) return 5;
+    return 6 + (switch_home_has_reboot() ? 1 : 0) +
+           (switch_home_has_shutdown() ? 1 : 0);
+}
+
 static void render_switch_home(uint16_t *fb) {
-    static const char *images[] = {"explore", "collection", "history", "apps"};
-    static const char *labels[] = {"Games", "Collection", "History", "Apps"};
-    char relative[128], path[512], clock_text[16], battery_name[64];
+    static const char *switch_images[] = {"explore", "favourite", "history", "apps", "info", "config", "reboot", "shutdown"};
+    static const char *switch_labels[] = {"Games", "Favourites", "History", "Apps", "Info", "Settings", "Reboot", "Shutdown"};
+    static const char *artbook_images[] = {"explore", "favourite", "history", "apps", "settings"};
+    static const char *artbook_labels[] = {"Explore Content", "Favourites", "History", "Apps", "Configuration"};
+    bool artbook = switch_home_artbook();
+    const char **images = artbook ? artbook_images : switch_images;
+    const char **labels = artbook ? artbook_labels : switch_labels;
+    if (switch_home_index >= switch_home_item_count()) switch_home_index = 0;
+    char relative[128], path[512], clock_text[16];
     time_t now = time(NULL);
     struct tm local;
     if (localtime_r(&now, &local)) strftime(clock_text, sizeof clock_text, "%H:%M", &local);
     else strcpy(clock_text, "--:--");
 
     render_clear_screen(fb);
+    if (switch_home_catos()) {
+        static const char *images[] = {
+            "explore", "collection", "history", "apps",
+            "info", "config", "reboot", "shutdown"
+        };
+        if (render_theme_asset_path(path, sizeof path,
+                                    "640x480/image/wall/muxlaunch.png"))
+            (void)render_theme_canvas(fb, path);
+        int cols = 4, margin = UI_S(8), gap = UI_S(8);
+        int cell_w = (SCREEN_WIDTH - margin * 2 - gap * (cols - 1)) / cols;
+        int top = UI_S(52), bottom = SCREEN_HEIGHT - UI_S(34);
+        int cell_h = (bottom - top - gap) / 2;
+        for (int i = 0; i < switch_home_item_count(); ++i) {
+            int x = margin + (i % cols) * (cell_w + gap);
+            int y = top + (i / cols) * (cell_h + gap);
+            Thumbnail *icon = NULL;
+            if (i == switch_home_index) {
+                if (catos_home_focused_index != i) {
+                    free_thumbnail_copy(&catos_home_focused);
+                    catos_home_focused_index = -1;
+                    snprintf(relative, sizeof relative,
+                             "640x480/image/grid/muxlaunch/%s_focused.png", images[i]);
+                    if (render_theme_asset_path(path, sizeof path, relative)) {
+                        char *extension = strrchr(path, '.');
+                        if (extension) *extension = '\0';
+                        if (load_thumbnail_copy(path, &catos_home_focused))
+                            catos_home_focused_index = i;
+                    }
+                }
+                if (catos_home_focused_index == i) icon = &catos_home_focused;
+            } else {
+                if (!catos_home_normal_loaded[i]) {
+                    snprintf(relative, sizeof relative,
+                             "640x480/image/grid/muxlaunch/%s.png", images[i]);
+                    if (render_theme_asset_path(path, sizeof path, relative)) {
+                        char *extension = strrchr(path, '.');
+                        if (extension) *extension = '\0';
+                        catos_home_normal_loaded[i] =
+                            load_thumbnail_copy(path, &catos_home_normal[i]) != 0;
+                    }
+                }
+                if (catos_home_normal_loaded[i]) icon = &catos_home_normal[i];
+            }
+            if (icon) render_thumbnail_contained(fb, icon, x, y, cell_w, cell_h);
+        }
+        render_battery_colors(fb, frogui_battery_pct(),
+            render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG),
+            render_theme_colour(RENDER_COLOUR_HEADER, COLOR_HEADER));
+        return;
+    }
+    if (switch_home_vertical()) {
+        render_theme_heading(fb, MAIN_TAB_GAMES, COLOR_BG, "MAIN MENU");
+        int visible = VISIBLE_ENTRIES > 0 ? VISIBLE_ENTRIES : 1;
+        int first = switch_home_index >= visible
+                  ? switch_home_index - visible + 1 : 0;
+        int last = first + visible;
+        if (last > switch_home_item_count()) last = switch_home_item_count();
+        for (int i = first; i < last; i++) {
+            int y = START_Y + UI_S(render_theme_current()->list_padding_top) +
+                    (i - first) * ITEM_HEIGHT;
+            render_menu_row(fb, labels[i], 1, i == switch_home_index, 0, y, y);
+        }
+        render_scroll_indicator(fb, switch_home_item_count(), switch_home_index,
+                                visible);
+        render_legend(fb, LEGEND_X_NONE, 0, 0);
+        return;
+    }
+    if (switch_home_fullscreen_art()) {
+        const char *image_root = render_theme_asset_path(path, sizeof path,
+            "640x480/image/wall/muxlaunch/explore.png")
+            ? "wall" : "static";
+        snprintf(relative, sizeof relative,
+                 "640x480/image/%s/muxlaunch/%s.png", image_root,
+                 images[switch_home_index]);
+        if (render_theme_asset_path(path, sizeof path, relative) &&
+            render_theme_canvas(fb, path)) {
+            render_battery_colors(fb, frogui_battery_pct(),
+                render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG),
+                render_theme_colour(RENDER_COLOUR_HEADER, COLOR_HEADER));
+            return;
+        }
+        if (switch_home_index == 1) {
+            static const char *favourite_aliases[] = {"favourites", "collection"};
+            for (size_t i = 0; i < sizeof favourite_aliases / sizeof favourite_aliases[0]; i++) {
+                snprintf(relative, sizeof relative,
+                         "640x480/image/%s/muxlaunch/%s.png", image_root,
+                         favourite_aliases[i]);
+                if (render_theme_asset_path(path, sizeof path, relative) &&
+                    render_theme_canvas(fb, path)) {
+                    render_battery_colors(fb, frogui_battery_pct(),
+                        render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG),
+                        render_theme_colour(RENDER_COLOUR_HEADER, COLOR_HEADER));
+                    return;
+                }
+            }
+        }
+    }
     if (render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png"))
         (void)render_theme_canvas(fb, path);
     snprintf(relative, sizeof relative,
@@ -4452,29 +4709,38 @@ static void render_switch_home(uint16_t *fb) {
                    labels[switch_home_index], COLOR_TEXT);
     font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, 12 * scale,
                    SCREEN_HEIGHT - 30 * scale, "A  Select", COLOR_TEXT);
-    int pct = frogui_battery_pct();
-    if (pct < 0) pct = 0;
-    else pct = ((pct + 5) / 10) * 10;
-    if (pct > 100) pct = 100;
-    snprintf(battery_name, sizeof battery_name,
-             "glyph/header/capacity%s_%d.png",
-             frogui_battery_charging() ? "_charging" : "", pct);
-    if (render_theme_asset_path(path, sizeof path, battery_name)) {
-        Thumbnail battery = {0};
-        int canvas_left = (SCREEN_WIDTH - 640 * scale) / 2;
-        char *extension = strrchr(path, '.');
-        if (extension) *extension = '\0';
-        if (load_thumbnail(path, &battery)) {
-            render_thumbnail_contained(fb, &battery, canvas_left + 600 * scale,
-                                       10 * scale, 32 * scale, 20 * scale);
-            free_thumbnail(&battery);
-        }
-        if (extension) *extension = '.';
-    }
+    render_battery_colors(fb, frogui_battery_pct(),
+        render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG),
+        render_theme_colour(RENDER_COLOUR_HEADER, COLOR_HEADER));
+}
+
+static void render_switch_info(uint16_t *fb) {
+    char line[128];
+    const char *device = getenv("TF_DEVICE");
+    const char *theme = render_theme_current()->scheme_name[0]
+                      ? render_theme_current()->scheme_name : "TreeFrogUI";
+    render_clear_screen(fb);
+    render_header(fb, "SYSTEM INFORMATION");
+    int x = CONTENT_X + UI_S(24);
+    int y = HEADER_HEIGHT + UI_S(24);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, "TreeFrogUI", COLOR_HEADER, 1);
+    y += UI_S(42);
+    snprintf(line, sizeof line, "Device: %s", device && *device ? device : "Unknown");
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, line, COLOR_TEXT);
+    y += ITEM_HEIGHT;
+    snprintf(line, sizeof line, "Display: %d x %d", SCREEN_WIDTH, SCREEN_HEIGHT);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, line, COLOR_TEXT);
+    y += ITEM_HEIGHT;
+    snprintf(line, sizeof line, "Theme: %s", theme);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, line, COLOR_TEXT);
+    y += ITEM_HEIGHT;
+    snprintf(line, sizeof line, "Build: %s", __DATE__);
+    font_draw_text(fb, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, line, COLOR_TEXT);
+    render_legend(fb, LEGEND_X_NONE, 0, 0);
 }
 
 static bool menu_pill_view(void) {
-    return !settings_menu_active && !viewing_activity &&
+    return !settings_menu_active && !viewing_activity && !viewing_info &&
            !(viewing_recents && settings_game_switcher) &&
            !horizontal_system_view() && !icon_system_view();
 }
@@ -4719,7 +4985,7 @@ static int system_grid_marquee_active(void) {
 }
 
 static void render_system_carousel(uint16_t *fb) {
-    render_tabs(fb, MAIN_TAB_GAMES, COLOR_BG);
+    render_theme_heading(fb, MAIN_TAB_GAMES, COLOR_BG, "EXPLORE CONTENT");
     if (entry_count <= 0) {
         render_legend(fb, LEGEND_X_NONE, 0, 1);
         return;
@@ -4954,7 +5220,7 @@ static void system_icon_draw(uint16_t *fb, const SystemIcon *icon,
 }
 
 static void render_system_grid(uint16_t *fb) {
-    render_tabs(fb, MAIN_TAB_GAMES, COLOR_BG);
+    render_theme_heading(fb, MAIN_TAB_GAMES, COLOR_BG, "EXPLORE CONTENT");
     if (entry_count <= 0) {
         render_legend(fb, LEGEND_X_NONE, 0, 1);
         return;
@@ -5171,6 +5437,15 @@ static void render_browser_grid(uint16_t *fb) {
 static void handle_input(void) {
     input_update();
 
+    if (viewing_info) {
+        if (input_was_pressed(FROG_BTN_A) || input_was_pressed(FROG_BTN_B) ||
+            input_was_pressed(FROG_BTN_START)) {
+            viewing_info = false;
+            switch_home_open = true;
+        }
+        return;
+    }
+
     static bool screenshot_chord_down;
     static bool select_pending;
     static bool l1_tab_pending;
@@ -5263,17 +5538,18 @@ static void handle_input(void) {
         return;
     }
 
-    /* Top-level tabs use shoulders only. D-pad Left/Right belongs to the
-     * current view (including Vertical) and must never change tabs. */
+    /* Shoulder tab switching is part of FrogUI's built-in themes, not imported
+     * MuOS carousel schemes. */
     {
         int tab = main_tab_active();
         bool at_tabs = settings_menu_active || viewing_recents || viewing_apps || apps_browsing ||
                        (!viewing_favourites && !viewing_search &&
                         strcmp(current_path, ROMS_PATH) == 0);
-        if (input_was_pressed(FROG_BTN_L1)) l1_tab_pending = true;
-        bool prev = l1_tab_pending && !input_is_pressed(FROG_BTN_L1);
-        if (prev) l1_tab_pending = false;
-        bool next = input_was_pressed(FROG_BTN_R1);
+        bool treefrogui_tabs = settings_render_scheme_idx == 0;
+        if (treefrogui_tabs && input_was_pressed(FROG_BTN_L1)) l1_tab_pending = true;
+        bool prev = treefrogui_tabs && l1_tab_pending && !input_is_pressed(FROG_BTN_L1);
+        if (!treefrogui_tabs || prev) l1_tab_pending = false;
+        bool next = treefrogui_tabs && input_was_pressed(FROG_BTN_R1);
         if (at_tabs && prev && tab > MAIN_TAB_RECENTS) {
             int target = tab - 1;
             if (settings_apps_in_settings && target == MAIN_TAB_APPS) target--;
@@ -5289,17 +5565,48 @@ static void handle_input(void) {
     }
 
     if (switch_home_view()) {
-        if (input_repeat(FROG_BTN_LEFT))
-            switch_home_index = (switch_home_index + 3) % 4;
-        if (input_repeat(FROG_BTN_RIGHT))
-            switch_home_index = (switch_home_index + 1) % 4;
+        int item_count = switch_home_item_count();
+        if (switch_home_catos()) {
+            if (input_repeat(FROG_BTN_LEFT) && switch_home_index % 4 > 0)
+                switch_home_index--;
+            if (input_repeat(FROG_BTN_RIGHT) && switch_home_index % 4 < 3 &&
+                switch_home_index + 1 < item_count) switch_home_index++;
+            if (input_repeat(FROG_BTN_UP) && switch_home_index >= 4)
+                switch_home_index -= 4;
+            if (input_repeat(FROG_BTN_DOWN) && switch_home_index + 4 < item_count)
+                switch_home_index += 4;
+        } else if (switch_home_vertical()) {
+            if (input_repeat(FROG_BTN_UP) && switch_home_index > 0)
+                switch_home_index--;
+            if (input_repeat(FROG_BTN_DOWN) && switch_home_index + 1 < item_count)
+                switch_home_index++;
+        } else {
+            if (input_repeat(FROG_BTN_LEFT))
+                switch_home_index = (switch_home_index + item_count - 1) % item_count;
+            if (input_repeat(FROG_BTN_RIGHT))
+                switch_home_index = (switch_home_index + 1) % item_count;
+        }
         if (input_was_pressed(FROG_BTN_START)) {
             switch_main_tab(MAIN_TAB_SETTINGS);
             return;
         }
         if (input_was_pressed(FROG_BTN_A)) {
             switch_home_open = 0;
-            if (switch_home_index == 0) {
+            if (switch_home_artbook()) {
+                if (switch_home_index == 0) {
+                    scan_directory(ROMS_PATH);
+                    selected_index = 0;
+                    scroll_offset = 0;
+                } else if (switch_home_index == 1) {
+                    enter_favourites_view();
+                } else if (switch_home_index == 2) {
+                    enter_recents_view();
+                } else if (switch_home_index == 3) {
+                    switch_main_tab(MAIN_TAB_APPS);
+                } else {
+                    switch_main_tab(MAIN_TAB_SETTINGS);
+                }
+            } else if (switch_home_index == 0) {
                 scan_directory(ROMS_PATH);
                 selected_index = 0;
                 scroll_offset = 0;
@@ -5307,8 +5614,23 @@ static void handle_input(void) {
                 enter_favourites_view();
             } else if (switch_home_index == 2) {
                 enter_recents_view();
-            } else {
+            } else if (switch_home_index == 3) {
                 switch_main_tab(MAIN_TAB_APPS);
+            } else if (switch_home_index == 4) {
+                viewing_info = true;
+            } else if (switch_home_index == 5) {
+                switch_main_tab(MAIN_TAB_SETTINGS);
+            } else {
+                int action_index = 6;
+                if (switch_home_has_reboot()) {
+                    if (switch_home_index == action_index) {
+                        request_builtin_launch(REBOOT_BIN);
+                        return;
+                    }
+                    action_index++;
+                }
+                if (switch_home_has_shutdown() && switch_home_index == action_index)
+                    request_builtin_launch(SHUTDOWN_BIN);
             }
             return;
         }
@@ -5317,6 +5639,15 @@ static void handle_input(void) {
 
     if (settings_menu_active) {
         handle_settings_menu();
+        return;
+    }
+
+    if (input_was_pressed(FROG_BTN_L2) && !switch_home_view() &&
+        strcmp(current_path, ROMS_PATH) == 0 && !viewing_recents &&
+        !viewing_favourites && !viewing_apps && !apps_browsing &&
+        !viewing_search && !viewing_activity) {
+        settings_explore_layout = (settings_explore_layout + 1) % 3;
+        settings_save_file();
         return;
     }
 
@@ -5426,7 +5757,7 @@ static void handle_input(void) {
                 viewing_favourites = false;
                 scan_directory(ROMS_PATH);
                 strncpy(current_path, ROMS_PATH, MAX_PATH_LEN-1);
-                switch_home_open = render_theme_current()->home_layout == RENDER_HOME_SWITCH;
+    switch_home_open = render_theme_current()->home_layout != RENDER_HOME_DEFAULT;
             }
         } else if (!viewing_recents && !entries[selected_index].is_dir &&
                    strcmp(entries[selected_index].name, SETTINGS_ENTRY_NAME) != 0 &&
@@ -5483,6 +5814,8 @@ static void handle_input(void) {
                 enter_activity_view();
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "shutdown")) {
                 request_builtin_launch(SHUTDOWN_BIN);
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "reboot")) {
+                request_builtin_launch(REBOOT_BIN);
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "usbmode")) {
                 if (access(USB_MODE_BIN, X_OK) != 0)
                     ui_toast_show("USB mode is unavailable");
@@ -5567,8 +5900,8 @@ static void handle_input(void) {
             viewing_favourites = false;
             scan_directory(ROMS_PATH);
             strncpy(current_path, ROMS_PATH, MAX_PATH_LEN-1);
-            switch_home_open = render_theme_current()->home_layout == RENDER_HOME_SWITCH;
-        } else if (render_theme_current()->home_layout == RENDER_HOME_SWITCH &&
+            switch_home_open = render_theme_current()->home_layout != RENDER_HOME_DEFAULT;
+        } else if (render_theme_current()->home_layout != RENDER_HOME_DEFAULT &&
                    strcmp(current_path, ROMS_PATH) == 0 && !switch_home_open) {
             switch_home_open = 1;
         } else if (strcmp(current_path, ROMS_PATH) != 0) {
@@ -5933,6 +6266,7 @@ static void render_port_migration(const PortMigration *port, int index,
 void retro_init(void) {
     dbg("retro_init start");
     settings_apps_origin = false;
+    viewing_info = false;
     input_log_start();
     /* Runtime panel geometry from picoarch (device-detected). Must run before
      * font_init / any layout use. Falls back to render.c defaults if env unset. */
@@ -5989,6 +6323,17 @@ void retro_init(void) {
     cube_pmem_backlight_sync(settings_brightness);
     fb1_set_visible(1);   /* leave the live volume/input daemon untouched */
     settings_apply();
+    /* A theme home menu is the launcher entry point even when a previous
+     * session left the games tab open. Restore it after global theme apply. */
+    switch_home_open = render_theme_current()->home_layout != RENDER_HOME_DEFAULT;
+    {
+        char message[192];
+        snprintf(message, sizeof message,
+                 "startup theme=%s home_layout=%d home_open=%d",
+                 render_theme_current()->scheme_name,
+                 render_theme_current()->home_layout, switch_home_open);
+        dbg(message);
+    }
     settings_bl_reassert = 120; /* re-assert safety net past cubevol's delayed apply */
     settings_audio_mute_reassert = settings_menu_sounds ? 0 : 120;
     dbg("settings loaded");
@@ -6039,9 +6384,15 @@ void retro_init(void) {
 }
 
 void retro_deinit(void) {
+    for (int i = 0; i < 8; i++) {
+        free_thumbnail_copy(&catos_home_normal[i]);
+        catos_home_normal_loaded[i] = false;
+    }
+    free_thumbnail_copy(&catos_home_focused);
+    catos_home_focused_index = -1;
     banner_prefetch_clear();
     prefetch_last_bg = prefetch_last_wp = prefetch_last_wpfit = -1;
-    prefetch_last_pack = prefetch_last_dim = prefetch_last_theme = -1;
+    prefetch_last_pack = prefetch_last_dim = prefetch_last_theme = prefetch_last_renderer = -1;
     for (int i = 0; i < SYSTEM_ICON_CACHE_N; i++) {
         free(system_icons[i].pixels);
         free(system_icons[i].alpha);
@@ -6073,7 +6424,10 @@ static void render_settings_menu(void) {
         banner_render(framebuffer);
     else
         render_clear_screen(framebuffer);
-    render_tabs(framebuffer, MAIN_TAB_SETTINGS, COLOR_BG);
+    render_theme_heading(framebuffer, MAIN_TAB_SETTINGS, COLOR_BG, "SETTINGS");
+    int list_text_x = render_theme_current()->scheme_name[0]
+                    ? CONTENT_X + UI_S(render_theme_current()->list_padding_left)
+                    : PADDING;
 
     char line[128];
     /* Scroll window over the VISIBLE rows (collapsed sections shrink the
@@ -6082,7 +6436,8 @@ static void render_settings_menu(void) {
     int cur = settings_vis_cursor();
     bool folder_detail = settings_layout == SETTINGS_LAYOUT_FOLDER &&
                          settings_folder_section >= 0;
-    int list_start_y = START_Y + (folder_detail ? ITEM_HEIGHT : 0);
+    int list_start_y = START_Y + UI_S(render_theme_current()->list_padding_top) +
+                       (folder_detail ? ITEM_HEIGHT : 0);
     int list_visible = VISIBLE_ENTRIES - (folder_detail ? 1 : 0);
     if (list_visible < 1) list_visible = 1;
     static int soff = 0;
@@ -6105,17 +6460,15 @@ static void render_settings_menu(void) {
             else
                 snprintf(line, sizeof line, ">> %s", tr(r->label));
             if (settings_menu_idx == idx)
-                render_text_pillbox(framebuffer, PADDING, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+                render_text_pillbox(framebuffer, list_text_x, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
             else
-                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, line, COLOR_FOLDER);
+                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, list_text_x, y, line, COLOR_FOLDER);
             continue;
         }
         switch (r->type) {
         case RT_INFO:   snprintf(line, sizeof line, "%s: %s", tr(r->label), treefrogui_version()); break;
-        case RT_THEME:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), themes[settings_theme_idx].name); break;
-        case RT_RENDER_SCHEME: snprintf(line, sizeof line, "%s: < %s >", r->label,
-                                        render_scheme_disp[settings_render_scheme_idx]); break;
-        case RT_STYLE:  snprintf(line, sizeof line, "%s: < %s >", tr(r->label), style_names[settings_style]); break;
+        case RT_UI_THEME: snprintf(line, sizeof line, "%s: < %s >", r->label,
+                                   ui_theme_name(ui_theme_index())); break;
         case RT_SETTINGS_LAYOUT: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), settings_layout_names[settings_layout]); break;
         case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
         case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_disp[settings_wallpaper_idx]); break;
@@ -6185,7 +6538,7 @@ static void render_settings_menu(void) {
         }
         /* Options sit indented under their ">> HEADER" so the grouping reads
          * clearly. Headers stay flush at PADDING. */
-        int ix = PADDING + UI_S(16);
+        int ix = list_text_x + UI_S(16);
         if (settings_menu_idx == idx && settings_row_enabled(r))
             render_text_pillbox(framebuffer, ix, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
         else {
@@ -6196,7 +6549,7 @@ static void render_settings_menu(void) {
         }
     }
     if (folder_detail)
-        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING,
+        font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
                        START_Y, tr(settings_section_names[settings_folder_section]), COLOR_HEADER);
     render_scroll_indicator(framebuffer, settings_vis_n, cur, list_visible);
     render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
@@ -6490,6 +6843,7 @@ void retro_run(void) {
         RB(RETRO_DEVICE_ID_JOYPAD_A, 13);    RB(RETRO_DEVICE_ID_JOYPAD_B, 14);
         RB(RETRO_DEVICE_ID_JOYPAD_X, 12);    RB(RETRO_DEVICE_ID_JOYPAD_Y, 15);
         RB(RETRO_DEVICE_ID_JOYPAD_L, 10);    RB(RETRO_DEVICE_ID_JOYPAD_R, 11);
+        RB(RETRO_DEVICE_ID_JOYPAD_L2, 8);
         RB(RETRO_DEVICE_ID_JOYPAD_START, 3); RB(RETRO_DEVICE_ID_JOYPAD_SELECT, 0);
         #undef RB
         input_set_ext_raw(raw);
@@ -6503,18 +6857,24 @@ void retro_run(void) {
     int old_core_picker_scroll = core_picker_scroll;
     bool old_recents = viewing_recents, old_favourites = viewing_favourites;
     bool old_apps = viewing_apps, old_activity = viewing_activity;
-    bool old_search = viewing_search;
+    bool old_search = viewing_search, old_info = viewing_info;
     bool old_pill_view = menu_pill_view();
     char old_path[MAX_PATH_LEN];
     strncpy(old_path, current_path, sizeof old_path - 1);
     old_path[sizeof old_path - 1] = '\0';
     handle_input();
+    RenderThemeScreen theme_screen = (settings_menu_active || viewing_info) ? RENDER_SCREEN_SETTINGS :
+        viewing_recents ? RENDER_SCREEN_RECENTS :
+        (viewing_apps || apps_browsing || viewing_activity) ? RENDER_SCREEN_APPS :
+        switch_home_view() && !switch_home_vertical() ? RENDER_SCREEN_HOME :
+        RENDER_SCREEN_BROWSER;
+    render_theme_set_screen(theme_screen);
     bool same_menu = old_settings_active == settings_menu_active &&
                      old_core_picker_active == core_picker_active &&
                      old_recents == viewing_recents &&
                      old_favourites == viewing_favourites &&
                      old_apps == viewing_apps && old_activity == viewing_activity &&
-                     old_search == viewing_search &&
+                     old_search == viewing_search && old_info == viewing_info &&
                      strcmp(old_path, current_path) == 0;
     if (!menu_pill_view()) {
         pill_animation_reset(&menu_pill_animation, 0);
@@ -6617,13 +6977,15 @@ void retro_run(void) {
     static int  banner_last_wpfit = -1; /* reload when the wallpaper fit mode changes */
     static int  banner_last_pack = -1;  /* reload when the background pack changes */
     static int  banner_last_dim = -1;   /* reload when background dim changes */
+    static int  banner_last_renderer = -1;
     {
         if (settings_backgrounds != prefetch_last_bg ||
             settings_wallpaper_idx != prefetch_last_wp ||
             settings_wallpaper_fit != prefetch_last_wpfit ||
             settings_theme_pack_idx != prefetch_last_pack ||
             settings_background_dim != prefetch_last_dim ||
-            settings_theme_idx != prefetch_last_theme) {
+            settings_theme_idx != prefetch_last_theme ||
+            settings_render_scheme_idx != prefetch_last_renderer) {
             prefetch_active_theme();
             prefetch_last_bg = settings_backgrounds;
             prefetch_last_wp = settings_wallpaper_idx;
@@ -6631,6 +6993,7 @@ void retro_run(void) {
             prefetch_last_pack = settings_theme_pack_idx;
             prefetch_last_dim = settings_background_dim;
             prefetch_last_theme = settings_theme_idx;
+            prefetch_last_renderer = settings_render_scheme_idx;
         }
         const char *banner_path = current_path;
         char sel_path[MAX_PATH_LEN];
@@ -6669,7 +7032,8 @@ void retro_run(void) {
                            settings_wallpaper_fit != banner_last_wpfit ||
                            settings_theme_pack_idx != banner_last_pack ||
                            settings_background_dim != banner_last_dim ||
-                           settings_backgrounds  != banner_last_bg);
+                           settings_backgrounds  != banner_last_bg ||
+                           settings_render_scheme_idx != banner_last_renderer);
         } else {
             need_reload = (viewing_recents != banner_last_recents ||
                            viewing_favourites != banner_last_favourites ||
@@ -6678,7 +7042,8 @@ void retro_run(void) {
                            settings_wallpaper_idx != banner_last_wp ||
                            settings_wallpaper_fit != banner_last_wpfit ||
                            settings_theme_pack_idx != banner_last_pack ||
-                           settings_background_dim != banner_last_dim);
+                           settings_background_dim != banner_last_dim ||
+                           settings_render_scheme_idx != banner_last_renderer);
         }
         if (need_reload && !(viewing_recents && settings_game_switcher)) {
             /* GameSwitcher paints its own full panel. Leave the Games banner
@@ -6697,6 +7062,7 @@ void retro_run(void) {
             banner_last_wpfit = settings_wallpaper_fit;
             banner_last_pack = settings_theme_pack_idx;
             banner_last_dim = settings_background_dim;
+            banner_last_renderer = settings_render_scheme_idx;
             strncpy(banner_last_path, banner_path, MAX_PATH_LEN - 1);
             banner_last_path[MAX_PATH_LEN - 1] = '\0';
         }
@@ -6753,10 +7119,14 @@ void retro_run(void) {
                 if (settings_rows[i].val)
                     sig = sig*33u + (unsigned)*settings_rows[i].val;
         } else {
+            sig = sig*33u + (unsigned)settings_style;
+            sig = sig*33u + (unsigned)settings_explore_layout;
+            sig = sig*33u + (unsigned)settings_render_scheme_idx;
             sig = sig*33u + (unsigned)selected_index;
             sig = sig*33u + (unsigned)scroll_offset;
             sig = sig*33u + (unsigned)(switch_home_open * 8 + switch_home_index);
             sig = sig*33u + (unsigned)(viewing_recents*16 + viewing_favourites*8 + viewing_apps*4 + apps_browsing*2 + viewing_activity + viewing_search*32);
+            sig = sig*33u + (unsigned)viewing_info;
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
         }
@@ -6797,6 +7167,8 @@ void retro_run(void) {
         render_core_picker(selected_pill_y);
     } else if (remap_wizard_active) {
         render_remap_wizard();
+    } else if (viewing_info) {
+        render_switch_info(framebuffer);
     } else if (settings_menu_active) {
         render_settings_menu();
     } else if (viewing_recents && settings_game_switcher) {
@@ -6833,13 +7205,14 @@ void retro_run(void) {
                     ? "TREEFROGUI: SYSTEMS" : system_display_name(get_basename(current_path));
         }
         if (viewing_activity)
-            render_tabs(framebuffer, MAIN_TAB_APPS, COLOR_BG);
+            render_theme_heading(framebuffer, MAIN_TAB_APPS, COLOR_BG, NULL);
         else if (viewing_recents)
-            render_tabs(framebuffer, MAIN_TAB_RECENTS, COLOR_BG);
+            render_theme_heading(framebuffer, MAIN_TAB_RECENTS, COLOR_BG, "RECENT GAMES");
         else if (viewing_apps)
-            render_tabs(framebuffer, MAIN_TAB_APPS, COLOR_BG);
+            render_theme_heading(framebuffer, MAIN_TAB_APPS, COLOR_BG, "APPS");
         else if (strcmp(current_path, ROMS_PATH) == 0 && !viewing_favourites && !viewing_search)
-            render_tabs(framebuffer, MAIN_TAB_GAMES, COLOR_BG);
+            render_theme_heading(framebuffer, MAIN_TAB_GAMES, COLOR_BG,
+                                 settings_render_scheme_idx > 0 ? "EXPLORE CONTENT" : title);
         else
             render_header(framebuffer, title);
         {
@@ -6864,6 +7237,8 @@ void retro_run(void) {
                     if (dot && dot != disp) { *dot = '\0'; shown = disp; }
                 }
                 if (settings_center_text && settings_style == STYLE_VERTICAL &&
+                    !viewing_recents && !viewing_favourites && !viewing_apps &&
+                    !apps_browsing && !viewing_activity && !viewing_search &&
                     strcmp(current_path, ROMS_PATH) == 0)
                     render_menu_item_centered(framebuffer, idx, shown, entries[idx].is_dir,
                                               (idx == selected_index), scroll_offset,

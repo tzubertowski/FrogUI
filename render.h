@@ -19,7 +19,11 @@ extern int g_ui_scale; /* integer scale, 100 = 1x of 480x320 baseline */
 
 #define SCREEN_WIDTH g_screen_w
 #define SCREEN_HEIGHT g_screen_h
-#define UI_SCALE g_ui_scale
+#ifdef UI_SCALE
+#undef UI_SCALE
+#endif
+#define UI_SCALE (render_theme_current()->scheme_name[0] && SCREEN_HEIGHT >= 480 \
+                     ? SCREEN_HEIGHT * 100 / 480 : g_ui_scale)
 
 /* Set the runtime geometry. Call once in retro_init before font/layout use. */
 void render_set_geometry(int w, int h, int ui_scale);
@@ -42,9 +46,35 @@ void render_set_geometry(int w, int h, int ui_scale);
 #define HEADER_HEIGHT UI_S(render_theme_current()->header_height)
 #define ITEM_HEIGHT UI_S(render_theme_current()->row_height)
 #define PADDING UI_S(render_theme_current()->horizontal_padding)
-#define START_Y UI_S(render_theme_current()->content_top)
+#define THEME_CANVAS_X ((SCREEN_WIDTH - UI_S(640)) / 2)
+#define THEME_CANVAS_WIDTH UI_S(640)
+#define CONTENT_WIDTH (render_theme_current()->content_width > 0 ? \
+                       (UI_S(render_theme_current()->content_width) < \
+                        (render_theme_current()->scheme_name[0] ? THEME_CANVAS_WIDTH : SCREEN_WIDTH) - PADDING * 2 ? \
+                        UI_S(render_theme_current()->content_width) : \
+                        (render_theme_current()->scheme_name[0] ? THEME_CANVAS_WIDTH : SCREEN_WIDTH) - PADDING * 2) : \
+                       (render_theme_current()->scheme_name[0] ? THEME_CANVAS_WIDTH : SCREEN_WIDTH) - PADDING * 2)
+#define CONTENT_X (render_theme_current()->scheme_name[0] ? \
+                   THEME_CANVAS_X + (render_theme_current()->content_alignment == 1 ? \
+                   (THEME_CANVAS_WIDTH - CONTENT_WIDTH) / 2 : \
+                   render_theme_current()->content_alignment == 2 ? \
+                   THEME_CANVAS_WIDTH - CONTENT_WIDTH - PADDING : PADDING) : \
+                   render_theme_current()->content_alignment == 1 ? \
+                   (SCREEN_WIDTH - CONTENT_WIDTH) / 2 : \
+                   render_theme_current()->content_alignment == 2 ? \
+                   SCREEN_WIDTH - CONTENT_WIDTH - PADDING : PADDING)
+#define START_Y UI_S((render_theme_current()->content_top > \
+                      render_theme_current()->header_height + \
+                      (render_theme_current()->scheme_name[0] ? 0 : 10)) ? \
+                     render_theme_current()->content_top : \
+                     render_theme_current()->header_height + \
+                     (render_theme_current()->scheme_name[0] ? 0 : 10))
 #define VISIBLE_ENTRIES (render_theme_current()->visible_rows > 0 ? \
-                         render_theme_current()->visible_rows : \
+                         (render_theme_current()->content_height > 0 && \
+                          render_theme_current()->visible_rows > \
+                          UI_S(render_theme_current()->content_height) / ITEM_HEIGHT ? \
+                          UI_S(render_theme_current()->content_height) / ITEM_HEIGHT : \
+                          render_theme_current()->visible_rows) : \
                          ((SCREEN_HEIGHT - START_Y - ITEM_HEIGHT) / ITEM_HEIGHT))
 
 // Thumbnail layout
@@ -72,6 +102,9 @@ void render_fill_rect(uint16_t *framebuffer, int x, int y, int width,
 // Draw a rounded rectangle (pill shape)
 void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
                          int height, int radius, uint16_t color);
+void render_rounded_rect_alpha(uint16_t *framebuffer, int x, int y, int width,
+                               int height, int radius, uint16_t color,
+                               uint8_t alpha);
 /* NextUI-style battery pill: rounded body + nub + proportional fill. pct
  * 0..100; top-right of the header. Draws nothing if pct < 0. */
 void render_battery(uint16_t *framebuffer, int pct);
