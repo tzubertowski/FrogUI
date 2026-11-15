@@ -93,6 +93,8 @@
   "app.activity": "Activity Tracker",
   "app.frogshell": "FrogShell",
   "app.froggythemes": "FroggyThemes",
+  "app.froggyhwprobe": "FroggyHWProbe",
+  "app.froggybenchmark": "FroggyBenchmark",
   "app.usb_mode": "USB mode",
   "app.ebook_reader": "Ebook Reader",
   "app.image_viewer": "Image Viewer",
