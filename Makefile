@@ -32,7 +32,6 @@ OUT_LICENSES := $(OUTDIR)/frogui_libretro.harfbuzz.LICENSE \
 # Explicit Object List in APP_OUTDIR
 OBJS := $(APP_OUTDIR)/frogui_libretro.lo \
         $(APP_OUTDIR)/render.lo \
-        $(APP_OUTDIR)/render_theme.lo \
         $(APP_OUTDIR)/font.lo \
         $(APP_OUTDIR)/recent_games.lo \
         $(APP_OUTDIR)/theme.lo \
