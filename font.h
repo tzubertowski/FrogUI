@@ -15,6 +15,7 @@ void font_load_file(const char *font_filename);
 
 // Change the active UI font size and invalidate cached glyphs.
 void font_set_size(int pixels);
+void font_set_render_scale(int percent);
 
 // Retrieve current base UI font size in points/pixels.
 int font_get_size(void);
@@ -23,20 +24,19 @@ int font_get_size(void);
  * absent from the configured primary font. */
 void font_sync_language_fallback(void);
 
-// Draw a text string at position (x, y) with given color.
+// Draw a text string at position (x, y) with given color. An optional bold
+// argument is accepted for compatibility with newer renderers.
 void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
-                    int x, int y, const char *text, uint16_t color);
+                    int x, int y, const char *text, uint16_t color,
+                    ...);
+void font_draw_text_clipped(uint16_t *framebuffer, int screen_width,
+                            int screen_height, int x, int y, const char *text,
+                            uint16_t color, int clip_x, int clip_y,
+                            int clip_width, int clip_height);
 
-// Draw text with explicit bold selection.
-void font_draw_text_ex(uint16_t *framebuffer, int screen_width,
-                       int screen_height, int x, int y, const char *text,
-                       uint16_t color, int is_bold);
-
-// Measure text width in pixels.
-int font_measure_text(const char *text);
-
-// Measure text width with explicit bold selection.
-int font_measure_text_ex(const char *text, int is_bold);
+// Measure text width in pixels. An optional bold argument is accepted for
+// compatibility with newer renderers.
+int font_measure_text(const char *text, ...);
 
 // Vertical metrics for centering: baseline (top-of-cell to baseline) and
 // cap_height (pixel height of capitals = the visible ink band).

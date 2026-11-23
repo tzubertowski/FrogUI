@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "render_theme.h"
 #include "settings.h"
 #include <string.h>
 
@@ -387,18 +388,6 @@ const Theme themes[] = {
         .legend_bg = RGB565(53, 43, 70),
         .disabled = RGB565(150, 137, 171)
     },
-    {
-        .name = "Canvas Pastel",
-        .bg = RGB565(187, 187, 187),
-        .text = RGB565(119, 119, 119),
-        .select_bg = RGB565(167, 199, 231),
-        .select_text = RGB565(255, 255, 255),
-        .header = RGB565(167, 199, 231),
-        .folder = RGB565(119, 119, 119),
-        .legend = RGB565(119, 119, 119),
-        .legend_bg = RGB565(255, 255, 255),
-        .disabled = RGB565(160, 160, 160)
-    },
     /* Allium-Themes palettes; provenance and mapping: fonts/alium_README.md. */
     {
         .name = "alium_default",
@@ -543,17 +532,20 @@ const Theme themes[] = {
         .legend = RGB565(255, 255, 255),
         .legend_bg = RGB565(0, 0, 0),
         .disabled = RGB565(88, 91, 112)
-    }
+    },
 };
 
 const int theme_count = sizeof(themes) / sizeof(themes[0]);
 
 static int current_theme_index = 0;
 static const Theme* current_theme = &themes[0];
+static int bg_override_active;
+static uint16_t bg_override_color;
 
 void theme_init(void) {
     current_theme_index = 0;
     current_theme = &themes[0];
+    bg_override_active = 0;
 }
 
 int theme_load_from_settings(const char* theme_name) {
@@ -595,12 +587,19 @@ const char* theme_get_name(int index) {
 }
 
 // Color accessors
-uint16_t theme_bg(void) { return current_theme->bg; }
-uint16_t theme_text(void) { return current_theme->text; }
-uint16_t theme_select_bg(void) { return current_theme->select_bg; }
-uint16_t theme_select_text(void) { return current_theme->select_text; }
-uint16_t theme_header(void) { return current_theme->header; }
-uint16_t theme_folder(void) { return current_theme->folder; }
-uint16_t theme_legend(void) { return current_theme->legend; }
-uint16_t theme_legend_bg(void) { return current_theme->legend_bg; }
-uint16_t theme_disabled(void) { return current_theme->disabled; }
+uint16_t theme_bg(void) {
+    return render_theme_colour(RENDER_COLOUR_BACKGROUND,
+                              bg_override_active ? bg_override_color : current_theme->bg);
+}
+void theme_set_bg_override(int enabled, uint16_t color) {
+    bg_override_active = enabled;
+    bg_override_color = color;
+}
+uint16_t theme_text(void) { return render_theme_colour(RENDER_COLOUR_TEXT, current_theme->text); }
+uint16_t theme_select_bg(void) { return render_theme_colour(RENDER_COLOUR_SELECTION, current_theme->select_bg); }
+uint16_t theme_select_text(void) { return render_theme_colour(RENDER_COLOUR_SELECTION_TEXT, current_theme->select_text); }
+uint16_t theme_header(void) { return render_theme_colour(RENDER_COLOUR_HEADER, current_theme->header); }
+uint16_t theme_folder(void) { return render_theme_colour(RENDER_COLOUR_FOLDER, current_theme->folder); }
+uint16_t theme_legend(void) { return render_theme_colour(RENDER_COLOUR_LEGEND, current_theme->legend); }
+uint16_t theme_legend_bg(void) { return render_theme_colour(RENDER_COLOUR_LEGEND_BACKGROUND, current_theme->legend_bg); }
+uint16_t theme_disabled(void) { return render_theme_colour(RENDER_COLOUR_DISABLED, current_theme->disabled); }

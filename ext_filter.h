@@ -19,8 +19,8 @@
 #define EXT_FILTER_EXT_LEN     8
 
 /* Load persisted filters from /mnt/sdcard/frogui/ext_filters.txt, applying
- * the built-in PS1 defaults first (a stored line overrides the default list
- * for that folder). Call once at init, before any scan. */
+ * built-in defaults first (a stored line overrides that folder's defaults).
+ * Call once at init, before any scan. */
 void ext_filter_load(void);
 
 /* True if `file_ext` (the file's extension, isolated by the caller, with or
@@ -53,9 +53,8 @@ int  ext_filter_get_ext_at(const char *folder_name, int idx, char *out, size_t n
  * the list changed. Adding to an empty list enables the filter. */
 bool ext_filter_toggle_ext(const char *folder_name, const char *ext);
 
-/* Add an extension marked as a built-in default (used by the initial PS1
- * whitelist; such rows can be recognized and shown alongside user-added
- * ones with the same toggle behavior). */
+/* Add an extension marked as a built-in default; such rows can be recognized
+ * and shown alongside user-added ones with the same toggle behavior. */
 void ext_filter_add_builtin(const char *folder_name, const char *ext);
 
 /* True if `ext` in this folder's list came from the built-in defaults

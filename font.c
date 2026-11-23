@@ -6,11 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
@@ -24,10 +19,13 @@
 #define UI_SCALE 100
 #endif
 #define DEFAULT_FONT_SIZE 23
+#define MAX_FONT_SIZE 26
 static float ui_font_size = DEFAULT_FONT_SIZE * UI_SCALE / 100.0f;
 
 #define GLYPH_CACHE_SIZE 4096
 #define MAX_STACK_CODEPOINTS 512
+
+#define FONT_BUFFER_MAX_SIZE (24 * 1024 * 1024)
 #define GLYPH_PIXEL_POOL_SIZE (2 * 1024 * 1024)
 
 typedef struct {
@@ -38,27 +36,34 @@ typedef struct {
   int rows;
   int left;
   int top;
+  int pixel_size;
   uint8_t *bitmap;
 } CachedGlyph;
 
 typedef struct {
   FT_Face ft_face;
   hb_font_t *hb_font;
-  void *mmap_ptr;
-  size_t mmap_size;
+  uint8_t *buffer;
+  size_t buffer_size;
   int loaded;
 } FontFace;
+
+static uint8_t primary_font_bytes[FONT_BUFFER_MAX_SIZE];
+static uint8_t fallback_font_bytes[FONT_BUFFER_MAX_SIZE];
+static uint8_t latin_font_bytes[FONT_BUFFER_MAX_SIZE];
 
 static uint8_t glyph_bitmap_arena[GLYPH_PIXEL_POOL_SIZE];
 static size_t arena_offset = 0;
 
 static FT_Library ft_library = NULL;
-static FontFace primary_font = {0};
-static FontFace fallback_font = {0};
-static FontFace latin_font = {0};
+static FontFace primary_font = {.buffer = primary_font_bytes};
+static FontFace fallback_font = {.buffer = fallback_font_bytes};
+static FontFace latin_font = {.buffer = latin_font_bytes};
 
 static hb_buffer_t *hb_buf = NULL;
 static int language_force_font_id = 0;
+static int render_scale = 100;
+static int active_face_size = 0;
 
 static CachedGlyph glyph_cache[GLYPH_CACHE_SIZE];
 
@@ -68,6 +73,7 @@ static void clear_glyph_cache(void) {
     glyph_cache[i].glyph_index = 0;
     glyph_cache[i].font_id = -1;
     glyph_cache[i].is_bold = 0;
+    glyph_cache[i].pixel_size = 0;
   }
   arena_offset = 0;
 }
@@ -145,12 +151,14 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
   int effective_bold = is_bold && !is_native_bold;
 
   uint32_t hash = (glyph_index ^ ((uint32_t)font_id * 0x9e3779b9) ^
-                   ((uint32_t)effective_bold * 0x85ebca6b)) %
+                   ((uint32_t)effective_bold * 0x85ebca6b) ^
+                   ((uint32_t)active_face_size * 0xc2b2ae35)) %
                   GLYPH_CACHE_SIZE;
 
   if (glyph_cache[hash].glyph_index == glyph_index &&
       glyph_cache[hash].font_id == font_id &&
-      glyph_cache[hash].is_bold == effective_bold && glyph_cache[hash].bitmap) {
+      glyph_cache[hash].is_bold == effective_bold &&
+      glyph_cache[hash].pixel_size == active_face_size && glyph_cache[hash].bitmap) {
     return &glyph_cache[hash];
   }
 
@@ -175,6 +183,7 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
   glyph_cache[hash].glyph_index = glyph_index;
   glyph_cache[hash].font_id = font_id;
   glyph_cache[hash].is_bold = effective_bold;
+  glyph_cache[hash].pixel_size = active_face_size;
   glyph_cache[hash].width = bitmap->width;
   glyph_cache[hash].rows = bitmap->rows;
   glyph_cache[hash].left = face->ft_face->glyph->bitmap_left;
@@ -196,25 +205,41 @@ static CachedGlyph *get_cached_glyph(FontFace *face, uint32_t glyph_index,
   return &glyph_cache[hash];
 }
 
-static void update_face_pixel_sizes(FontFace *face) {
+static void update_face_pixel_sizes(FontFace *face, int pixel_size) {
   if (face && face->loaded && face->ft_face) {
-    FT_Set_Pixel_Sizes(face->ft_face, 0, (FT_UInt)ui_font_size);
+    FT_Set_Pixel_Sizes(face->ft_face, 0, (FT_UInt)pixel_size);
     hb_ft_font_changed(face->hb_font);
   }
+}
+
+static void ensure_render_size(void) {
+  int pixel_size = (int)(ui_font_size * render_scale / 100.0f + 0.5f);
+  if (pixel_size < 1) pixel_size = 1;
+  if (pixel_size == active_face_size) return;
+  update_face_pixel_sizes(&primary_font, pixel_size);
+  update_face_pixel_sizes(&fallback_font, pixel_size);
+  update_face_pixel_sizes(&latin_font, pixel_size);
+  active_face_size = pixel_size;
 }
 
 void font_set_size(int pixels) {
   if (pixels < 18)
     pixels = 18;
-  if (pixels > DEFAULT_FONT_SIZE)
-    pixels = DEFAULT_FONT_SIZE;
+  if (pixels > MAX_FONT_SIZE)
+    pixels = MAX_FONT_SIZE;
   ui_font_size = pixels * UI_SCALE / 100.0f;
 
-  update_face_pixel_sizes(&primary_font);
-  update_face_pixel_sizes(&fallback_font);
-  update_face_pixel_sizes(&latin_font);
+  active_face_size = 0;
+  ensure_render_size();
 
   clear_glyph_cache();
+}
+
+void font_set_render_scale(int percent) {
+  if (percent < 50) percent = 50;
+  if (percent > 100) percent = 100;
+  render_scale = percent;
+  ensure_render_size();
 }
 
 int font_get_size(void) {
@@ -230,49 +255,43 @@ static void unload_font_face(FontFace *face) {
     FT_Done_Face(face->ft_face);
     face->ft_face = NULL;
   }
-  if (face->mmap_ptr && face->mmap_ptr != MAP_FAILED) {
-    munmap(face->mmap_ptr, face->mmap_size);
-    face->mmap_ptr = NULL;
-    face->mmap_size = 0;
-  }
   face->loaded = 0;
   clear_glyph_cache();
 }
 
 static int load_font_face(FontFace *face, const char *paths[], int path_count) {
-  int fd = -1;
-  struct stat st;
-
+  FILE *fp = NULL;
   for (int i = 0; i < path_count; i++) {
     if (!paths[i])
       continue;
-    fd = open(paths[i], O_RDONLY);
-    if (fd >= 0)
+    fp = fopen(paths[i], "rb");
+    if (fp)
       break;
   }
-
-  if (fd < 0)
+  if (!fp)
     return 0;
 
-  if (fstat(fd, &st) < 0 || st.st_size <= 0) {
-    close(fd);
+  fseek(fp, 0, SEEK_END);
+  long size = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+
+  if (size <= 0 || size > FONT_BUFFER_MAX_SIZE) {
+    fclose(fp);
     return 0;
   }
 
   unload_font_face(face);
 
-  void *mapped = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
-  close(fd);
-
-  if (mapped == MAP_FAILED) {
+  if (fread(face->buffer, 1, (size_t)size, fp) != (size_t)size) {
+    fclose(fp);
+    unload_font_face(face);
     return 0;
   }
+  fclose(fp);
+  face->buffer_size = (size_t)size;
 
-  face->mmap_ptr = mapped;
-  face->mmap_size = (size_t)st.st_size;
-
-  if (FT_New_Memory_Face(ft_library, (const FT_Byte *)face->mmap_ptr,
-                         (FT_Long)face->mmap_size, 0, &face->ft_face)) {
+  if (FT_New_Memory_Face(ft_library, face->buffer, (FT_Long)face->buffer_size,
+                         0, &face->ft_face)) {
     unload_font_face(face);
     return 0;
   }
@@ -289,15 +308,18 @@ static int load_font_face(FontFace *face, const char *paths[], int path_count) {
 }
 
 static int load_font_file(const char *font_filename) {
-  char font_paths[3][256];
+  char font_paths[4][256];
   snprintf(font_paths[0], sizeof(font_paths[0]), "/mnt/sdcard/cubegm/fonts/%s",
            font_filename);
   snprintf(font_paths[1], sizeof(font_paths[1]), "/mnt/sdcard/frogui/fonts/%s",
            font_filename);
-  snprintf(font_paths[2], sizeof(font_paths[2]), "fonts/%s", font_filename);
+  snprintf(font_paths[2], sizeof(font_paths[2]), "/mnt/sdcard/frogui/fonts/%s",
+           font_filename);
+  snprintf(font_paths[3], sizeof(font_paths[3]), "fonts/%s", font_filename);
 
-  const char *paths[3] = {font_paths[0], font_paths[1], font_paths[2]};
-  return load_font_face(&primary_font, paths, 3);
+  const char *paths[4] = {font_paths[0], font_paths[1], font_paths[2],
+                          font_paths[3]};
+  return load_font_face(&primary_font, paths, 4);
 }
 
 static int load_fallback_font(void) {
@@ -339,7 +361,7 @@ void font_load_from_settings(const char *font_name) {
   } else if (strcmp(font_name, "GamePocket") == 0) {
     font_filename = "GamePocket-Regular-ZeroKern.ttf";
   } else {
-    font_filename = "BPreplayBold.otf";
+    font_filename = "alium_Nunito.ttf";
   }
   if (load_font_file(font_filename)) {
     font_sync_language_fallback();
@@ -351,7 +373,7 @@ void font_init(void) {
     return;
   hb_buf = hb_buffer_create();
 
-  if (!load_font_file("BPreplayBold.otf")) {
+  if (!load_font_file("alium_Nunito.ttf")) {
     font_load_from_settings("GamePocket");
   }
 
@@ -401,12 +423,16 @@ static inline FontFace *get_face_for_codepoint(uint32_t cp, int *out_font_id) {
 static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                                   int screen_height, int x, int y,
                                   const char *text, uint16_t color, int is_bold,
-                                  int measure_only, int *out_width) {
+                                  int clip_x, int clip_y, int clip_width,
+                                  int clip_height, int measure_only,
+                                  int *out_width) {
   if (!text || !*text) {
     if (out_width)
       *out_width = 0;
     return;
   }
+
+  ensure_render_size();
 
   int start_x = x;
   int current_y = y;
@@ -512,7 +538,8 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
 
                       for (int row = 0; row < cg->rows; row++) {
                         int py = draw_y + row;
-                        if (py < 0 || py >= screen_height)
+                        if (py < clip_y || py >= clip_y + clip_height ||
+                            py < 0 || py >= screen_height)
                           continue;
 
                         uint16_t *line_dst = &framebuffer[py * screen_width];
@@ -522,7 +549,8 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
                           uint8_t alpha = src_ptr[col];
                           if (alpha > 0) {
                             int px = draw_x + col;
-                            if (px >= 0 && px < screen_width) {
+                            if (px >= clip_x && px < clip_x + clip_width &&
+                                px >= 0 && px < screen_width) {
                               font_blend_pixel(&line_dst[px], color, alpha);
                             }
                           }
@@ -563,27 +591,27 @@ static void shape_and_render_text(uint16_t *framebuffer, int screen_width,
     *out_width = max_width;
 }
 
-void font_draw_text_ex(uint16_t *framebuffer, int screen_width,
-                       int screen_height, int x, int y, const char *text,
-                       uint16_t color, int is_bold) {
-  shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
-                        color, is_bold, 0, NULL);
-}
-
 void font_draw_text(uint16_t *framebuffer, int screen_width, int screen_height,
-                    int x, int y, const char *text, uint16_t color) {
-  font_draw_text_ex(framebuffer, screen_width, screen_height, x, y, text,
-                    color, 0);
+                    int x, int y, const char *text, uint16_t color,
+                    ...) {
+  shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
+                        color, 0, 0, 0, screen_width, screen_height, 0, NULL);
 }
 
-int font_measure_text_ex(const char *text, int is_bold) {
+void font_draw_text_clipped(uint16_t *framebuffer, int screen_width,
+                            int screen_height, int x, int y, const char *text,
+                            uint16_t color, int clip_x, int clip_y,
+                            int clip_width, int clip_height) {
+  shape_and_render_text(framebuffer, screen_width, screen_height, x, y, text,
+                        color, 0, clip_x, clip_y, clip_width, clip_height, 0,
+                        NULL);
+}
+
+int font_measure_text(const char *text, ...) {
   int width = 0;
-  shape_and_render_text(NULL, 0, 0, 0, 0, text, 0, is_bold, 1, &width);
+  shape_and_render_text(NULL, 0, 0, 0, 0, text, 0, 0, 0, 0, 0, 0, 1,
+                        &width);
   return width;
-}
-
-int font_measure_text(const char *text) {
-  return font_measure_text_ex(text, 0);
 }
 
 void font_cap_metrics(int *baseline_out, int *cap_height_out) {

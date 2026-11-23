@@ -1,4 +1,5 @@
 #include "render.h"
+#include "frogui_settings.h"
 #include "common/i18n.h"
 #include "font.h"
 #include "stb_image.h" /* decls only; impl lives in banner.c */
@@ -58,17 +59,38 @@ void render_fill_rect(uint16_t *framebuffer, int x, int y, int width,
   }
 }
 
-void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
-                         int height, int radius, uint16_t color) {
+static uint16_t blend_pixel(uint16_t foreground, uint16_t background, unsigned alpha) {
+  unsigned r = (((foreground >> 11) & 31) * alpha + ((background >> 11) & 31) * (255 - alpha)) / 255;
+  unsigned g = (((foreground >> 5) & 63) * alpha + ((background >> 5) & 63) * (255 - alpha)) / 255;
+  unsigned b = ((foreground & 31) * alpha + (background & 31) * (255 - alpha)) / 255;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+void render_rounded_rect_alpha(uint16_t *framebuffer, int x, int y, int width,
+                               int height, int radius, uint16_t color,
+                               uint8_t alpha) {
   if (!framebuffer)
     return;
+  if (!alpha) return;
+  if (alpha == 255) {
+    render_fill_rect(framebuffer, x + radius, y, width - 2 * radius, height, color);
+    render_fill_rect(framebuffer, x, y + radius, width, height - 2 * radius, color);
+  } else {
+    for (int py = y; py < y + height; py++)
+      for (int px = x; px < x + width; px++) {
+        if (px < 0 || px >= SCREEN_WIDTH || py < 0 || py >= SCREEN_HEIGHT) continue;
+        int cx = px < x + radius ? x + radius : px >= x + width - radius ? x + width - radius - 1 : px;
+        int cy = py < y + radius ? y + radius : py >= y + height - radius ? y + height - radius - 1 : py;
+        int dx = px - cx, dy = py - cy;
+        if ((px >= x + radius && px < x + width - radius) ||
+            (py >= y + radius && py < y + height - radius) ||
+            dx * dx + dy * dy <= radius * radius)
+          framebuffer[py * SCREEN_WIDTH + px] = blend_pixel(color, framebuffer[py * SCREEN_WIDTH + px], alpha);
+      }
+    return;
+  }
 
   // Draw main body (excluding corners)
-  render_fill_rect(framebuffer, x + radius, y, width - 2 * radius, height,
-                   color);
-  render_fill_rect(framebuffer, x, y + radius, width, height - 2 * radius,
-                   color);
-
   // Draw rounded corners using circle approximation
   for (int corner_y = 0; corner_y < radius; corner_y++) {
     for (int corner_x = 0; corner_x < radius; corner_x++) {
@@ -110,6 +132,11 @@ void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
   }
 }
 
+void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
+                         int height, int radius, uint16_t color) {
+  render_rounded_rect_alpha(framebuffer, x, y, width, height, radius, color, 255);
+}
+
 void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
                          uint16_t bg_color, uint16_t text_color, int padding,
                          int is_bold) {
@@ -118,7 +145,7 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
 
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
-  int text_width = font_measure_text_ex(text, is_bold);
+  int text_width = font_measure_text(text, is_bold);
 
   int pad_x = padding;
   int pad_y = padding;
@@ -133,8 +160,8 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
 
   render_rounded_rect(framebuffer, pillbox_x, pillbox_y, pillbox_width,
                       pillbox_height, 6, bg_color);
-  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
-                    text_color, is_bold);
+  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
+                 text_color, is_bold);
 }
 
 void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
@@ -153,8 +180,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
   int color_mode = frogui_battery_color_mode();
 
   /* NextUI-style: rounded body + a little terminal nub, fill proportional. */
-  int bw = UI_S(26), bh = UI_S(13); /* body */
-  int nub_w = UI_S(3), nub_h = bh / 2;
+  int compact = frogui_prominimal_style_active();
+  int bw = UI_S(compact ? 18 : 26), bh = UI_S(compact ? 10 : 13); /* body */
+  int nub_w = UI_S(compact ? 2 : 3), nub_h = bh / 2;
   int pad = UI_S(2);
   int x = SCREEN_WIDTH - PADDING - bw - nub_w;
   int y = 10; /* header baseline area */
@@ -162,7 +190,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
   uint16_t outline = accent_color;
   uint16_t green = 0x2FE6; /* charging fill */
   uint16_t fillcol;
-  if (color_mode)
+  if (compact)
+    fillcol = outline;
+  else if (color_mode)
     fillcol = charging      ? green
               : (pct >= 70) ? green
               : (pct >= 30) ? 0x041F
@@ -189,9 +219,9 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
     render_fill_rect(framebuffer, x + pad, y + pad, fw, bh - 2 * pad, fillcol);
 
   /* Charging bolt: a small lightning glyph centered on the body. */
-  if (charging) {
+  if (charging && !compact) {
     int cx = x + bw / 2, cy = y + bh / 2;
-    uint16_t bolt = 0xFFFF;
+    uint16_t bolt = compact ? outline : 0xFFFF;
     int s = UI_S(1);
     if (s < 1)
       s = 1;
@@ -214,9 +244,21 @@ void render_header(uint16_t *framebuffer, const char *title) {
   if (!framebuffer || !title)
     return;
 
+  uint8_t header_alpha = render_theme_colour_alpha(RENDER_COLOUR_HEADER_BACKGROUND);
+  if (header_alpha == 255) {
+    render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT,
+                     render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG));
+  } else if (header_alpha > 0) {
+    uint16_t color = render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG);
+    for (int y = 0; y < HEADER_HEIGHT && y < SCREEN_HEIGHT; y++)
+      for (int x = 0; x < SCREEN_WIDTH; x++) {
+        size_t pixel = (size_t)y * SCREEN_WIDTH + x;
+        framebuffer[pixel] = blend_pixel(color, framebuffer[pixel], header_alpha);
+      }
+  }
   // Draw folder/section name in header area
-  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, 10,
-                    title, COLOR_HEADER, 1);
+  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, 10, title,
+                 COLOR_HEADER, 1);
 
   // Battery indicator, top-right (custom icon; fb1 masking is disabled for
   // test).
@@ -230,23 +272,31 @@ void render_tabs(uint16_t *framebuffer, int active, uint16_t header_bg) {
   static const char *keys[] = {"tab.recents", "tab.games", "tab.apps",
                                "tab.settings"};
   extern int frogui_battery_pct(void);
+  extern int frogui_apps_in_settings_get(void);
   if (!framebuffer)
     return;
 
-  int x = PADDING;
+  int x = CONTENT_X;
   int y = UI_S(5);
-  int h = ITEM_HEIGHT - UI_S(5);
+  int h = HEADER_HEIGHT - UI_S(5);
   int gap = UI_S(8);
+  int compact = frogui_prominimal_style_active();
+  header_bg = render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, header_bg);
+  render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT, header_bg);
+  if (frogui_apps_in_settings_get() && active == 2)
+    active = 3;
   for (int i = 0; i < 4; i++) {
-    int pad = UI_S(7);
+    if (i == 2 && frogui_apps_in_settings_get())
+      continue;
+    int pad = UI_S(compact ? 5 : 7);
     const char *label = tr(keys[i]);
-    int tw = font_measure_text_ex(label, 1);
+    int tw = font_measure_text(label, 1);
     int w = tw + pad * 2;
     int baseline, cap_h;
     font_cap_metrics(&baseline, &cap_h);
     int ty = y + h / 2 - (baseline - cap_h / 2);
-    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x + pad, ty,
-                      label, i == active ? COLOR_TEXT : COLOR_DISABLED, 1);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x + pad, ty, label,
+                   i == active ? COLOR_TEXT : COLOR_DISABLED, 1);
     x += w + gap;
   }
   render_battery_colors(framebuffer, frogui_battery_pct(), header_bg,
@@ -258,57 +308,69 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
   if (!framebuffer)
     return;
 
-  int pill_h = ITEM_HEIGHT - UI_S(4);
+  font_set_render_scale(85);
+  int pill_h = UI_S(render_theme_current()->legend_height);
   int legend_y = SCREEN_HEIGHT - pill_h - UI_S(6);
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
   int text_y = legend_y + pill_h / 2 - (baseline - cap_h / 2);
-  int spacing = UI_S(8);
+  int spacing = UI_S(6);
   int anchor = SCREEN_WIDTH - PADDING;
+  uint8_t legend_alpha = render_theme_colour_alpha(RENDER_COLOUR_LEGEND_BACKGROUND);
 
   {
     const char *nav = tr("legend.enter_back");
-    int w = font_measure_text_ex(nav, 1);
+    int w = font_measure_text(nav, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
-                        COLOR_LEGEND_BG);
-    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
-                      COLOR_LEGEND, 1);
+    if (frogui_pillboxes_get())
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
+                   COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (x_button_mode != LEGEND_X_NONE) {
     const char *xl = tr(x_button_mode == LEGEND_X_REMOVE ? "legend.unfavourite"
                                                          : "legend.favourite");
-    int w = font_measure_text_ex(xl, 1);
+    int w = font_measure_text(xl, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
-                        COLOR_LEGEND_BG);
-    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
-                      COLOR_LEGEND, 1);
+    if (frogui_pillboxes_get())
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
+                   COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (show_select) {
     const char *sl = tr("legend.options");
-    int w = font_measure_text_ex(sl, 1);
+    int w = font_measure_text(sl, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
-                        COLOR_LEGEND_BG);
-    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
-                      COLOR_LEGEND, 1);
+    if (frogui_pillboxes_get())
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
+                   COLOR_LEGEND, 1);
     anchor = x - spacing;
   }
 
   if (show_search) {
     const char *xs = tr("legend.search");
-    int w = font_measure_text_ex(xs, 1);
+    int w = font_measure_text(xs, 1);
     int x = anchor - w;
-    render_rounded_rect(framebuffer, x - 4, legend_y, w + 8, pill_h, UI_S(8),
-                        COLOR_LEGEND_BG);
-    font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
-                      COLOR_LEGEND, 1);
+    if (frogui_pillboxes_get())
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
+                   COLOR_LEGEND, 1);
   }
+
+  font_set_render_scale(100);
 }
 
 void render_scroll_indicator(uint16_t *framebuffer, int total, int selected,
@@ -316,14 +378,18 @@ void render_scroll_indicator(uint16_t *framebuffer, int total, int selected,
   if (!framebuffer || total <= visible || visible <= 0)
     return;
   int top = START_Y;
-  int bottom = SCREEN_HEIGHT - ITEM_HEIGHT - UI_S(10);
+  int bottom = render_theme_current()->content_height > 0
+             ? START_Y + UI_S(render_theme_current()->content_height)
+             : SCREEN_HEIGHT - ITEM_HEIGHT - UI_S(10);
+  if (bottom > SCREEN_HEIGHT - ITEM_HEIGHT - UI_S(10))
+    bottom = SCREEN_HEIGHT - ITEM_HEIGHT - UI_S(10);
   int h = bottom - top;
   if (h < UI_S(20))
     return;
   int w = UI_S(3);
   if (w < 2)
     w = 2;
-  int x = SCREEN_WIDTH - UI_S(7) - w;
+  int x = CONTENT_X + CONTENT_WIDTH - UI_S(7) - w;
   render_rounded_rect(framebuffer, x, top, w, h, w / 2, COLOR_LEGEND_BG);
   int thumb_h = h * visible / total;
   if (thumb_h < UI_S(12))
@@ -339,51 +405,104 @@ void render_toast(uint16_t *framebuffer, const char *text) {
   if (!framebuffer || !text || !*text)
     return;
   int pad = UI_S(10);
-  int w = font_measure_text_ex(text, 1) + pad * 2;
+  int w = font_measure_text(text, 1) + pad * 2;
   int max_w = SCREEN_WIDTH - PADDING * 2;
   if (w > max_w)
     w = max_w;
   int h = ITEM_HEIGHT - UI_S(3);
   int x = (SCREEN_WIDTH - w) / 2;
   int y = SCREEN_HEIGHT - ITEM_HEIGHT * 2 - UI_S(8);
-  render_rounded_rect(framebuffer, x, y, w, h, UI_S(8), COLOR_SELECT_BG);
+  int pillboxes = frogui_pillboxes_get();
+  if (pillboxes)
+    render_rounded_rect(framebuffer, x, y, w, h, UI_S(8), COLOR_SELECT_BG);
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
   int ty = y + h / 2 - (baseline - cap_h / 2);
-  int tx = (SCREEN_WIDTH - font_measure_text_ex(text, 1)) / 2;
+  int tx = (SCREEN_WIDTH - font_measure_text(text, 1)) / 2;
   if (tx < x + UI_S(4))
     tx = x + UI_S(4);
-  font_draw_text_ex(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, tx, ty, text,
-                    COLOR_SELECT_TEXT, 1);
+  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, tx, ty, text,
+                 pillboxes ? COLOR_SELECT_TEXT : COLOR_HEADER, 1);
+}
+
+static void render_text_pillbox_moving(uint16_t *framebuffer, int x, int text_y,
+                                       int pill_y, const char *text) {
+  int baseline, cap_h;
+  font_cap_metrics(&baseline, &cap_h);
+  int pad = frogui_prominimal_style_active() ? UI_S(5) : 7;
+  int width = font_measure_text(text, 0) + 2 * pad;
+  int height = cap_h + 2 * pad;
+  render_rounded_rect(framebuffer, x - pad,
+                      pill_y + (baseline - cap_h) - pad,
+                      width, height,
+                      frogui_prominimal_style_active()
+                          ? UI_S(render_theme_current()->selected_radius)
+                          : render_theme_current()->selected_radius,
+                      COLOR_SELECT_BG);
+  font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, text,
+                 COLOR_SELECT_TEXT, 0);
 }
 
 /* Draw one row at an explicit pixel y (used by the animated list). */
 void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
-                     int is_selected, int is_favorited, int y) {
+                     int is_selected, int is_favorited, int y,
+                     int selected_pill_y) {
   if (!framebuffer || !name)
     return;
 
-  int text_x = PADDING;
+  int text_x = render_theme_current()->scheme_name[0]
+             ? CONTENT_X + UI_S(render_theme_current()->list_padding_left)
+             : PADDING;
+  if (render_theme_current()->scheme_name[0]) {
+    int baseline = 0, cap_h = 0;
+    font_cap_metrics(&baseline, &cap_h);
+    int text_y = y + ITEM_HEIGHT / 2 - baseline + cap_h / 2;
+    if (is_selected)
+      render_rounded_rect_alpha(framebuffer, CONTENT_X, selected_pill_y, CONTENT_WIDTH,
+                                ITEM_HEIGHT, render_theme_current()->selected_radius,
+                                COLOR_SELECT_BG,
+                                render_theme_colour_alpha(RENDER_COLOUR_SELECTION));
+    if (is_favorited) {
+      font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, text_y, "*",
+                     COLOR_HEADER, 0);
+      text_x += UI_S(16);
+    }
+    uint16_t icon = is_selected ? COLOR_SELECT_TEXT : is_dir ? COLOR_FOLDER : COLOR_TEXT;
+    int icon_x = CONTENT_X + UI_S(render_theme_current()->list_glyph_padding_left);
+    int icon_size = UI_S(25);
+    int icon_y = y + (ITEM_HEIGHT - icon_size) / 2;
+    if (is_dir) {
+      render_fill_rect(framebuffer, icon_x, icon_y + UI_S(7), UI_S(24), UI_S(17), icon);
+      render_fill_rect(framebuffer, icon_x + UI_S(2), icon_y + UI_S(1), UI_S(11), UI_S(7), icon);
+    } else {
+      render_rounded_rect(framebuffer, icon_x + UI_S(2), icon_y + UI_S(2),
+                          UI_S(21), UI_S(21), UI_S(3), icon);
+      render_fill_rect(framebuffer, icon_x + UI_S(8), icon_y + UI_S(8),
+                       UI_S(9), UI_S(2), COLOR_BG);
+    }
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, text_y, name,
+                   is_selected ? COLOR_SELECT_TEXT : COLOR_TEXT, 0);
+    return;
+  }
   if (is_favorited) {
     const char *star = "*";
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING, y, star,
-                   COLOR_HEADER);
+                   COLOR_HEADER, 0);
     text_x = PADDING + 15;
   }
 
   if (is_selected) {
-    render_text_pillbox(framebuffer, text_x, y, name, COLOR_SELECT_BG,
-                        COLOR_SELECT_TEXT, 7, 0);
+    render_text_pillbox_moving(framebuffer, text_x, y, selected_pill_y, name);
   } else {
     uint16_t text_color = is_dir ? COLOR_FOLDER : COLOR_DISABLED;
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name,
-                   text_color);
+                   text_color, 0);
   }
 }
 
 void render_menu_item(uint16_t *framebuffer, int index, const char *name,
                       int is_dir, int is_selected, int scroll_offset,
-                      int is_favorited) {
+                      int is_favorited, int selected_pill_y) {
   if (!framebuffer || !name)
     return;
 
@@ -392,12 +511,13 @@ void render_menu_item(uint16_t *framebuffer, int index, const char *name,
     return;
 
   render_menu_row(framebuffer, name, is_dir, is_selected, is_favorited,
-                  START_Y + visible_index * ITEM_HEIGHT);
+                  START_Y + UI_S(render_theme_current()->list_padding_top) +
+                  visible_index * ITEM_HEIGHT, selected_pill_y);
 }
 
 void render_menu_item_centered(uint16_t *framebuffer, int index,
                                const char *name, int is_dir, int is_selected,
-                               int scroll_offset) {
+                               int scroll_offset, int selected_pill_y) {
   if (!framebuffer || !name)
     return;
 
@@ -406,15 +526,14 @@ void render_menu_item_centered(uint16_t *framebuffer, int index,
     return;
 
   int y = START_Y + visible_index * ITEM_HEIGHT;
-  int text_x = (SCREEN_WIDTH - font_measure_text(name)) / 2;
+  int text_x = (SCREEN_WIDTH - font_measure_text(name, 0)) / 2;
   if (text_x < PADDING)
     text_x = PADDING;
   if (is_selected) {
-    render_text_pillbox(framebuffer, text_x, y, name, COLOR_SELECT_BG,
-                        COLOR_SELECT_TEXT, 7, 0);
+    render_text_pillbox_moving(framebuffer, text_x, y, selected_pill_y, name);
   } else {
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, y, name,
-                   is_dir ? COLOR_FOLDER : COLOR_DISABLED);
+                   is_dir ? COLOR_FOLDER : COLOR_DISABLED, 0);
   }
 }
 
@@ -591,6 +710,15 @@ int load_game_artwork(const char *game_path, ArtworkKind kind,
   char base[1024];
   if (!game_path || !thumb)
     return 0;
+  /* Port launchers live at ports/ root; data is in a hidden sibling folder. */
+  const char *slash = strrchr(game_path, '/');
+  const char *dot = strrchr(game_path, '.');
+  if (kind == ARTWORK_BOXART && slash && dot && strcasecmp(dot, ".sh") == 0) {
+    int n = snprintf(base, sizeof base, "%.*s.png", (int)(dot - game_path),
+                     game_path);
+    if (n > 0 && (size_t)n < sizeof base && load_thumbnail(base, thumb))
+      return 1;
+  }
   uint64_t game_hash = artwork_hash(game_path);
   uint64_t folder_sig = artwork_folder_signature(game_path);
   if (artwork_miss_contains(game_hash, folder_sig, kind)) {
@@ -812,4 +940,126 @@ void render_thumbnail(uint16_t *framebuffer, const Thumbnail *thumb) {
       }
     }
   }
+}
+
+void render_thumbnail_contained(uint16_t *framebuffer, const Thumbnail *thumb,
+                                int x, int y, int width, int height) {
+  if (!framebuffer || !thumb || !thumb->data || thumb->width <= 0 ||
+      thumb->height <= 0 || width <= 0 || height <= 0) return;
+  int dw = width, dh = height;
+  if ((int64_t)width * thumb->height > (int64_t)height * thumb->width) {
+    dw = height * thumb->width / thumb->height;
+  } else {
+    dh = width * thumb->height / thumb->width;
+  }
+  if (dw < 1) dw = 1;
+  if (dh < 1) dh = 1;
+  int left = x + (width - dw) / 2;
+  int top = y + (height - dh) / 2;
+  for (int py = 0; py < dh; py++) {
+    int sy = py * thumb->height / dh;
+    for (int px = 0; px < dw; px++) {
+      int dx = left + px, dy = top + py;
+      if (dx < 0 || dx >= SCREEN_WIDTH || dy < 0 || dy >= SCREEN_HEIGHT) continue;
+      int sx = px * thumb->width / dw;
+      int si = sy * thumb->width + sx;
+      unsigned a = thumb->alpha ? thumb->alpha[si] : 255;
+      if (!a) continue;
+      uint16_t *dst = &framebuffer[dy * SCREEN_WIDTH + dx];
+      if (a == 255) {
+        *dst = thumb->data[si];
+      } else {
+        uint16_t src = thumb->data[si], bg = *dst;
+        unsigned r = (((src >> 11) & 31u) * a + ((bg >> 11) & 31u) * (255 - a)) / 255;
+        unsigned g = (((src >> 5) & 63u) * a + ((bg >> 5) & 63u) * (255 - a)) / 255;
+        unsigned b = ((src & 31u) * a + (bg & 31u) * (255 - a)) / 255;
+        *dst = (uint16_t)((r << 11) | (g << 5) | b);
+      }
+    }
+  }
+}
+
+typedef struct {
+  char path[512];
+  int screen_w, screen_h, width, height, left, top;
+  uint16_t *pixels;
+  uint8_t *alpha;
+} ThemeCanvasCache;
+
+static ThemeCanvasCache theme_canvas_cache[6];
+static unsigned theme_canvas_next;
+
+static void theme_canvas_blit(uint16_t *framebuffer, const ThemeCanvasCache *cache) {
+  for (int y = 0; y < cache->height; y++) {
+    uint16_t *dst = framebuffer + (cache->top + y) * SCREEN_WIDTH + cache->left;
+    const uint16_t *src = cache->pixels + y * cache->width;
+    if (!cache->alpha) {
+      memcpy(dst, src, (size_t)cache->width * sizeof(*src));
+      continue;
+    }
+    const uint8_t *alpha = cache->alpha + y * cache->width;
+    for (int x = 0; x < cache->width; x++) {
+      unsigned a = alpha[x];
+      if (a == 255) dst[x] = src[x];
+      else if (a) {
+        uint16_t bg = dst[x], fg = src[x];
+        unsigned r = (((fg >> 11) & 31u) * a + ((bg >> 11) & 31u) * (255 - a)) / 255;
+        unsigned g = (((fg >> 5) & 63u) * a + ((bg >> 5) & 63u) * (255 - a)) / 255;
+        unsigned b = ((fg & 31u) * a + (bg & 31u) * (255 - a)) / 255;
+        dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+      }
+    }
+  }
+}
+
+int render_theme_canvas(uint16_t *framebuffer, const char *path) {
+  if (!framebuffer || !path) return 0;
+  for (size_t i = 0; i < sizeof theme_canvas_cache / sizeof theme_canvas_cache[0]; i++) {
+    ThemeCanvasCache *cached = &theme_canvas_cache[i];
+    if (cached->pixels && cached->screen_w == SCREEN_WIDTH &&
+        cached->screen_h == SCREEN_HEIGHT && strcmp(cached->path, path) == 0) {
+      theme_canvas_blit(framebuffer, cached);
+      return 1;
+    }
+  }
+
+  /* shortcut: accepts MuOS 640x480 canvases; add per-resolution lookup for other package sizes. */
+  int sw = 0, sh = 0, channels = 0;
+  if (!stbi_info(path, &sw, &sh, &channels) || sw != 640 || sh != 480) return 0;
+  unsigned char *rgba = stbi_load(path, &sw, &sh, &channels, 4);
+  if (!rgba) return 0;
+  int dw = SCREEN_WIDTH, dh = dw * sh / sw;
+  if (dh > SCREEN_HEIGHT) { dh = SCREEN_HEIGHT; dw = dh * sw / sh; }
+  int left = (SCREEN_WIDTH - dw) / 2, top = (SCREEN_HEIGHT - dh) / 2;
+  size_t count = (size_t)dw * dh;
+  ThemeCanvasCache *cached = &theme_canvas_cache[theme_canvas_next++ %
+                                      (sizeof theme_canvas_cache / sizeof theme_canvas_cache[0])];
+  free(cached->pixels);
+  free(cached->alpha);
+  memset(cached, 0, sizeof(*cached));
+  cached->pixels = malloc(count * sizeof(*cached->pixels));
+  cached->alpha = malloc(count);
+  if (!cached->pixels || !cached->alpha) {
+    free(cached->pixels); free(cached->alpha); memset(cached, 0, sizeof(*cached));
+    stbi_image_free(rgba);
+    return 0;
+  }
+  int opaque = 1;
+  for (int y = 0; y < dh; y++) {
+    int sy = y * sh / dh;
+    for (int x = 0; x < dw; x++) {
+      const unsigned char *src = rgba + ((size_t)sy * sw + x * sw / dw) * 4;
+      size_t p = (size_t)y * dw + x;
+      cached->pixels[p] = rgb24_to_rgb565(src[0], src[1], src[2]);
+      cached->alpha[p] = src[3];
+      if (src[3] != 255) opaque = 0;
+    }
+  }
+  stbi_image_free(rgba);
+  if (opaque) { free(cached->alpha); cached->alpha = NULL; }
+  snprintf(cached->path, sizeof cached->path, "%s", path);
+  cached->screen_w = SCREEN_WIDTH; cached->screen_h = SCREEN_HEIGHT;
+  cached->width = dw; cached->height = dh; cached->left = left; cached->top = top;
+  theme_canvas_blit(framebuffer, cached);
+  return 1;
 }
