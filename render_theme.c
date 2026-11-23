@@ -396,10 +396,13 @@ int render_theme_font_size(void) { return current.font_size; }
 const char *render_theme_font_file(void) { return current.font_file; }
 
 int render_theme_background(char *path, unsigned path_size) {
-    if (!path || !path_size || !current.background_image[0]) return 0;
+    if (!path || !path_size) return 0;
+    const char *image = current.background_image[0] ? current.background_image :
+                        current.scheme_name[0] ? "640x480/image/wall/default.png" : NULL;
+    if (!image) return 0;
     int n = snprintf(path, path_size, "/mnt/sdcard/frogui/schemes/%s/%s",
                      current.scheme_name[0] ? current.scheme_name : current.style_name,
-                     current.background_image);
+                     image);
     return n >= 0 && (unsigned)n < path_size;
 }
 

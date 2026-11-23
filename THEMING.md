@@ -57,8 +57,9 @@ Recents, and `default` for Apps and Settings). Each view starts from the
 selected profile before applying its own INI, so settings do not leak between
 screens.
 
-This is a renderer compatibility layer, not a `.muxthm` archive installer.
-Screen background and header/list/footer colors honor MuOS alpha zero as
+TreeFrogUI's on-device Theme Installer imports `.muxthm` archives into the
+dynamic scheme folder described above. This renderer remains a compatibility
+layer: screen background and header/list/footer colors honor MuOS alpha zero as
 transparent/inherited; partial opacity, LVGL-only animation, MuOS `.bin`
 fonts, and unrelated MuOS screens remain unsupported.
 `ArtBookNext.ini` ports the compatible palette and transparent selection from

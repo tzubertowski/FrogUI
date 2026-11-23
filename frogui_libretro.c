@@ -85,6 +85,8 @@ static bool port_migration_current_ok;
 #define LGPT_BIN     SDCARD_BASE "/cubegm/lgpt"
 #define ROCKBOX_BIN  SDCARD_BASE "/cubegm/rockbox.sh"  /* wrapper sets HOME+SDL env */
 #define EBOOK_BIN    SDCARD_BASE "/cubegm/ebook"        /* MuPDF ebook reader (epub/mobi/pdf) */
+#define THEME_INSTALLER_BIN SDCARD_BASE "/cubegm/theme_installer.sh"
+#define THEME_INSTALL_STATUS SDCARD_BASE "/frogui/theme-install-status.txt"
 #define FROGGYREADER_CORE CORES_PATH "/froggyreader_libretro.so"
 #define FROGGYREADER_LIBRARY SDCARD_BASE "/roms/epub/Library.epub"
 #define VIDEO_BIN    SDCARD_BASE "/cubegm/video_player" /* hardware-decoded video player */
@@ -474,6 +476,10 @@ static bool viewing_favourites = false;
 static bool viewing_apps = false;
 static bool settings_apps_origin = false;
 static bool apps_browsing = false;
+static bool theme_installer_active = false;
+static bool theme_install_result_active = false;
+static bool theme_install_result_success = false;
+static char theme_install_result[128];
 static bool viewing_activity = false;
 static char activity_paths[128][MAX_PATH_LEN];
 static long activity_seconds[128];
@@ -2190,6 +2196,22 @@ static const char *system_display_name(const char *folder) {
 
 #define BANNER_DIR SDCARD_BASE "/frogui"
 
+static int banner_find_image(char *out, size_t out_size, const char *directory,
+                             const char *name, const char *const *extensions) {
+    char sized_directory[512];
+    snprintf(sized_directory, sizeof sized_directory, "%s/%dx%d", directory,
+             SCREEN_WIDTH, SCREEN_HEIGHT);
+    for (int i = 0; extensions[i]; i++) {
+        snprintf(out, out_size, "%s/%s.%s", sized_directory, name, extensions[i]);
+        if (access(out, R_OK) == 0) return 1;
+    }
+    for (int i = 0; extensions[i]; i++) {
+        snprintf(out, out_size, "%s/%s.%s", directory, name, extensions[i]);
+        if (access(out, R_OK) == 0) return 1;
+    }
+    return 0;
+}
+
 static void load_banner_for_view(const char *path, bool is_recents, bool is_favourites) {
     if (settings_render_scheme_idx > 0) {
         char theme_background[512];
@@ -2235,27 +2257,20 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
                  theme_pack_files[settings_theme_pack_idx]);
     else
         snprintf(banner_dir, sizeof banner_dir, "%s", BANNER_DIR);
-    const char *exts[] = { "png", "jpg", "jpeg", "bmp", NULL };
+    static const char *exts[] = { "png", "jpg", "jpeg", "bmp", NULL };
     if (is_recents) {
-        for (int i = 0; exts[i]; i++) {
-            snprintf(img, sizeof(img), "%s/recents.%s", banner_dir, exts[i]);
-            if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
-        }
+        if (banner_find_image(img, sizeof img, banner_dir, "recents", exts))
+            { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
     } else if (is_favourites) {
-        for (int i = 0; exts[i]; i++) {
-            snprintf(img, sizeof(img), "%s/favourites.%s", banner_dir, exts[i]);
-            if (access(img, R_OK) == 0) { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
-        }
+        if (banner_find_image(img, sizeof img, banner_dir, "favourites", exts))
+            { banner_load_fit(img, settings_wallpaper_fit, COLOR_BG); return; }
     } else {
         char ports_root[512];
         snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
         if (path && strncmp(path, ports_root, strlen(ports_root)) == 0) {
-            for (int i = 0; exts[i]; i++) {
-                snprintf(img, sizeof(img), "%s/main.%s", banner_dir, exts[i]);
-                if (access(img, R_OK) == 0) {
-                    banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
-                    return;
-                }
+            if (banner_find_image(img, sizeof img, banner_dir, "main", exts)) {
+                banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                return;
             }
             banner_clear();
             return;
@@ -2295,31 +2310,26 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
                 ? BANNER_DIR : NULL,
             NULL };
         for (int d = 0; dirs[d]; d++)
-            for (int n = 0; n < name_count; n++)
-                for (int i = 0; exts[i]; i++) {
-                    snprintf(img, sizeof(img), "%s/%s.%s", dirs[d], names[n], exts[i]);
-                    if (access(img, R_OK) == 0) {
-                        banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
-                        char trace[700];
-                        snprintf(trace, sizeof trace, "FrogUI background: folder=%s pack=%s image=%s",
-                                 name, settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
-                                     ? theme_pack_files[settings_theme_pack_idx] : "default", img);
-                        dbg(trace);
-                        if (log_cb) log_cb(RETRO_LOG_INFO, "%s\n", trace);
-                        return;
-                    }
-                }
-        for (int d = 0; dirs[d]; d++)
-            for (int i = 0; exts[i]; i++) {
-                snprintf(img, sizeof(img), "%s/main.%s", dirs[d], exts[i]);
-                if (access(img, R_OK) == 0) {
+            for (int n = 0; n < name_count; n++) {
+                if (banner_find_image(img, sizeof img, dirs[d], names[n], exts)) {
                     banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
                     char trace[700];
-                    snprintf(trace, sizeof trace, "FrogUI background: folder=%s missing; fallback=%s", name, img);
+                    snprintf(trace, sizeof trace, "FrogUI background: folder=%s pack=%s image=%s",
+                             name, settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count
+                                 ? theme_pack_files[settings_theme_pack_idx] : "default", img);
                     dbg(trace);
-                    if (log_cb) log_cb(RETRO_LOG_WARN, "%s\n", trace);
+                    if (log_cb) log_cb(RETRO_LOG_INFO, "%s\n", trace);
                     return;
                 }
+            }
+        for (int d = 0; dirs[d]; d++)
+            if (banner_find_image(img, sizeof img, dirs[d], "main", exts)) {
+                banner_load_fit(img, settings_wallpaper_fit, COLOR_BG);
+                char trace[700];
+                snprintf(trace, sizeof trace, "FrogUI background: folder=%s missing; fallback=%s", name, img);
+                dbg(trace);
+                if (log_cb) log_cb(RETRO_LOG_WARN, "%s\n", trace);
+                return;
             }
         if (log_cb) log_cb(RETRO_LOG_WARN, "FrogUI background: no image for folder=%s\n", name);
     }
@@ -2351,6 +2361,27 @@ static void prefetch_banner_directory(const char *directory) {
     closedir(dp);
 }
 
+static void prefetch_panel_background_directory(const char *directory) {
+    char sized_directory[512];
+    snprintf(sized_directory, sizeof sized_directory, "%s/%dx%d", directory,
+             SCREEN_WIDTH, SCREEN_HEIGHT);
+    prefetch_banner_directory(sized_directory);
+    DIR *dp = opendir(directory);
+    if (!dp) return;
+    struct dirent *e;
+    while ((e = readdir(dp))) {
+        if (!is_banner_image(e->d_name)) continue;
+        char path[512], sized_path[512];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", directory, e->d_name);
+        snprintf(sized_path, sizeof sized_path, "%s/%s", sized_directory, e->d_name);
+        if (access(sized_path, R_OK) == 0) continue;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode))
+            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
+    }
+    closedir(dp);
+}
+
 static void prefetch_active_theme(void) {
     banner_prefetch_clear();
     if (settings_render_scheme_idx > 0) {
@@ -2370,12 +2401,12 @@ static void prefetch_active_theme(void) {
             return;
         }
     }
-    prefetch_banner_directory(BANNER_DIR);
+    prefetch_panel_background_directory(BANNER_DIR);
     if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count) {
         char directory[512];
         snprintf(directory, sizeof directory, BANNER_DIR "/theme-packs/%s",
                  theme_pack_files[settings_theme_pack_idx]);
-        prefetch_banner_directory(directory);
+        prefetch_panel_background_directory(directory);
     }
 }
 
@@ -3375,6 +3406,7 @@ static const AppEntry app_defs[] = {
     {"ebook", "app.ebook_reader", "Ebook Reader", "Ebook", "ebooks", NULL},
     {"froggyreader", NULL, "FroggyReader (EPUB)", "epub/books", NULL, NULL},
     {"images", "app.image_viewer", "Image Viewer", "images", "photos", NULL},
+    {"themes", NULL, "Theme Installer", "themes", NULL, NULL},
     {"videos", "app.videos", "Videos", "videos", "video", NULL},
     {"music", "app.music_mp3", "Music / MP3", "music", "audio", NULL},
     {"rockbox", "app.rockbox", "Rockbox", "rockbox", NULL, NULL},
@@ -3386,6 +3418,11 @@ static const char *app_folder_path(int index, char *out, size_t out_size) {
     if (index < 0 || index >= (int)(sizeof(app_defs) / sizeof(app_defs[0]))) return NULL;
     const AppEntry *a = &app_defs[index];
     if (!a->folder_a) return NULL;
+    if (!strcmp(a->key, "themes")) {
+        snprintf(out, out_size, "%s/ARCHIVE", SDCARD_BASE);
+        struct stat st;
+        if (stat(out, &st) == 0 && S_ISDIR(st.st_mode)) return out;
+    }
     const char *candidates[3] = { a->folder_a, a->folder_b, NULL };
     for (int i = 0; candidates[i]; i++) {
         snprintf(out, out_size, "%s/%s", ROMS_PATH, candidates[i]);
@@ -3395,12 +3432,26 @@ static const char *app_folder_path(int index, char *out, size_t out_size) {
     return NULL;
 }
 
+static void scan_theme_archives(void) {
+    scan_directory(current_path);
+    int kept = 0;
+    for (int i = 0; i < entry_count; i++) {
+        const char *ext = strrchr(entries[i].name, '.');
+        if (entries[i].is_dir || !ext || strcasecmp(ext, ".muxthm") != 0) continue;
+        if (kept != i) entries[kept] = entries[i];
+        kept++;
+    }
+    entry_count = kept;
+    selected_index = scroll_offset = 0;
+}
+
 static int is_app_folder_name(const char *name) {
     return name && (!strcasecmp(name, "rockbox") || !strcasecmp(name, "music") ||
                     !strcasecmp(name, "audio") || !strcasecmp(name, "videos") ||
                     !strcasecmp(name, "video") || !strcasecmp(name, "images") ||
                     !strcasecmp(name, "photos") || !strcasecmp(name, "ebook") ||
-                    !strcasecmp(name, "ebooks") || !strcasecmp(name, "epub"));
+                    !strcasecmp(name, "ebooks") || !strcasecmp(name, "epub") ||
+                    !strcasecmp(name, "themes"));
 }
 
 static void scan_apps_tab(void) {
@@ -3646,7 +3697,8 @@ static void request_standalone_launch(const char *bin_path, const char *rom_path
     /* Media playback is an app, not a game: keep MP3/video launches out of
      * Recents so that list remains useful for actual games. */
     if (strcmp(bin_path, ROCKBOX_BIN) != 0 && strcmp(bin_path, VIDEO_BIN) != 0 &&
-        strcmp(bin_path, FROGSHELL_CORE) != 0) {
+        strcmp(bin_path, FROGSHELL_CORE) != 0 &&
+        strcmp(bin_path, THEME_INSTALLER_BIN) != 0) {
         dbg("standalone_launch: calling recent_games_add");
         recent_games_add(bin_path, game_name, rom_path);
     } else {
@@ -3801,8 +3853,17 @@ static void run_search(void) {
  * launch the stored core_name directly and so missed the ps1-folder → standalone
  * pcsx4all preference (a ps1 favourite booted pcsx_rearmed instead). */
 static void launch_by_path(const char *path) {
-    const char *folder = get_console_folder(path);
+    char themes_root[MAX_PATH_LEN], archive_root[MAX_PATH_LEN];
+    snprintf(themes_root, sizeof themes_root, "%s/themes/", ROMS_PATH);
+    snprintf(archive_root, sizeof archive_root, "%s/ARCHIVE/", SDCARD_BASE);
     const char *extension = strrchr(path, '.');
+    if ((strncmp(path, themes_root, strlen(themes_root)) == 0 ||
+         strncmp(path, archive_root, strlen(archive_root)) == 0) && extension &&
+        strcasecmp(extension, ".muxthm") == 0) {
+        request_standalone_launch(THEME_INSTALLER_BIN, path);
+        return;
+    }
+    const char *folder = get_console_folder(path);
     char ports_root[MAX_PATH_LEN];
     snprintf(ports_root, sizeof ports_root, "%s/ports/", ROMS_PATH);
     if (strncmp(path, ports_root, strlen(ports_root)) == 0 && folder &&
@@ -5437,6 +5498,15 @@ static void render_browser_grid(uint16_t *fb) {
 static void handle_input(void) {
     input_update();
 
+    if (theme_install_result_active) {
+        if (input_was_pressed(FROG_BTN_A) || input_was_pressed(FROG_BTN_B) ||
+            input_was_pressed(FROG_BTN_START)) {
+            theme_install_result_active = false;
+            scan_apps_tab();
+        }
+        return;
+    }
+
     if (viewing_info) {
         if (input_was_pressed(FROG_BTN_A) || input_was_pressed(FROG_BTN_B) ||
             input_was_pressed(FROG_BTN_START)) {
@@ -5828,6 +5898,18 @@ static void handle_input(void) {
                 }
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggyreader")) {
                 request_game_launch(FROGGYREADER_CORE, FROGGYREADER_LIBRARY);
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "themes")) {
+                ui_transition_start(1);
+                if (!app_folder_path(app_index, app_path, sizeof app_path))
+                    snprintf(app_path, sizeof app_path, "%s/themes", ROMS_PATH);
+                strncpy(current_path, app_path, MAX_PATH_LEN - 1);
+                current_path[MAX_PATH_LEN - 1] = '\0';
+                strncpy(apps_root_path, current_path, MAX_PATH_LEN - 1);
+                apps_root_path[MAX_PATH_LEN - 1] = '\0';
+                viewing_apps = false;
+                apps_browsing = true;
+                theme_installer_active = true;
+                scan_theme_archives();
             } else if (app_index >= 0 && app_defs[app_index].bin && access(app_defs[app_index].bin, X_OK) == 0) {
                 if (!strcmp(app_defs[app_index].bin, FROGSHELL_CORE))
                     request_game_launch(FROGSHELL_CORE, FROGSHELL_CORE);
@@ -5881,6 +5963,9 @@ static void handle_input(void) {
             settings_menu_active = true;
             settings_build_vis_rows();
             return;
+        } else if (viewing_apps) {
+            switch_main_tab(MAIN_TAB_GAMES);
+            return;
         } else if (viewing_activity) {
             ui_transition_start(-1);
             scan_apps_tab();
@@ -5891,6 +5976,7 @@ static void handle_input(void) {
         } else if (apps_browsing && strcmp(current_path, apps_root_path) == 0) {
             /* Return from a media folder to the Apps tab, not the Games root. */
             ui_transition_start(-1);
+            theme_installer_active = false;
             strncpy(current_path, ROMS_PATH, MAX_PATH_LEN - 1);
             current_path[MAX_PATH_LEN - 1] = '\0';
             scan_apps_tab();
@@ -6299,6 +6385,28 @@ void retro_init(void) {
     theme_init();
     dbg("theme_init done");
     settings_load_file();
+    {
+        FILE *status = fopen(THEME_INSTALL_STATUS, "r");
+        if (status) {
+            char message[sizeof theme_install_result + 16];
+            if (fgets(message, sizeof message, status)) {
+                message[strcspn(message, "\r\n")] = '\0';
+                if (strncmp(message, "SUCCESS: ", 9) == 0) {
+                    theme_install_result_success = true;
+                    snprintf(theme_install_result, sizeof theme_install_result,
+                             "Installed: %.110s", message + 9);
+                    theme_install_result_active = true;
+                } else if (strncmp(message, "ERROR: ", 7) == 0) {
+                    theme_install_result_success = false;
+                    snprintf(theme_install_result, sizeof theme_install_result,
+                             "%.127s", message + 7);
+                    theme_install_result_active = true;
+                }
+            }
+            fclose(status);
+            unlink(THEME_INSTALL_STATUS);
+        }
+    }
     startup_bg_override = settings_backgrounds != 0;
     theme_set_bg_override(startup_bg_override, 0x0000);
     i18n_init(i18n_language_code_at(settings_language));
@@ -6783,6 +6891,55 @@ static void render_port_error(void) {
                    x + UI_S(18), y + h - UI_S(38), "Press A or B to return", white);
 }
 
+static void render_theme_page_background(void) {
+    char path[512];
+    if (!render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png") ||
+        !render_theme_canvas(framebuffer, path))
+        render_clear_screen(framebuffer);
+}
+
+static void render_theme_installer(void) {
+    render_theme_page_background();
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
+                   UI_S(10), "THEME INSTALLER", COLOR_HEADER, 1);
+    font_draw_text_clipped(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
+                           START_Y, "Choose a .muxthm file to install", COLOR_TEXT,
+                           CONTENT_X, START_Y, CONTENT_WIDTH, ITEM_HEIGHT);
+    int y = START_Y + ITEM_HEIGHT;
+    if (!entry_count) {
+        font_draw_text_clipped(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, y,
+                               "Copy theme files to /ARCHIVE on the SD card", COLOR_TEXT,
+                               CONTENT_X, y, CONTENT_WIDTH, ITEM_HEIGHT);
+    } else {
+        int visible = min(entry_count - scroll_offset, VISIBLE_ENTRIES - 1);
+        for (int i = 0; i < visible; i++) {
+            int idx = scroll_offset + i;
+            render_menu_row(framebuffer, entries[idx].name, 0,
+                            idx == selected_index, 0,
+                            y + i * ITEM_HEIGHT,
+                            idx == selected_index ? y + i * ITEM_HEIGHT : 0);
+        }
+        render_scroll_indicator(framebuffer, entry_count, selected_index, visible);
+    }
+    render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
+}
+
+static void render_theme_install_result(void) {
+    render_theme_page_background();
+    font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
+                   UI_S(10), theme_install_result_success ?
+                   "INSTALL COMPLETE" : "INSTALL FAILED", COLOR_HEADER, 1);
+    font_draw_text_clipped(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
+                           START_Y + UI_S(20), theme_install_result, COLOR_TEXT,
+                           CONTENT_X, START_Y + UI_S(20), CONTENT_WIDTH, ITEM_HEIGHT);
+    if (theme_install_result_success)
+        font_draw_text_clipped(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X,
+                               START_Y + UI_S(56), "Theme is available in Settings > Theme",
+                               COLOR_TEXT, CONTENT_X, START_Y + UI_S(56),
+                               CONTENT_WIDTH, ITEM_HEIGHT);
+    render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
+}
+
 void retro_run(void) {
     if (port_migration_active) {
         if (port_migration_index < port_migration_count) {
@@ -7126,6 +7283,11 @@ void retro_run(void) {
             sig = sig*33u + (unsigned)scroll_offset;
             sig = sig*33u + (unsigned)(switch_home_open * 8 + switch_home_index);
             sig = sig*33u + (unsigned)(viewing_recents*16 + viewing_favourites*8 + viewing_apps*4 + apps_browsing*2 + viewing_activity + viewing_search*32);
+            sig = sig*33u + (unsigned)(theme_installer_active | (theme_install_result_active << 1));
+            if (theme_install_result_active) {
+                for (const char *p = theme_install_result; *p; p++)
+                    sig = sig*33u + (unsigned char)*p;
+            }
             sig = sig*33u + (unsigned)viewing_info;
             sig = sig*33u + (unsigned)game_switcher_fullscreen;
             for (const char *p = current_path; *p; p++) sig = sig*33u + (unsigned char)*p;
@@ -7155,7 +7317,9 @@ void retro_run(void) {
     fb1_clear_battery_zone();
     int selected_pill_y = menu_pill_draw_y();
 
-    if (port_error_active) {
+    if (theme_install_result_active) {
+        render_theme_install_result();
+    } else if (port_error_active) {
         render_port_error();
     } else if (usb_mode_confirm_active || usb_mode_initiated_active) {
         render_usb_confirm();
@@ -7169,6 +7333,8 @@ void retro_run(void) {
         render_remap_wizard();
     } else if (viewing_info) {
         render_switch_info(framebuffer);
+    } else if (theme_installer_active) {
+        render_theme_installer();
     } else if (settings_menu_active) {
         render_settings_menu();
     } else if (viewing_recents && settings_game_switcher) {

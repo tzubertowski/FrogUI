@@ -244,8 +244,18 @@ void render_header(uint16_t *framebuffer, const char *title) {
   if (!framebuffer || !title)
     return;
 
-  render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT,
-                   render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG));
+  uint8_t header_alpha = render_theme_colour_alpha(RENDER_COLOUR_HEADER_BACKGROUND);
+  if (header_alpha == 255) {
+    render_fill_rect(framebuffer, 0, 0, SCREEN_WIDTH, HEADER_HEIGHT,
+                     render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG));
+  } else if (header_alpha > 0) {
+    uint16_t color = render_theme_colour(RENDER_COLOUR_HEADER_BACKGROUND, COLOR_BG);
+    for (int y = 0; y < HEADER_HEIGHT && y < SCREEN_HEIGHT; y++)
+      for (int x = 0; x < SCREEN_WIDTH; x++) {
+        size_t pixel = (size_t)y * SCREEN_WIDTH + x;
+        framebuffer[pixel] = blend_pixel(color, framebuffer[pixel], header_alpha);
+      }
+  }
   // Draw folder/section name in header area
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, 10, title,
                  COLOR_HEADER, 1);
@@ -306,14 +316,16 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
   int text_y = legend_y + pill_h / 2 - (baseline - cap_h / 2);
   int spacing = UI_S(6);
   int anchor = SCREEN_WIDTH - PADDING;
+  uint8_t legend_alpha = render_theme_colour_alpha(RENDER_COLOUR_LEGEND_BACKGROUND);
 
   {
     const char *nav = tr("legend.enter_back");
     int w = font_measure_text(nav, 1);
     int x = anchor - w;
     if (frogui_pillboxes_get())
-      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                          COLOR_LEGEND_BG);
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, nav,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -325,8 +337,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     int w = font_measure_text(xl, 1);
     int x = anchor - w;
     if (frogui_pillboxes_get())
-      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                          COLOR_LEGEND_BG);
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xl,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -337,8 +350,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     int w = font_measure_text(sl, 1);
     int x = anchor - w;
     if (frogui_pillboxes_get())
-      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                          COLOR_LEGEND_BG);
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, sl,
                    COLOR_LEGEND, 1);
     anchor = x - spacing;
@@ -349,8 +363,9 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
     int w = font_measure_text(xs, 1);
     int x = anchor - w;
     if (frogui_pillboxes_get())
-      render_rounded_rect(framebuffer, x - UI_S(3), legend_y, w + UI_S(6), pill_h, UI_S(6),
-                          COLOR_LEGEND_BG);
+      render_rounded_rect_alpha(framebuffer, x - UI_S(3), legend_y,
+                                w + UI_S(6), pill_h, UI_S(6),
+                                COLOR_LEGEND_BG, legend_alpha);
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, text_y, xs,
                    COLOR_LEGEND, 1);
   }
