@@ -59,6 +59,9 @@ static char g_roms_path[512] = ROMS_PATH_DEFAULT;
 #define PICO286_BIN  SDCARD_BASE "/cubegm/pico286"
 #define LGPT_BIN     SDCARD_BASE "/cubegm/lgpt"
 #define ROCKBOX_BIN  SDCARD_BASE "/cubegm/rockbox.sh"  /* wrapper sets HOME+SDL env */
+#define FROGGYTHEMES_BIN SDCARD_BASE "/cubegm/froggythemes.sh" /* TreeFrogUI theme manager */
+#define FROGGYHWPROBE_BIN SDCARD_BASE "/cubegm/froggyhwprobe.sh" /* hardware diagnostics */
+#define FROGGYBENCHMARK_BIN SDCARD_BASE "/cubegm/froggybenchmark.sh" /* CPU/RAM diagnostics */
 #define EBOOK_BIN    SDCARD_BASE "/cubegm/ebook"        /* MuPDF ebook reader (epub/mobi/pdf) */
 #define VIDEO_BIN    SDCARD_BASE "/cubegm/video_player" /* hardware-decoded video player */
 #define IMAGE_BIN    SDCARD_BASE "/cubegm/image_viewer" /* hardware-decoded image viewer */
@@ -2381,6 +2384,9 @@ typedef struct { const char *key; const char *label_key; const char *label_en; c
 static const AppEntry app_defs[] = {
     {"activity", "app.activity", "Activity Tracker", NULL, NULL, NULL},
     {"frogshell", "app.frogshell", "FrogShell", NULL, NULL, FROGSHELL_CORE},
+    {"froggythemes", "app.froggythemes", "FroggyThemes", NULL, NULL, FROGGYTHEMES_BIN},
+    {"froggyhwprobe", "app.froggyhwprobe", "FroggyHWProbe", NULL, NULL, FROGGYHWPROBE_BIN},
+    {"froggybenchmark", "app.froggybenchmark", "FroggyBenchmark", NULL, NULL, FROGGYBENCHMARK_BIN},
     {"usbmode", "app.usb_mode", "USB mode", NULL, NULL, USB_MODE_BIN},
     {"ebook", "app.ebook_reader", "Ebook Reader", "Ebook", "ebooks", NULL},
     {"images", "app.image_viewer", "Image Viewer", "images", "photos", NULL},
@@ -3966,6 +3972,12 @@ static void handle_input(void) {
                      * confirms the modal. */
                     usb_mode_prev_raw = input_get_raw_state();
                 }
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggythemes")) {
+                request_builtin_launch(FROGGYTHEMES_BIN);
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggyhwprobe")) {
+                request_builtin_launch(FROGGYHWPROBE_BIN);
+            } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggybenchmark")) {
+                request_builtin_launch(FROGGYBENCHMARK_BIN);
             } else if (app_index >= 0 && app_defs[app_index].bin && access(app_defs[app_index].bin, X_OK) == 0) {
                 if (!strcmp(app_defs[app_index].bin, FROGSHELL_CORE))
                     request_game_launch(FROGSHELL_CORE, FROGSHELL_CORE);
