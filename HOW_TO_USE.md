@@ -32,7 +32,7 @@ FrogUI is a modern file browser interface for the SF2000/GB300 that provides acc
 | `gbav` | Game Boy Advance (alt) | VBA-Next | `.gba` |
 | `mgba` | Game Boy Advance (alt) | mGBA | `.gba` |
 | `pokem` | Pokemon Mini | PokeMini | `.min` |
-| `vb` | Virtual Boy | Beetle-VB | `.vb`, `.vboy` |
+| `vb` | Virtual Boy | Red Viper (when installed), otherwise Beetle-VB | `.vb`, `.vboy` |
 | **Nintendo Consoles** ||||
 | `nes` | NES / Famicom | FCEUmm | `.nes`, `.fds` |
 | `nesq` | NES (alt) | QuickNES | `.nes` |

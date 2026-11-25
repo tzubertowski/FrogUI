@@ -262,8 +262,18 @@ static const ConsoleMapping console_mappings[] = {
     {NULL, NULL}
 };
 
+/* Prefer Red Viper for Virtual Boy when its optional core is installed. The
+ * Beetle-VB core remains the built-in fallback and a selectable alternative. */
+static const char *get_virtual_boy_default_core(void) {
+    static const char red_viper[] = CORES_PATH "/red-viper-mipsel_libretro.so";
+    static const char beetle_vb[] = CORES_PATH "/mednafen_vb_libretro.so";
+    return access(red_viper, R_OK) == 0 ? red_viper : beetle_vb;
+}
+
 static const char* get_core_for_folder(const char *folder) {
     if (!folder) return NULL;
+    if (strcasecmp(folder, "vb") == 0)
+        return get_virtual_boy_default_core();
     for (int i = 0; console_mappings[i].console_name; i++)
         if (strcasecmp(console_mappings[i].console_name, folder) == 0)
             return console_mappings[i].core_path;
@@ -303,6 +313,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".ws",   CORES_PATH "/mednafen_wswan_libretro.so"},
     {".wsc",  CORES_PATH "/mednafen_wswan_libretro.so"},
     {".vb",   CORES_PATH "/mednafen_vb_libretro.so"},
+    {".vboy", CORES_PATH "/mednafen_vb_libretro.so"},
     {".a26",  CORES_PATH "/stella2014_libretro.so"},
     {".a52",  CORES_PATH "/a5200_libretro.so"},
     {".a78",  CORES_PATH "/prosystem_libretro.so"},
@@ -364,6 +375,8 @@ static const char* get_core_for_extension(const char *filename) {
     if (!filename) return NULL;
     const char *dot = strrchr(filename, '.');
     if (!dot) return NULL;
+    if (strcasecmp(dot, ".vb") == 0 || strcasecmp(dot, ".vboy") == 0)
+        return get_virtual_boy_default_core();
     for (int i = 0; ext_mappings[i].ext; i++)
         if (strcasecmp(ext_mappings[i].ext, dot) == 0)
             return ext_mappings[i].core_path;
