@@ -69,6 +69,7 @@ typedef struct {
     int list_padding_top;
     int list_padding_bottom;
     RenderHomeLayout home_layout;
+    int home_layout_explicit;
     char style_name[32];
     char scheme_name[32];
     char font_file[96];

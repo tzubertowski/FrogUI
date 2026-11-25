@@ -314,7 +314,7 @@ void render_legend(uint16_t *framebuffer, int x_button_mode, int show_select,
   int baseline, cap_h;
   font_cap_metrics(&baseline, &cap_h);
   int text_y = legend_y + pill_h / 2 - (baseline - cap_h / 2);
-  int spacing = UI_S(6);
+  int spacing = 2 * UI_S(3) + UI_S(4);
   int anchor = SCREEN_WIDTH - PADDING;
   uint8_t legend_alpha = render_theme_colour_alpha(RENDER_COLOUR_LEGEND_BACKGROUND);
 

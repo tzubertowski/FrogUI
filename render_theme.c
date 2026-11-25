@@ -186,6 +186,7 @@ static void apply_muos_line(const char *section, const char *key, const char *va
                               strcmp(value, "catos") == 0 ? RENDER_HOME_CATOS :
                               strcmp(value, "vertical") == 0 ? RENDER_HOME_VERTICAL :
                               RENDER_HOME_DEFAULT;
+        current.home_layout_explicit = 1;
         return;
     }
 
@@ -371,7 +372,10 @@ void render_theme_load(const char *style_name, const char *scheme_name) {
     load_file(style_name);
     if (scheme_name && valid_style_name(scheme_name) && strcmp(scheme_name, style_name) != 0) {
         snprintf(current.scheme_name, sizeof current.scheme_name, "%s", scheme_name);
+        current.home_layout_explicit = 0;
         load_file(scheme_name);
+        if (!current.home_layout_explicit)
+            current.home_layout = RENDER_HOME_VERTICAL;
     }
     base_theme = current;
     active_screen = -1;

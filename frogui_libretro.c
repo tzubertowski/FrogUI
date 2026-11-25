@@ -2230,12 +2230,12 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
         char theme_background[512];
         if (render_theme_background(theme_background, sizeof theme_background) &&
             access(theme_background, R_OK) == 0) {
-            banner_load_fit(theme_background, BANNER_FIT_FILL, COLOR_BG);
+            banner_load_fit(theme_background, BANNER_FIT_FIT, COLOR_BG);
             return;
         }
         if (render_theme_asset_path(theme_background, sizeof theme_background,
                                     "640x480/image/wall/default.png")) {
-            banner_load_fit(theme_background, BANNER_FIT_FILL, COLOR_BG);
+            banner_load_fit(theme_background, BANNER_FIT_FIT, COLOR_BG);
             return;
         }
         banner_clear();
@@ -2401,7 +2401,7 @@ static void prefetch_active_theme(void) {
         char path[512];
         if (render_theme_background(path, sizeof path) ||
             render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png"))
-            banner_prefetch(path, BANNER_FIT_FILL, COLOR_BG);
+            banner_prefetch(path, BANNER_FIT_FIT, COLOR_BG);
         return;
     }
     if (!settings_backgrounds) return;
@@ -4022,10 +4022,11 @@ static void handle_extf_kbd(void) {
         extf_kbd_active = false;
 }
 
-/* Rows the picker actually draws: one VISIBLE_ENTRIES slot is used by the
- * subtitle (see render_core_picker), so scroll math must match or the cursor
- * lands on an undrawn row and vanishes. */
-#define PICKER_ROWS ((VISIBLE_ENTRIES - 1) < 1 ? 1 : (VISIBLE_ENTRIES - 1))
+/* These lists reserve one visible slot for their heading/subtitle. Keep their
+ * navigation and drawing capacities aligned so selection cannot go offscreen. */
+#define SUBTITLE_LIST_ROWS ((VISIBLE_ENTRIES - 1) < 1 ? 1 : (VISIBLE_ENTRIES - 1))
+#define PICKER_ROWS SUBTITLE_LIST_ROWS
+#define THEME_INSTALLER_ROWS SUBTITLE_LIST_ROWS
 #define EXTF_POOL_N ((int)(sizeof(extf_pool) / sizeof(extf_pool[0])) - 1)
 
 /* Flat model of a picker row, rebuilt on every open/section toggle. Both
@@ -6027,7 +6028,7 @@ static void handle_input(void) {
         }
     }
 
-    if (horizontal_system_view()) {
+    if (!theme_installer_active && horizontal_system_view()) {
         scroll_offset = 0;
         if (input_repeat(FROG_BTN_LEFT) && entry_count > 0) {
             selected_index = (selected_index + entry_count - 1) % entry_count;
@@ -6037,7 +6038,7 @@ static void handle_input(void) {
             selected_index = (selected_index + 1) % entry_count;
             system_carousel_start(1);
         }
-    } else if (icon_system_view()) {
+    } else if (!theme_installer_active && icon_system_view()) {
         enum { GRID_COLS = 4 };
         scroll_offset = 0;
         if (input_repeat(FROG_BTN_LEFT) && entry_count > 0)
@@ -6060,7 +6061,7 @@ static void handle_input(void) {
             if (next >= entry_count) next = entry_count - 1;
             selected_index = next;
         }
-    } else if (browser_grid_view()) {
+    } else if (!theme_installer_active && browser_grid_view()) {
         int cols = render_theme_current()->grid_columns;
         int row = selected_index / cols;
         int col = selected_index % cols;
@@ -6071,14 +6072,16 @@ static void handle_input(void) {
         if (input_repeat(FROG_BTN_DOWN) && selected_index + cols < entry_count)
             selected_index += cols;
     } else {
+        int visible_rows = theme_installer_active ? THEME_INSTALLER_ROWS
+                                                  : VISIBLE_ENTRIES;
         if (input_repeat(FROG_BTN_UP) && selected_index > 0) {
             selected_index--;
             if (selected_index < scroll_offset) scroll_offset = selected_index;
         }
         if (input_repeat(FROG_BTN_DOWN) && selected_index < entry_count-1) {
             selected_index++;
-            if (selected_index >= scroll_offset + VISIBLE_ENTRIES)
-                scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+            if (selected_index >= scroll_offset + visible_rows)
+                scroll_offset = selected_index - visible_rows + 1;
         }
         /* In the game switcher (one game on screen at a time), Left/Right step
          * one game like Up/Down — no page jumping. */
@@ -6087,8 +6090,8 @@ static void handle_input(void) {
             if (switcher) {
                 if (selected_index > 0) selected_index--;
             } else {
-                selected_index = (selected_index >= VISIBLE_ENTRIES)
-                               ? selected_index - VISIBLE_ENTRIES : 0;
+                selected_index = (selected_index >= visible_rows)
+                               ? selected_index - visible_rows : 0;
                 if (selected_index < scroll_offset) scroll_offset = selected_index;
             }
         }
@@ -6096,10 +6099,10 @@ static void handle_input(void) {
             if (switcher) {
                 if (selected_index < entry_count-1) selected_index++;
             } else {
-                selected_index = (selected_index + VISIBLE_ENTRIES < entry_count)
-                               ? selected_index + VISIBLE_ENTRIES : entry_count - 1;
-                if (selected_index >= scroll_offset + VISIBLE_ENTRIES)
-                    scroll_offset = selected_index - VISIBLE_ENTRIES + 1;
+                selected_index = (selected_index + visible_rows < entry_count)
+                               ? selected_index + visible_rows : entry_count - 1;
+                if (selected_index >= scroll_offset + visible_rows)
+                    scroll_offset = selected_index - visible_rows + 1;
             }
         }
     }
@@ -6924,7 +6927,7 @@ static void render_theme_installer(void) {
                                "Copy theme files to /ARCHIVE on the SD card", COLOR_TEXT,
                                CONTENT_X, y, CONTENT_WIDTH, ITEM_HEIGHT);
     } else {
-        int visible = min(entry_count - scroll_offset, VISIBLE_ENTRIES - 1);
+        int visible = min(entry_count - scroll_offset, THEME_INSTALLER_ROWS);
         for (int i = 0; i < visible; i++) {
             int idx = scroll_offset + i;
             render_menu_row(framebuffer, entries[idx].name, 0,
@@ -6932,7 +6935,8 @@ static void render_theme_installer(void) {
                             y + i * ITEM_HEIGHT,
                             idx == selected_index ? y + i * ITEM_HEIGHT : 0);
         }
-        render_scroll_indicator(framebuffer, entry_count, selected_index, visible);
+        render_scroll_indicator(framebuffer, entry_count, selected_index,
+                                THEME_INSTALLER_ROWS);
     }
     render_legend(framebuffer, LEGEND_X_NONE, 0, 0);
 }
@@ -7281,6 +7285,7 @@ void retro_run(void) {
             sig = sig*33u + (unsigned)settings_theme_idx;
             sig = sig*33u + (unsigned)settings_style;
             sig = sig*33u + (unsigned)settings_render_scheme_idx;
+            sig = sig*33u + (unsigned)settings_theme_pack_idx;
             sig = sig*33u + (unsigned)settings_icon_pack_idx;
             sig = sig*33u + (unsigned)settings_font_idx;
             sig = sig*33u + (unsigned)settings_wallpaper_idx;
