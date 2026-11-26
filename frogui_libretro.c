@@ -1094,7 +1094,7 @@ static int settings_hide_empty = 1;     /* hide rom folders with no games: 0=off
 static int settings_hide_extensions = 1; /* hide file extensions in the browser: 0=off, 1=on */
 static int settings_backgrounds = 1;     /* show per-system background images: 0=off (solid theme bg), 1=on */
 static int settings_background_dim = 15; /* darken background artwork: 0=unchanged, 100=black */
-static int settings_file_cache = 1;      /* cache folder listings (mtime-keyed) for fast nav: 0=off, 1=on */
+static int settings_file_cache = 0;      /* cache folder listings only when enabled */
 static int settings_battery_color = 0;   /* "Nel Battery Mode": solid color light by level instead of fill bar */
 static int settings_stock_battery = 1;   /* cubevol's original fb1 indicator */
 static int settings_game_switcher = 1;  /* recents as box-art carousel: 0=off, 1=on */
