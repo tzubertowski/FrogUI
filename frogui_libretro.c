@@ -1059,6 +1059,10 @@ static int catos_home_focused_index = -1;
  * presenting its last frame. */
 static int settings_menu_idx = 0;       /* row: 0=theme, 1=font, 2=brightness, 3=quick resume, 4=auto-save/auto-load, 5=animations... */
 static int settings_theme_idx = 0;
+/* Keep the legacy TreeFrogUI palette and ProMinimal's palette independently.
+ * `theme=` remains the TreeFrogUI value for compatibility with older builds. */
+static int settings_treefrogui_theme_idx = 0;
+static int settings_prominimal_theme_idx = -1; /* initialized to alium_alliumboy */
 static int settings_font_size = 23;
 static int settings_brightness = 75;    /* 0..100, step 5 */
 /* Frames left to re-assert brightness after a cubevol (re)start. cubevol applies
@@ -1641,6 +1645,38 @@ static void settings_volume_commit_final(void) {
 
 static void settings_save_file(void);
 
+static int settings_palette_index(const char *name) {
+    extern const int theme_count;
+    extern const Theme themes[];
+    for (int i = 0; i < theme_count; i++)
+        if (strcmp(themes[i].name, name) == 0) return i;
+    return 0;
+}
+
+static int settings_prominimal_active(void) {
+    return settings_render_scheme_idx == 0 && settings_style == STYLE_PROMINIMAL;
+}
+
+static void settings_palette_sync_from_style(void) {
+    extern const int theme_count;
+    if (settings_prominimal_theme_idx < 0)
+        settings_prominimal_theme_idx = settings_palette_index("alium_alliumboy");
+    if (settings_treefrogui_theme_idx < 0 || settings_treefrogui_theme_idx >= theme_count)
+        settings_treefrogui_theme_idx = 0;
+    if (settings_prominimal_theme_idx >= theme_count)
+        settings_prominimal_theme_idx = settings_palette_index("alium_alliumboy");
+    settings_theme_idx = settings_prominimal_active()
+                       ? settings_prominimal_theme_idx : settings_treefrogui_theme_idx;
+    theme_apply(settings_theme_idx);
+}
+
+static void settings_palette_sync_to_style(void) {
+    if (settings_prominimal_active())
+        settings_prominimal_theme_idx = settings_theme_idx;
+    else
+        settings_treefrogui_theme_idx = settings_theme_idx;
+}
+
 static void settings_preview_row(const SRow *r) {
     if (!r) return;
     switch (r->type) {
@@ -1653,6 +1689,7 @@ static void settings_preview_row(const SRow *r) {
             if (selected_section >= 0) break;
         }
         settings_apply_style_defaults();
+        settings_palette_sync_from_style();
         if (settings_layout == SETTINGS_LAYOUT_FOLDER && selected_section >= 0)
             settings_folder_section = selected_section;
         settings_menu_idx = selected_row;
@@ -1661,7 +1698,9 @@ static void settings_preview_row(const SRow *r) {
         break;
     }
     case RT_PALETTE:
+        settings_palette_sync_to_style();
         theme_apply(settings_theme_idx);
+        settings_save_file();
         break;
     case RT_FONT:
         if (font_count > 0)
@@ -1696,9 +1735,12 @@ static void settings_load_file(void) {
     settings_override_meta_loaded = 0;
     settings_overrides.mask = 0;
     int settings_profile_version = 0;
+    settings_treefrogui_theme_idx = 0;
+    settings_prominimal_theme_idx = settings_palette_index("alium_alliumboy");
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) {
         settings_apply_style_defaults();
+        settings_palette_sync_from_style();
         return;
     }
     char line[256];
@@ -1715,14 +1757,17 @@ static void settings_load_file(void) {
             /* v1.0.11 briefly shipped Horizontal as a colour theme. Preserve
              * that layout choice while migrating back to the default colours. */
             if (strcmp(val, "Horizontal") == 0) {
-                settings_theme_idx = 0;
+                settings_treefrogui_theme_idx = 0;
                 settings_style = STYLE_HORIZONTAL;
                 settings_explore_layout = STYLE_HORIZONTAL;
                 settings_friendly_names = 1;
             } else {
                 for (int i = 0; i < theme_count; i++)
-                    if (strcmp(themes[i].name, val) == 0) { settings_theme_idx = i; break; }
+                    if (strcmp(themes[i].name, val) == 0) { settings_treefrogui_theme_idx = i; break; }
             }
+        } else if (strcmp(line, "prominimal_theme") == 0) {
+            for (int i = 0; i < theme_count; i++)
+                if (strcmp(themes[i].name, val) == 0) { settings_prominimal_theme_idx = i; break; }
         } else if (strcmp(line, "font") == 0) {
             for (int i = 0; i < font_count; i++)
                 if (strcasecmp(font_files[i], val) == 0 ||
@@ -1933,6 +1978,7 @@ static void settings_load_file(void) {
         }
 #undef MIGRATE_OVERRIDE
     }
+    settings_palette_sync_from_style();
     settings_apply_style_defaults();
     /* The shared system volume (cubevol persistentmem - what the PHYSICAL
      * volume buttons last set) always wins over our saved copy: the user
@@ -1983,10 +2029,12 @@ static void resolve_roms_root(void) {
 
 static void settings_save_file(void) {
     extern const Theme themes[];
+    settings_palette_sync_to_style();
     mkdir_p(SETTINGS_DIR);
     FILE *f = fopen(SETTINGS_FILE, "w");
     if (!f) { dbg("settings save: fopen failed"); return; }
-    fprintf(f, "theme=%s\n", themes[settings_theme_idx].name);
+    fprintf(f, "theme=%s\n", themes[settings_treefrogui_theme_idx].name);
+    fprintf(f, "prominimal_theme=%s\n", themes[settings_prominimal_theme_idx].name);
     fprintf(f, "font=%s\n", font_count > 0 ? font_files[settings_font_idx] : "");
     fprintf(f, "font_size=%d\n", settings_font_size);
     fprintf(f, "language=%s\n", i18n_current_language());
