@@ -114,6 +114,8 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
                            uint16_t accent_color);
 
 // Draw a text pillbox with proper padding (unified method)
+void render_selection_pillbox(uint16_t *framebuffer, int x, int y,
+                              const char *text, int padding, int is_bold);
 void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
                          uint16_t bg_color, uint16_t text_color, int padding,
                          int is_bold);

@@ -48,6 +48,7 @@ static int apply_muos_alpha(const char *section, const char *key, const char *va
         {"list", "list_default_background_alpha", RENDER_COLOUR_LIST_BACKGROUND},
         {"list", "list_focus_background_alpha", RENDER_COLOUR_SELECTION},
         {"list", "list_focus_text_alpha", RENDER_COLOUR_SELECTION_TEXT},
+        {"list", "list_focus_indicator_alpha", RENDER_COLOUR_SELECTION_INDICATOR},
         {"list", "list_disabled_text_alpha", RENDER_COLOUR_DISABLED},
     };
     for (size_t i = 0; i < sizeof alphas / sizeof alphas[0]; i++) {
@@ -132,6 +133,7 @@ static void apply_muos_line(const char *section, const char *key, const char *va
         {"list", "list_default_glyph_recolour", RENDER_COLOUR_FOLDER},
         {"list", "list_focus_background", RENDER_COLOUR_SELECTION},
         {"list", "list_focus_text", RENDER_COLOUR_SELECTION_TEXT},
+        {"list", "list_focus_indicator", RENDER_COLOUR_SELECTION_INDICATOR},
         {"list", "list_focus_glyph_recolour", RENDER_COLOUR_FOLDER},
         {"list", "list_disabled_text", RENDER_COLOUR_DISABLED},
     };
@@ -140,7 +142,8 @@ static void apply_muos_line(const char *section, const char *key, const char *va
         if (strcmp(section, colours[i].section) == 0 && strcmp(key, colours[i].key) == 0 &&
             parse_colour(value, &colour)) {
             current.colours[colours[i].colour] = colour;
-            current.colour_alpha[colours[i].colour] = 255;
+            if (colours[i].colour != RENDER_COLOUR_SELECTION_INDICATOR)
+                current.colour_alpha[colours[i].colour] = 255;
             current.colour_mask |= COLOUR_BIT(colours[i].colour);
             return;
         }

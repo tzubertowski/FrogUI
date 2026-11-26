@@ -588,8 +588,16 @@ const char* theme_get_name(int index) {
 
 // Color accessors
 uint16_t theme_bg(void) {
-    return render_theme_colour(RENDER_COLOUR_BACKGROUND,
-                              bg_override_active ? bg_override_color : current_theme->bg);
+    uint16_t bg = render_theme_colour(RENDER_COLOUR_BACKGROUND,
+                                     bg_override_active ? bg_override_color : current_theme->bg);
+    /* Some imported palettes rely on a wallpaper behind matching text and
+     * base colours. Keep text legible while loading it and in the margins. */
+    if (render_theme_current()->scheme_name[0] &&
+        bg == render_theme_colour(RENDER_COLOUR_TEXT, current_theme->text)) {
+        unsigned luminance = 2 * ((bg >> 11) & 31) + 2 * ((bg >> 5) & 63) + (bg & 31);
+        return luminance >= 100 ? 0x0000 : 0xffff;
+    }
+    return bg;
 }
 void theme_set_bg_override(int enabled, uint16_t color) {
     bg_override_active = enabled;

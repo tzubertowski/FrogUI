@@ -137,9 +137,20 @@ void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
   render_rounded_rect_alpha(framebuffer, x, y, width, height, radius, color, 255);
 }
 
-void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
-                         uint16_t bg_color, uint16_t text_color, int padding,
-                         int is_bold) {
+static void render_selection_indicator(uint16_t *framebuffer, int x, int y, int height) {
+  const RenderTheme *theme = render_theme_current();
+  if (!(theme->colour_mask & (1u << RENDER_COLOUR_SELECTION_INDICATOR)))
+    return;
+  uint8_t alpha = render_theme_colour_alpha(RENDER_COLOUR_SELECTION_INDICATOR);
+  render_rounded_rect_alpha(framebuffer, x, y + UI_S(2), UI_S(3),
+                            height - UI_S(4), 0,
+                            theme->colours[RENDER_COLOUR_SELECTION_INDICATOR], alpha);
+}
+
+static void render_text_pillbox_alpha(uint16_t *framebuffer, int x, int y,
+                                      const char *text, uint16_t bg_color,
+                                      uint16_t text_color, int padding,
+                                      int is_bold, uint8_t alpha, int selection) {
   if (!framebuffer || !text)
     return;
 
@@ -158,10 +169,26 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
   // Offset pillbox background to bound text vertically
   int pillbox_y = y + (baseline - cap_h) - pad_y;
 
-  render_rounded_rect(framebuffer, pillbox_x, pillbox_y, pillbox_width,
-                      pillbox_height, 6, bg_color);
+  render_rounded_rect_alpha(framebuffer, pillbox_x, pillbox_y, pillbox_width,
+                            pillbox_height, 6, bg_color, alpha);
+  if (selection)
+    render_selection_indicator(framebuffer, pillbox_x, pillbox_y, pillbox_height);
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
                  text_color, is_bold);
+}
+
+void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
+                         uint16_t bg_color, uint16_t text_color, int padding,
+                         int is_bold) {
+  render_text_pillbox_alpha(framebuffer, x, y, text, bg_color, text_color,
+                            padding, is_bold, 255, 0);
+}
+
+void render_selection_pillbox(uint16_t *framebuffer, int x, int y,
+                              const char *text, int padding, int is_bold) {
+  render_text_pillbox_alpha(framebuffer, x, y, text, COLOR_SELECT_BG,
+                            COLOR_SELECT_TEXT, padding, is_bold,
+                            render_theme_colour_alpha(RENDER_COLOUR_SELECTION), 1);
 }
 
 void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
@@ -457,11 +484,13 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
     int baseline = 0, cap_h = 0;
     font_cap_metrics(&baseline, &cap_h);
     int text_y = y + ITEM_HEIGHT / 2 - baseline + cap_h / 2;
-    if (is_selected)
+    if (is_selected) {
       render_rounded_rect_alpha(framebuffer, CONTENT_X, selected_pill_y, CONTENT_WIDTH,
                                 ITEM_HEIGHT, render_theme_current()->selected_radius,
                                 COLOR_SELECT_BG,
                                 render_theme_colour_alpha(RENDER_COLOUR_SELECTION));
+      render_selection_indicator(framebuffer, CONTENT_X, selected_pill_y, ITEM_HEIGHT);
+    }
     if (is_favorited) {
       font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, text_y, "*",
                      COLOR_HEADER, 0);

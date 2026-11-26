@@ -1196,7 +1196,7 @@ static const char *settings_layout_keys[] = {"sections", "folder"};
  * adjust, and render code all iterate it. TOGGLE/RANGE point at their int; THEME
  * and FONT are special (dynamic option lists); ACTION opens the remap wizard. */
 typedef enum { RT_HEADER, RT_INFO, RT_TOGGLE, RT_RANGE, RT_UI_THEME, RT_SETTINGS_LAYOUT, RT_FONT, RT_WALLPAPER,
-               RT_WALLFIT, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
+               RT_WALLFIT, RT_PALETTE, RT_THEME_PACK, RT_ICON_PACK, RT_ROM_SOURCE, RT_OTG_STATUS,
                RT_CACHE_REBUILD, RT_ACTION, RT_OPEN_APPS, RT_LANGUAGE, RT_RTC_TIME, RT_RTC_SYNC } SRowType;
 typedef struct {
     SRowType type;
@@ -1206,7 +1206,7 @@ typedef struct {
 } SRow;
 
 static const SRow settings_rows[] = {
-    { RT_HEADER, "settings.appearance" }, { RT_UI_THEME, "UI theme" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_SETTINGS_LAYOUT, "Settings style" }, { RT_TOGGLE, "Decorative pills", &settings_pillboxes }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
+    { RT_HEADER, "settings.appearance" }, { RT_UI_THEME, "UI theme" }, { RT_PALETTE, "Theme colours" }, { RT_THEME_PACK, "settings.background_theme_pack" }, { RT_SETTINGS_LAYOUT, "Settings style" }, { RT_TOGGLE, "Decorative pills", &settings_pillboxes }, { RT_ICON_PACK, "settings.icon_pack" }, { RT_TOGGLE, "settings.center_text", &settings_center_text }, { RT_TOGGLE, "settings.friendly_system_names", &settings_friendly_names }, { RT_FONT, "settings.font" }, { RT_RANGE, "settings.font_size", &settings_font_size, 18, 26, 1 }, { RT_TOGGLE, "settings.battery_colour_mode", &settings_battery_color }, { RT_TOGGLE, "settings.stock_battery_indicator", &settings_stock_battery }, { RT_TOGGLE, "settings.background_images", &settings_backgrounds }, { RT_RANGE, "settings.background_dim", &settings_background_dim, 0, 100, 5 }, { RT_WALLPAPER, "settings.wallpaper" }, { RT_WALLFIT, "settings.background_image_fit" },
     { RT_HEADER, "settings.general" }, { RT_LANGUAGE, "settings.language", &settings_language }, { RT_RANGE, "settings.brightness", &settings_brightness, 0, 100, SETTINGS_BRIGHTNESS_STEP }, { RT_TOGGLE, "settings.animations", &settings_anim }, { RT_TOGGLE, "settings.menu_sounds", &settings_menu_sounds }, { RT_TOGGLE, "settings.hide_extensions", &settings_hide_extensions }, { RT_TOGGLE, "settings.hide_empty_folders", &settings_hide_empty },
     { RT_HEADER, "settings.library" }, { RT_TOGGLE, "Apps in Settings", &settings_apps_in_settings }, { RT_OPEN_APPS, "Open Apps" }, { RT_ROM_SOURCE, "settings.rom_source" }, { RT_OTG_STATUS, "settings.otg_storage" }, { RT_TOGGLE, "settings.game_switcher", &settings_game_switcher }, { RT_TOGGLE, "Rounded recents screenshots", &settings_rounded_screenshots }, { RT_TOGGLE, "settings.start_in_recents", &settings_load_recents },
     { RT_HEADER, "settings.gameplay" }, { RT_TOGGLE, "settings.quick_resume", &settings_quick_resume }, { RT_TOGGLE, "settings.autosave_autoload", &settings_autosave_autoload }, { RT_TOGGLE, "settings.custom_aspect_ratios", &settings_custom_aspect_ratios },
@@ -1221,7 +1221,7 @@ static bool otg_roms_available(void);
 static bool settings_row_enabled(const SRow *r) {
     if (!r) return false;
     if (settings_render_scheme_idx > 0 &&
-        (r->type == RT_THEME_PACK || r->type == RT_WALLPAPER || r->type == RT_WALLFIT ||
+        (r->type == RT_PALETTE || r->type == RT_THEME_PACK || r->type == RT_WALLPAPER || r->type == RT_WALLFIT ||
          (r->type == RT_TOGGLE && r->val == &settings_backgrounds) ||
          (r->type == RT_RANGE && r->val == &settings_background_dim))) return false;
     if (r->type == RT_THEME_PACK) return settings_backgrounds != 0;
@@ -1660,6 +1660,9 @@ static void settings_preview_row(const SRow *r) {
         settings_save_file();
         break;
     }
+    case RT_PALETTE:
+        theme_apply(settings_theme_idx);
+        break;
     case RT_FONT:
         if (font_count > 0)
             font_load_file(font_files[settings_font_idx]);
@@ -3458,6 +3461,30 @@ static void scan_theme_archives(void) {
     selected_index = scroll_offset = 0;
 }
 
+static void open_theme_installer(void) {
+    int themes_index = -1;
+    for (int i = 0; i < (int)(sizeof(app_defs) / sizeof(app_defs[0])); i++)
+        if (strcmp(app_defs[i].key, "themes") == 0) { themes_index = i; break; }
+
+    char path[MAX_PATH_LEN];
+    if (themes_index < 0 || !app_folder_path(themes_index, path, sizeof path))
+        snprintf(path, sizeof path, "%s/themes", ROMS_PATH);
+    ui_transition_start(1);
+    strncpy(current_path, path, MAX_PATH_LEN - 1);
+    current_path[MAX_PATH_LEN - 1] = '\0';
+    strncpy(apps_root_path, current_path, MAX_PATH_LEN - 1);
+    apps_root_path[MAX_PATH_LEN - 1] = '\0';
+    viewing_apps = false;
+    viewing_recents = false;
+    viewing_favourites = false;
+    viewing_activity = false;
+    viewing_search = false;
+    settings_menu_active = false;
+    apps_browsing = true;
+    theme_installer_active = true;
+    scan_theme_archives();
+}
+
 static int is_app_folder_name(const char *name) {
     return name && (!strcasecmp(name, "rockbox") || !strcasecmp(name, "music") ||
                     !strcasecmp(name, "audio") || !strcasecmp(name, "videos") ||
@@ -4426,6 +4453,9 @@ static void handle_settings_menu(void) {
         case RT_WALLFIT:
             settings_wallpaper_fit = (settings_wallpaper_fit + delta + WALL_FIT_N) % WALL_FIT_N;
             break;
+        case RT_PALETTE:
+            settings_theme_idx = (settings_theme_idx + delta + theme_count) % theme_count;
+            break;
         case RT_THEME_PACK:
             settings_theme_pack_idx = (settings_theme_pack_idx + delta + theme_pack_count) % theme_pack_count;
             break;
@@ -5086,8 +5116,7 @@ static void render_system_carousel(uint16_t *fb) {
         if (x + text_width < 0 || x >= SCREEN_WIDTH) continue;
 
         if (i == selected_index) {
-            render_text_pillbox(fb, x, text_y, label,
-                                COLOR_SELECT_BG, COLOR_SELECT_TEXT, UI_S(7), 0);
+            render_selection_pillbox(fb, x, text_y, label, UI_S(7), 0);
         } else if (frogui_pillboxes_get()) {
             render_text_pillbox(fb, x, text_y, label,
                                 COLOR_LEGEND_BG, COLOR_DISABLED, UI_S(7), 0);
@@ -5516,7 +5545,7 @@ static void handle_input(void) {
         if (input_was_pressed(FROG_BTN_A) || input_was_pressed(FROG_BTN_B) ||
             input_was_pressed(FROG_BTN_START)) {
             theme_install_result_active = false;
-            scan_apps_tab();
+            open_theme_installer();
         }
         return;
     }
@@ -5913,17 +5942,7 @@ static void handle_input(void) {
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "froggyreader")) {
                 request_game_launch(FROGGYREADER_CORE, FROGGYREADER_LIBRARY);
             } else if (app_index >= 0 && !strcmp(app_defs[app_index].key, "themes")) {
-                ui_transition_start(1);
-                if (!app_folder_path(app_index, app_path, sizeof app_path))
-                    snprintf(app_path, sizeof app_path, "%s/themes", ROMS_PATH);
-                strncpy(current_path, app_path, MAX_PATH_LEN - 1);
-                current_path[MAX_PATH_LEN - 1] = '\0';
-                strncpy(apps_root_path, current_path, MAX_PATH_LEN - 1);
-                apps_root_path[MAX_PATH_LEN - 1] = '\0';
-                viewing_apps = false;
-                apps_browsing = true;
-                theme_installer_active = true;
-                scan_theme_archives();
+                open_theme_installer();
             } else if (app_index >= 0 && app_defs[app_index].bin && access(app_defs[app_index].bin, X_OK) == 0) {
                 if (!strcmp(app_defs[app_index].bin, FROGSHELL_CORE))
                     request_game_launch(FROGSHELL_CORE, FROGSHELL_CORE);
@@ -6544,10 +6563,10 @@ void retro_unload_game(void) {}
 
 static void render_settings_menu(void) {
     extern const Theme themes[];
-    if (banner_is_loaded())
-        banner_render(framebuffer);
-    else
+    if (!banner_is_loaded())
         render_clear_screen(framebuffer);
+    if (banner_is_loaded() || banner_is_animating())
+        banner_render(framebuffer);
     render_theme_heading(framebuffer, MAIN_TAB_SETTINGS, COLOR_BG, "SETTINGS");
     int list_text_x = render_theme_current()->scheme_name[0]
                     ? CONTENT_X + UI_S(render_theme_current()->list_padding_left)
@@ -6584,7 +6603,7 @@ static void render_settings_menu(void) {
             else
                 snprintf(line, sizeof line, ">> %s", tr(r->label));
             if (settings_menu_idx == idx)
-                render_text_pillbox(framebuffer, list_text_x, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+                render_selection_pillbox(framebuffer, list_text_x, y, line, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, list_text_x, y, line, COLOR_FOLDER);
             continue;
@@ -6597,6 +6616,7 @@ static void render_settings_menu(void) {
         case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
         case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_disp[settings_wallpaper_idx]); break;
         case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_fit_names[settings_wallpaper_fit]); break;
+        case RT_PALETTE: snprintf(line, sizeof line, "%s: < %s >", r->label, theme_get_name(settings_theme_idx)); break;
         case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), theme_pack_disp[settings_theme_pack_idx]); break;
         case RT_ICON_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), icon_pack_disp[settings_icon_pack_idx]); break;
         case RT_LANGUAGE: {
@@ -6653,7 +6673,8 @@ static void render_settings_menu(void) {
         default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
         if (!settings_row_enabled(r)) {
-            const char *reason = r->type == RT_ICON_PACK
+            const char *reason = r->type == RT_PALETTE ? "TreeFrogUI / ProMinimal only"
+                               : r->type == RT_ICON_PACK
                                ? tr("settings.requires_system_view")
                                : tr("settings.requires_background_images");
             size_t used = strlen(line);
@@ -6664,7 +6685,7 @@ static void render_settings_menu(void) {
          * clearly. Headers stay flush at PADDING. */
         int ix = list_text_x + UI_S(16);
         if (settings_menu_idx == idx && settings_row_enabled(r))
-            render_text_pillbox(framebuffer, ix, y, line, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+            render_selection_pillbox(framebuffer, ix, y, line, 7, 0);
         else {
             int color = (!settings_row_enabled(r) || r->type == RT_OTG_STATUS ||
                          (r->type == RT_ROM_SOURCE && !otg_roms_available()))
@@ -6793,7 +6814,7 @@ static void render_search_kbd(void) {
             if (r == KBD_SPECIAL_ROW) { snprintf(lbl, sizeof(lbl), "%s", KBD_SPECIAL[c]); cx = PADDING + c * (cw * 3); }
             else { lbl[0] = KBD_ROWS[r][c]; lbl[1] = '\0'; cx = PADDING + c * cw; }
             if (r == search_kbd_r && c == search_kbd_c)
-                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+                render_selection_pillbox(framebuffer, cx, ry, lbl, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, cx, ry, lbl, COLOR_TEXT);
         }
@@ -6823,7 +6844,7 @@ static void render_extf_kbd(void) {
             if (r == KBD_SPECIAL_ROW) { snprintf(lbl, sizeof(lbl), "%s", KBD_SPECIAL[c]); cx = PADDING + c * (cw * 3); }
             else { lbl[0] = KBD_ROWS[r][c]; lbl[1] = '\0'; cx = PADDING + c * cw; }
             if (r == search_kbd_r && c == search_kbd_c)
-                render_text_pillbox(framebuffer, cx, ry, lbl, COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+                render_selection_pillbox(framebuffer, cx, ry, lbl, 7, 0);
             else
                 font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, cx, ry, lbl, COLOR_TEXT);
         }
@@ -6849,9 +6870,8 @@ static void render_usb_confirm(void) {
                        SCREEN_HEIGHT / 2 - UI_S(18), a, COLOR_TEXT);
     const char *pill = usb_mode_initiated_active ? tr("usb.initiated") : tr("usb.ready");
     if (frogui_pillboxes_get())
-        render_text_pillbox(framebuffer, (SCREEN_WIDTH - font_measure_text(pill)) / 2,
-                            SCREEN_HEIGHT / 2 - UI_S(48), pill,
-                            COLOR_SELECT_BG, COLOR_SELECT_TEXT, 7, 0);
+        render_selection_pillbox(framebuffer, (SCREEN_WIDTH - font_measure_text(pill)) / 2,
+                            SCREEN_HEIGHT / 2 - UI_S(48), pill, 7, 0);
     else
         font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT,
                        (SCREEN_WIDTH - font_measure_text(pill)) / 2,
