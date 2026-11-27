@@ -12,30 +12,12 @@
 static RenderTheme current;
 static RenderTheme base_theme;
 static int active_screen = -1;
-static RenderTheme parsing_base;
-static int parse_int(const char *s, int min, int max, int *out);
+static int wide_theme_art;
 
-static RenderColour alpha_backdrop(RenderColour colour) {
-    switch (colour) {
-    case RENDER_COLOUR_HEADER_BACKGROUND:
-    case RENDER_COLOUR_LIST_BACKGROUND:
-    case RENDER_COLOUR_LEGEND_BACKGROUND:
-    case RENDER_COLOUR_DISABLED:
-        return RENDER_COLOUR_BACKGROUND;
-    case RENDER_COLOUR_HEADER:
-        return RENDER_COLOUR_HEADER_BACKGROUND;
-    case RENDER_COLOUR_TEXT:
-        return RENDER_COLOUR_LIST_BACKGROUND;
-    case RENDER_COLOUR_SELECTION:
-        return RENDER_COLOUR_LIST_BACKGROUND;
-    case RENDER_COLOUR_SELECTION_TEXT:
-        return RENDER_COLOUR_SELECTION;
-    case RENDER_COLOUR_LEGEND:
-        return RENDER_COLOUR_LEGEND_BACKGROUND;
-    default:
-        return RENDER_COLOUR_BACKGROUND;
-    }
+void render_theme_set_canvas_size(int width, int height) {
+    wide_theme_art = width == 854 && height == 480;
 }
+static int parse_int(const char *s, int min, int max, int *out);
 
 static int apply_muos_alpha(const char *section, const char *key, const char *value) {
     static const struct { const char *section, *key; RenderColour colour; } alphas[] = {
@@ -57,24 +39,9 @@ static int apply_muos_alpha(const char *section, const char *key, const char *va
             continue;
         if (!parse_int(value, 0, 255, &alpha)) return 1;
         current.colour_alpha[alphas[i].colour] = (uint8_t)alpha;
-        if (alpha == 0) {
-            RenderColour colour = alphas[i].colour;
-            if (colour == RENDER_COLOUR_BACKGROUND) return 1;
-            if (colour == RENDER_COLOUR_HEADER_BACKGROUND ||
-                colour == RENDER_COLOUR_LIST_BACKGROUND ||
-                colour == RENDER_COLOUR_SELECTION ||
-                colour == RENDER_COLOUR_LEGEND_BACKGROUND) {
-                RenderColour backdrop = alpha_backdrop(colour);
-                if (current.colour_mask & COLOUR_BIT(backdrop))
-                    current.colours[colour] = current.colours[backdrop];
-                else if (parsing_base.colour_mask & COLOUR_BIT(backdrop))
-                    current.colours[colour] = parsing_base.colours[backdrop];
-                current.colour_mask |= COLOUR_BIT(colour);
-            } else if (parsing_base.colour_mask & COLOUR_BIT(colour)) {
-                current.colours[colour] = parsing_base.colours[colour];
-                current.colour_mask |= COLOUR_BIT(colour);
-            }
-        }
+        /* Alpha is independent from RGB. Alpha=0 is an authored transparent
+         * layer, not a request to copy a guessed backdrop colour into it. */
+        current.colour_alpha_mask |= COLOUR_BIT(alphas[i].colour);
         return 1;
     }
     return 0;
@@ -142,8 +109,6 @@ static void apply_muos_line(const char *section, const char *key, const char *va
         if (strcmp(section, colours[i].section) == 0 && strcmp(key, colours[i].key) == 0 &&
             parse_colour(value, &colour)) {
             current.colours[colours[i].colour] = colour;
-            if (colours[i].colour != RENDER_COLOUR_SELECTION_INDICATOR)
-                current.colour_alpha[colours[i].colour] = 255;
             current.colour_mask |= COLOUR_BIT(colours[i].colour);
             return;
         }
@@ -181,6 +146,11 @@ static void apply_muos_line(const char *section, const char *key, const char *va
                   value[i] == '.' || value[i] == ' ')) return;
         if (strstr(value, "..")) return;
         memcpy(dst, value, n + 1);
+        return;
+    }
+
+    if (strcmp(section, "frogui") == 0 && strcmp(key, "personal_appearance") == 0) {
+        (void)parse_int(value, 0, 1, &current.personal_appearance);
         return;
     }
 
@@ -271,7 +241,6 @@ static void apply_line(const char *section, char *key, char *value) {
         uint16_t colour;
         if (i >= 0 && parse_colour(value, &colour)) {
             current.colours[i] = colour;
-            current.colour_alpha[i] = 255;
             current.colour_mask |= COLOUR_BIT(i);
         }
     }
@@ -285,7 +254,6 @@ static void lowercase(char *s) {
 static void parse_scheme(FILE *file) {
     char line[SCHEME_LINE_MAX], section[32] = "";
     size_t total = 0;
-    parsing_base = current;
     while (fgets(line, sizeof line, file)) {
         total += strlen(line);
         if (total > 8192) return;
@@ -407,6 +375,8 @@ int render_theme_background(char *path, unsigned path_size) {
     const char *image = current.background_image[0] ? current.background_image :
                         current.scheme_name[0] ? "640x480/image/wall/default.png" : NULL;
     if (!image) return 0;
+    if (current.scheme_name[0] && render_theme_asset_path(path, path_size, image))
+        return 1;
     int n = snprintf(path, path_size, "/mnt/sdcard/frogui/schemes/%s/%s",
                      current.scheme_name[0] ? current.scheme_name : current.style_name,
                      image);
@@ -416,13 +386,20 @@ int render_theme_background(char *path, unsigned path_size) {
 uint16_t render_theme_colour(RenderColour colour, uint16_t palette_default) {
     if (colour < 0 || colour >= RENDER_COLOUR_COUNT ||
         !(current.colour_mask & COLOUR_BIT(colour))) return palette_default;
+    if (current.personal_appearance &&
+        (colour == RENDER_COLOUR_TEXT || colour == RENDER_COLOUR_SELECTION ||
+         colour == RENDER_COLOUR_SELECTION_TEXT || colour == RENDER_COLOUR_HEADER ||
+         colour == RENDER_COLOUR_FOLDER || colour == RENDER_COLOUR_LEGEND ||
+         colour == RENDER_COLOUR_DISABLED))
+        return palette_default;
     return current.colours[colour];
 }
 
 uint8_t render_theme_colour_alpha(RenderColour colour) {
-    return colour < 0 || colour >= RENDER_COLOUR_COUNT ||
-           !(current.colour_mask & COLOUR_BIT(colour))
-         ? 255 : current.colour_alpha[colour];
+    if (colour < 0 || colour >= RENDER_COLOUR_COUNT)
+        return 255;
+    return (current.colour_alpha_mask & COLOUR_BIT(colour))
+         ? current.colour_alpha[colour] : 255;
 }
 
 uint16_t render_theme_grid_colour(RenderGridColour colour, uint16_t default_colour) {
@@ -431,14 +408,25 @@ uint16_t render_theme_grid_colour(RenderGridColour colour, uint16_t default_colo
     return current.grid_colours[colour];
 }
 
+static int theme_asset_exists(char *path, unsigned size, const char *name,
+                              const char *relative_path) {
+    int n = snprintf(path, size, "/mnt/sdcard/frogui/schemes/%s/%s", name, relative_path);
+    if (n >= 0 && (unsigned)n < size && access(path, R_OK) == 0) return 1;
+    n = snprintf(path, size, "schemes/%s/%s", name, relative_path);
+    return n >= 0 && (unsigned)n < size && access(path, R_OK) == 0;
+}
+
 int render_theme_asset_path(char *path, unsigned path_size, const char *relative_path) {
     if (!path || !path_size || !relative_path || !*relative_path) return 0;
     for (const unsigned char *p = (const unsigned char *)relative_path; *p; p++)
         if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '/')) return 0;
     if (strstr(relative_path, "..")) return 0;
     const char *name = current.scheme_name[0] ? current.scheme_name : current.style_name;
-    int n = snprintf(path, path_size, "/mnt/sdcard/frogui/schemes/%s/%s", name, relative_path);
-    if (n >= 0 && (unsigned)n < path_size && access(path, R_OK) == 0) return 1;
-    n = snprintf(path, path_size, "schemes/%s/%s", name, relative_path);
-    return n >= 0 && (unsigned)n < path_size && access(path, R_OK) == 0;
+    if (wide_theme_art && strncmp(relative_path, "640x480/", 8) == 0) {
+        char wide_path[512];
+        int n = snprintf(wide_path, sizeof wide_path, "854x480/%s", relative_path + 8);
+        if (n >= 0 && (size_t)n < sizeof wide_path &&
+            theme_asset_exists(path, path_size, name, wide_path)) return 1;
+    }
+    return theme_asset_exists(path, path_size, name, relative_path);
 }

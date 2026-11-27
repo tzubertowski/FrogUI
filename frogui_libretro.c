@@ -696,9 +696,8 @@ static void fb1_clear_battery_zone(void) {
                 vw = vi.xres;
                 vh = vi.yres;
                 mapped_rows = pitch > 0 ? (int)(map_len / (size_t)pitch) : 0;
-                /* Match the custom icon's exact body+nub footprint: 26x13
-                 * baseline plus a 3px terminal, scaled with the UI. */
-                corner_w = UI_S(29) + 30;
+                /* Cover the stock glyph even when it is inset from our icon. */
+                corner_w = UI_S(64) + 30;
                 corner_h = UI_S(13) + 30;
                 inited = 1;
             }
@@ -821,6 +820,15 @@ static void font_add(const char *fname) {
 /* ---- Wallpaper: one image used across ALL views (index 0 = "None" = the normal
  * per-system background art). Scanned from frogui/wallpapers/. ------------- */
 #define MAX_WALL 64
+static const struct { const char *key, *label; } horizontal_wallpapers[] = {
+    { "indigo", "Indigo Dusk" },
+    { "sunset", "Sunset Canopy" },
+    { "aurora", "Aurora Bloom" },
+    { "golden", "Golden Grove" },
+    { "original", "Original Plum, Teal & Olive" },
+    { "cyan-green", "Cyan, Green & Gold" },
+};
+#define HORIZONTAL_WALLPAPER_COUNT (sizeof(horizontal_wallpapers) / sizeof(horizontal_wallpapers[0]))
 static char wallpaper_files[MAX_WALL][FONT_STR_MAX];
 static char wallpaper_disp[MAX_WALL][FONT_STR_MAX];
 static int  wallpaper_count = 0;         /* includes slot 0 = "None" */
@@ -977,6 +985,10 @@ static void wallpaper_scan(void) {
     strcpy(wallpaper_files[0], "");        /* slot 0 = None */
     strcpy(wallpaper_disp[0], "None");
     wallpaper_count = 1;
+    for (size_t i = 0; i < HORIZONTAL_WALLPAPER_COUNT; i++, wallpaper_count++) {
+        snprintf(wallpaper_files[wallpaper_count], FONT_STR_MAX, "@%s", horizontal_wallpapers[i].key);
+        snprintf(wallpaper_disp[wallpaper_count], FONT_STR_MAX, "%s", horizontal_wallpapers[i].label);
+    }
     DIR *dp = opendir("/mnt/sdcard/frogui/wallpapers");
     if (dp) {
         struct dirent *e;
@@ -1062,6 +1074,7 @@ static int settings_theme_idx = 0;
 /* Keep the legacy TreeFrogUI palette and ProMinimal's palette independently.
  * `theme=` remains the TreeFrogUI value for compatibility with older builds. */
 static int settings_treefrogui_theme_idx = 0;
+static int settings_horizontal_theme_idx;
 static int settings_prominimal_theme_idx = -1; /* initialized to alium_alliumboy */
 static int settings_font_size = 23;
 static int settings_brightness = 75;    /* 0..100, step 5 */
@@ -1224,10 +1237,15 @@ static bool otg_roms_available(void);
  * but cannot be changed until its prerequisite is enabled. */
 static bool settings_row_enabled(const SRow *r) {
     if (!r) return false;
-    if (settings_render_scheme_idx > 0 &&
-        (r->type == RT_PALETTE || r->type == RT_THEME_PACK || r->type == RT_WALLPAPER || r->type == RT_WALLFIT ||
-         (r->type == RT_TOGGLE && r->val == &settings_backgrounds) ||
-         (r->type == RT_RANGE && r->val == &settings_background_dim))) return false;
+    if (settings_render_scheme_idx > 0) {
+        if (!render_theme_current()->personal_appearance &&
+            (r->type == RT_PALETTE || r->type == RT_WALLPAPER || r->type == RT_WALLFIT))
+            return false;
+        if (r->type == RT_THEME_PACK ||
+            (r->type == RT_TOGGLE && r->val == &settings_backgrounds) ||
+            (r->type == RT_RANGE && r->val == &settings_background_dim))
+            return false;
+    }
     if (r->type == RT_THEME_PACK) return settings_backgrounds != 0;
     if (r->type == RT_ICON_PACK) return settings_style == STYLE_SYSTEM;
     return true;
@@ -1657,6 +1675,11 @@ static int settings_prominimal_active(void) {
     return settings_render_scheme_idx == 0 && settings_style == STYLE_PROMINIMAL;
 }
 
+static bool settings_horizontal_active(void) {
+    return settings_render_scheme_idx > 0 &&
+           strcmp(render_scheme_files[settings_render_scheme_idx], "TreeFrogUI-Horizontal") == 0;
+}
+
 static void settings_palette_sync_from_style(void) {
     extern const int theme_count;
     if (settings_prominimal_theme_idx < 0)
@@ -1665,13 +1688,18 @@ static void settings_palette_sync_from_style(void) {
         settings_treefrogui_theme_idx = 0;
     if (settings_prominimal_theme_idx >= theme_count)
         settings_prominimal_theme_idx = settings_palette_index("alium_alliumboy");
-    settings_theme_idx = settings_prominimal_active()
-                       ? settings_prominimal_theme_idx : settings_treefrogui_theme_idx;
+    if (settings_horizontal_active())
+        settings_theme_idx = settings_horizontal_theme_idx;
+    else
+        settings_theme_idx = settings_prominimal_active()
+                           ? settings_prominimal_theme_idx : settings_treefrogui_theme_idx;
     theme_apply(settings_theme_idx);
 }
 
 static void settings_palette_sync_to_style(void) {
-    if (settings_prominimal_active())
+    if (settings_horizontal_active())
+        settings_horizontal_theme_idx = settings_theme_idx;
+    else if (settings_prominimal_active())
         settings_prominimal_theme_idx = settings_theme_idx;
     else
         settings_treefrogui_theme_idx = settings_theme_idx;
@@ -1731,14 +1759,26 @@ static void settings_preview_row(const SRow *r) {
     settings_record_override(r);
 }
 
+static void settings_select_default_ui_theme(void) {
+    for (int i = 1; i < render_scheme_count; i++) {
+        if (strcmp(render_scheme_files[i], "TreeFrogUI-Horizontal") == 0) {
+            ui_theme_select(UI_BUILTIN_THEME_COUNT + i - 1);
+            return;
+        }
+    }
+}
+
 static void settings_load_file(void) {
     settings_override_meta_loaded = 0;
     settings_overrides.mask = 0;
     int settings_profile_version = 0;
+    bool has_ui_theme = false;
     settings_treefrogui_theme_idx = 0;
+    settings_horizontal_theme_idx = settings_palette_index("Emerald");
     settings_prominimal_theme_idx = settings_palette_index("alium_alliumboy");
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) {
+        settings_select_default_ui_theme();
         settings_apply_style_defaults();
         settings_palette_sync_from_style();
         return;
@@ -1765,6 +1805,8 @@ static void settings_load_file(void) {
                 for (int i = 0; i < theme_count; i++)
                     if (strcmp(themes[i].name, val) == 0) { settings_treefrogui_theme_idx = i; break; }
             }
+        } else if (strcmp(line, "horizontal_theme") == 0) {
+            settings_horizontal_theme_idx = settings_palette_index(val);
         } else if (strcmp(line, "prominimal_theme") == 0) {
             for (int i = 0; i < theme_count; i++)
                 if (strcmp(themes[i].name, val) == 0) { settings_prominimal_theme_idx = i; break; }
@@ -1825,11 +1867,13 @@ static void settings_load_file(void) {
                     break;
                 }
         } else if (strcmp(line, "renderer_scheme") == 0) {
+            has_ui_theme = true;
             settings_render_scheme_idx = 0;
             for (int i = 1; i < render_scheme_count; i++)
                 if (strcasecmp(val, render_scheme_files[i]) == 0)
                     settings_render_scheme_idx = i;
         } else if (strcmp(line, "ui_theme") == 0) {
+            has_ui_theme = true;
             for (int i = 0; i < STYLE_COUNT; i++)
                 if (strcasecmp(val, style_keys[i]) == 0) {
                     settings_style = i;
@@ -1978,6 +2022,8 @@ static void settings_load_file(void) {
         }
 #undef MIGRATE_OVERRIDE
     }
+    if (!has_ui_theme && settings_style == STYLE_VERTICAL)
+        settings_select_default_ui_theme();
     settings_palette_sync_from_style();
     settings_apply_style_defaults();
     /* The shared system volume (cubevol persistentmem - what the PHYSICAL
@@ -2034,6 +2080,7 @@ static void settings_save_file(void) {
     FILE *f = fopen(SETTINGS_FILE, "w");
     if (!f) { dbg("settings save: fopen failed"); return; }
     fprintf(f, "theme=%s\n", themes[settings_treefrogui_theme_idx].name);
+    fprintf(f, "horizontal_theme=%s\n", themes[settings_horizontal_theme_idx].name);
     fprintf(f, "prominimal_theme=%s\n", themes[settings_prominimal_theme_idx].name);
     fprintf(f, "font=%s\n", font_count > 0 ? font_files[settings_font_idx] : "");
     fprintf(f, "font_size=%d\n", settings_font_size);
@@ -2276,7 +2323,50 @@ static int banner_find_image(char *out, size_t out_size, const char *directory,
     return 0;
 }
 
+static bool horizontal_wallpaper_path(int index, char *path, size_t size) {
+    if (index <= 0 || (size_t)index > HORIZONTAL_WALLPAPER_COUNT ||
+        !settings_horizontal_active())
+        return false;
+    char relative[128];
+    snprintf(relative, sizeof relative, "640x480/image/wall/variants/%s.png",
+             horizontal_wallpapers[index - 1].key);
+    return render_theme_asset_path(path, size, relative);
+}
+
+static const char *wallpaper_label(void) {
+    if (settings_wallpaper_idx == 0 &&
+        settings_horizontal_active()) {
+        char path[512];
+        if (horizontal_wallpaper_path(1, path, sizeof path))
+            return "Midnight Cyan";
+    }
+    if (settings_wallpaper_idx > 0 &&
+        (size_t)settings_wallpaper_idx <= HORIZONTAL_WALLPAPER_COUNT) {
+        char path[512];
+        if (!horizontal_wallpaper_path(settings_wallpaper_idx, path, sizeof path))
+            return wallpaper_disp[0];
+    }
+    return wallpaper_disp[settings_wallpaper_idx];
+}
+
+static bool custom_wallpaper_path(char *path, size_t size) {
+    bool personal = render_theme_current()->personal_appearance;
+    if ((!personal && (settings_render_scheme_idx > 0 || !settings_backgrounds)) ||
+        settings_wallpaper_idx <= 0 || settings_wallpaper_idx >= wallpaper_count)
+        return false;
+    if ((size_t)settings_wallpaper_idx <= HORIZONTAL_WALLPAPER_COUNT)
+        return horizontal_wallpaper_path(settings_wallpaper_idx, path, size);
+    int n = snprintf(path, size, "/mnt/sdcard/frogui/wallpapers/%s",
+                     wallpaper_files[settings_wallpaper_idx]);
+    return n >= 0 && (size_t)n < size && access(path, R_OK) == 0;
+}
+
 static void load_banner_for_view(const char *path, bool is_recents, bool is_favourites) {
+    char wallpaper[512];
+    if (custom_wallpaper_path(wallpaper, sizeof wallpaper)) {
+        banner_load_fit(wallpaper, settings_wallpaper_fit, COLOR_BG);
+        return;
+    }
     if (settings_render_scheme_idx > 0) {
         char theme_background[512];
         if (render_theme_background(theme_background, sizeof theme_background) &&
@@ -2295,18 +2385,6 @@ static void load_banner_for_view(const char *path, bool is_recents, bool is_favo
     if (!settings_backgrounds) {
         banner_clear();
         return;
-    }
-    /* Single wallpaper (if picked): same image in every view, overrides the
-     * per-system art. */
-    if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
-        char wp[512];
-        snprintf(wp, sizeof wp, "/mnt/sdcard/frogui/wallpapers/%s",
-                 wallpaper_files[settings_wallpaper_idx]);
-        if (access(wp, R_OK) == 0) {
-            banner_load_fit(wp, settings_wallpaper_fit, COLOR_BG);
-            if (log_cb) log_cb(RETRO_LOG_INFO, "FrogUI background: wallpaper override=%s\n", wp);
-            return;
-        }
     }
     char theme_background[256];
     if (render_theme_background(theme_background, sizeof theme_background) &&
@@ -2448,6 +2526,11 @@ static void prefetch_panel_background_directory(const char *directory) {
 
 static void prefetch_active_theme(void) {
     banner_prefetch_clear();
+    char wallpaper[512];
+    if (custom_wallpaper_path(wallpaper, sizeof wallpaper)) {
+        banner_prefetch(wallpaper, settings_wallpaper_fit, COLOR_BG);
+        return;
+    }
     if (settings_render_scheme_idx > 0) {
         char path[512];
         if (render_theme_background(path, sizeof path) ||
@@ -2456,15 +2539,6 @@ static void prefetch_active_theme(void) {
         return;
     }
     if (!settings_backgrounds) return;
-    if (settings_wallpaper_idx > 0 && settings_wallpaper_idx < wallpaper_count) {
-        char path[512];
-        snprintf(path, sizeof path, "/mnt/sdcard/frogui/wallpapers/%s",
-                 wallpaper_files[settings_wallpaper_idx]);
-        if (access(path, R_OK) == 0) {
-            banner_prefetch(path, settings_wallpaper_fit, COLOR_BG);
-            return;
-        }
-    }
     prefetch_panel_background_directory(BANNER_DIR);
     if (settings_theme_pack_idx > 0 && settings_theme_pack_idx < theme_pack_count) {
         char directory[512];
@@ -4494,10 +4568,15 @@ static void handle_settings_menu(void) {
             if (font_count > 0)
                 settings_font_idx = (settings_font_idx + delta + font_count) % font_count;
             break;
-        case RT_WALLPAPER:
-            if (wallpaper_count > 0)
+        case RT_WALLPAPER: {
+            char path[512];
+            do {
                 settings_wallpaper_idx = (settings_wallpaper_idx + delta + wallpaper_count) % wallpaper_count;
+            } while (settings_wallpaper_idx > 0 &&
+                     (size_t)settings_wallpaper_idx <= HORIZONTAL_WALLPAPER_COUNT &&
+                     !horizontal_wallpaper_path(settings_wallpaper_idx, path, sizeof path));
             break;
+        }
         case RT_WALLFIT:
             settings_wallpaper_fit = (settings_wallpaper_fit + delta + WALL_FIT_N) % WALL_FIT_N;
             break;
@@ -4667,6 +4746,12 @@ static bool switch_home_view(void) {
            strcmp(current_path, ROMS_PATH) == 0;
 }
 
+static bool explore_layout_available(void) {
+    return !switch_home_view() && strcmp(current_path, ROMS_PATH) == 0 &&
+           !viewing_recents && !viewing_favourites && !viewing_apps &&
+           !apps_browsing && !viewing_search && !viewing_activity;
+}
+
 static bool switch_home_artbook(void) {
     return strcmp(render_theme_current()->scheme_name, "ArtBookNext") == 0;
 }
@@ -4812,6 +4897,18 @@ static void render_switch_home(uint16_t *fb) {
         render_legend(fb, LEGEND_X_NONE, 0, 0);
         return;
     }
+    if (render_theme_current()->personal_appearance &&
+        custom_wallpaper_path(path, sizeof path)) {
+        snprintf(relative, sizeof relative, "640x480/image/overlay/muxlaunch/%s.png",
+                 images[switch_home_index]);
+        if (render_theme_asset_path(path, sizeof path, relative)) {
+            banner_render(fb);
+            if (render_theme_canvas(fb, path)) {
+                render_battery(fb, frogui_battery_pct());
+                return;
+            }
+        }
+    }
     if (switch_home_fullscreen_art()) {
         const char *image_root = render_theme_asset_path(path, sizeof path,
             "640x480/image/wall/muxlaunch/explore.png")
@@ -4872,7 +4969,10 @@ static void render_switch_info(uint16_t *fb) {
     const char *device = getenv("TF_DEVICE");
     const char *theme = render_theme_current()->scheme_name[0]
                       ? render_theme_current()->scheme_name : "TreeFrogUI";
-    render_clear_screen(fb);
+    if (!banner_is_loaded())
+        render_clear_screen(fb);
+    if (banner_is_loaded() || banner_is_animating())
+        banner_render(fb);
     render_header(fb, "SYSTEM INFORMATION");
     int x = CONTENT_X + UI_S(24);
     int y = HEADER_HEIGHT + UI_S(24);
@@ -4902,7 +5002,7 @@ static int menu_row_y(int index, int offset) {
     int row = index - offset;
     if (row < 0) row = 0;
     if (row >= VISIBLE_ENTRIES) row = VISIBLE_ENTRIES - 1;
-    return START_Y + row * ITEM_HEIGHT;
+    return START_Y + UI_S(render_theme_current()->list_padding_top) + row * ITEM_HEIGHT;
 }
 
 static int core_picker_row_y(int index, int offset) {
@@ -5803,12 +5903,16 @@ static void handle_input(void) {
         return;
     }
 
-    if (input_was_pressed(FROG_BTN_L2) && !switch_home_view() &&
-        strcmp(current_path, ROMS_PATH) == 0 && !viewing_recents &&
-        !viewing_favourites && !viewing_apps && !apps_browsing &&
-        !viewing_search && !viewing_activity) {
+    if ((input_was_pressed(FROG_BTN_L2) ||
+         (input_was_pressed(FROG_BTN_Y) &&
+          (selected_index >= entry_count || entries[selected_index].is_dir))) &&
+        explore_layout_available()) {
+        static const char *const layout_names[] = {
+            "Vertical list", "Horizontal carousel", "System grid"
+        };
         settings_explore_layout = (settings_explore_layout + 1) % 3;
         settings_save_file();
+        ui_toast_show(layout_names[settings_explore_layout]);
         return;
     }
 
@@ -6653,7 +6757,8 @@ static void render_settings_menu(void) {
             if (settings_menu_idx == idx)
                 render_selection_pillbox(framebuffer, list_text_x, y, line, 7, 0);
             else
-                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, list_text_x, y, line, COLOR_FOLDER);
+                font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, list_text_x, y, line,
+                               render_theme_current()->scheme_name[0] ? COLOR_TEXT : COLOR_FOLDER);
             continue;
         }
         switch (r->type) {
@@ -6662,7 +6767,7 @@ static void render_settings_menu(void) {
                                    ui_theme_name(ui_theme_index())); break;
         case RT_SETTINGS_LAYOUT: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), settings_layout_names[settings_layout]); break;
         case RT_FONT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), font_count > 0 ? font_disp[settings_font_idx] : "(none)"); break;
-        case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_disp[settings_wallpaper_idx]); break;
+        case RT_WALLPAPER: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_label()); break;
         case RT_WALLFIT:   snprintf(line, sizeof line, "%s: < %s >", tr(r->label), wallpaper_fit_names[settings_wallpaper_fit]); break;
         case RT_PALETTE: snprintf(line, sizeof line, "%s: < %s >", r->label, theme_get_name(settings_theme_idx)); break;
         case RT_THEME_PACK: snprintf(line, sizeof line, "%s: < %s >", tr(r->label), theme_pack_disp[settings_theme_pack_idx]); break;
@@ -6721,7 +6826,7 @@ static void render_settings_menu(void) {
         default:        snprintf(line, sizeof line, "%s", tr(r->label)); break;   /* RT_ACTION */
         }
         if (!settings_row_enabled(r)) {
-            const char *reason = r->type == RT_PALETTE ? "TreeFrogUI / ProMinimal only"
+            const char *reason = r->type == RT_PALETTE ? "TreeFrogUI themes only"
                                : r->type == RT_ICON_PACK
                                ? tr("settings.requires_system_view")
                                : tr("settings.requires_background_images");
@@ -6732,8 +6837,10 @@ static void render_settings_menu(void) {
         /* Options sit indented under their ">> HEADER" so the grouping reads
          * clearly. Headers stay flush at PADDING. */
         int ix = list_text_x + UI_S(16);
-        if (settings_menu_idx == idx && settings_row_enabled(r))
-            render_selection_pillbox(framebuffer, ix, y, line, 7, 0);
+        if (settings_menu_idx == idx)
+            render_item_pillbox(framebuffer, ix, y, line, 7, 0,
+                                settings_row_enabled(r) ? RENDER_ITEM_FOCUSED
+                                                        : RENDER_ITEM_DISABLED);
         else {
             int color = (!settings_row_enabled(r) || r->type == RT_OTG_STATUS ||
                          (r->type == RT_ROM_SOURCE && !otg_roms_available()))
@@ -6977,7 +7084,8 @@ static void render_port_error(void) {
 
 static void render_theme_page_background(void) {
     char path[512];
-    if (!render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png") ||
+    if (!(custom_wallpaper_path(path, sizeof path) ||
+          render_theme_asset_path(path, sizeof path, "640x480/image/wall/default.png")) ||
         !render_theme_canvas(framebuffer, path))
         render_clear_screen(framebuffer);
 }
@@ -7267,7 +7375,10 @@ void retro_run(void) {
          *   encodes root folder-preview + special entries), never selected_index
          *   directly. */
         (void)banner_last_sel;
-        int wp_active = settings_backgrounds && settings_wallpaper_idx > 0;
+        int wp_active = (settings_backgrounds || render_theme_current()->personal_appearance) &&
+                        settings_wallpaper_idx > 0;
+        if (wp_active && (size_t)settings_wallpaper_idx <= HORIZONTAL_WALLPAPER_COUNT)
+            wp_active = settings_horizontal_active();
         int need_reload;
         if (wp_active) {
             need_reload = (settings_wallpaper_idx != banner_last_wp ||
@@ -7579,6 +7690,23 @@ void retro_run(void) {
             render_activity_page(framebuffer);
 
         render_legend(framebuffer, legend_mode, show_select, show_search);
+        }
+        if (explore_layout_available()) {
+            const char *hint = selected_index < entry_count && !entries[selected_index].is_dir
+                             ? "L2: View" : "Y/L2: View";
+            font_set_render_scale(85);
+            int baseline, cap_h;
+            font_cap_metrics(&baseline, &cap_h);
+            int height = UI_S(render_theme_current()->legend_height);
+            int y = SCREEN_HEIGHT - UI_S(6) - height;
+            int width = font_measure_text(hint);
+            if (frogui_pillboxes_get())
+                render_rounded_rect_alpha(framebuffer, PADDING - UI_S(3), y,
+                    width + UI_S(6), height, UI_S(6), COLOR_LEGEND_BG,
+                    render_theme_colour_alpha(RENDER_COLOUR_LEGEND_BACKGROUND));
+            font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, PADDING,
+                y + height / 2 - (baseline - cap_h / 2), hint, COLOR_LEGEND);
+            font_set_render_scale(100);
         }
     }
 

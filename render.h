@@ -116,6 +116,14 @@ void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
 // Draw a text pillbox with proper padding (unified method)
 void render_selection_pillbox(uint16_t *framebuffer, int x, int y,
                               const char *text, int padding, int is_bold);
+typedef enum {
+  RENDER_ITEM_NORMAL,
+  RENDER_ITEM_FOCUSED,
+  RENDER_ITEM_DISABLED
+} RenderItemState;
+
+void render_item_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
+                         int padding, int is_bold, RenderItemState state);
 void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
                          uint16_t bg_color, uint16_t text_color, int padding,
                          int is_bold);
@@ -164,6 +172,9 @@ typedef struct {
 /* Artwork variants understood by the browser. */
 typedef enum { ARTWORK_BOXART = 0, ARTWORK_TITLE_SCREEN = 1 } ArtworkKind;
 
+/* One semantic item style shared by the browser and settings lists. Imported
+ * themes describe these roles independently; callers should not guess a
+ * contrasting colour or duplicate the alpha handling. */
 // Load thumbnail from PNG file
 int load_thumbnail(const char *png_path, Thumbnail *thumb);
 

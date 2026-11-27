@@ -27,6 +27,7 @@ void render_set_geometry(int w, int h, int ui_scale) {
     g_screen_h = h;
   if (ui_scale > 0)
     g_ui_scale = ui_scale;
+  render_theme_set_canvas_size(g_screen_w, g_screen_h);
 }
 
 void render_init(uint16_t *framebuffer) {
@@ -137,20 +138,64 @@ void render_rounded_rect(uint16_t *framebuffer, int x, int y, int width,
   render_rounded_rect_alpha(framebuffer, x, y, width, height, radius, color, 255);
 }
 
-static void render_selection_indicator(uint16_t *framebuffer, int x, int y, int height) {
-  const RenderTheme *theme = render_theme_current();
-  if (!(theme->colour_mask & (1u << RENDER_COLOUR_SELECTION_INDICATOR)))
+typedef struct {
+  uint16_t text;
+  uint16_t fill;
+  uint16_t indicator;
+  uint8_t fill_alpha;
+  uint8_t indicator_alpha;
+} RenderItemStyle;
+
+static uint16_t item_backdrop(uint16_t *framebuffer, int x, int y, int height) {
+  int sample_y = y + height / 2;
+  if (x < 0 || x >= SCREEN_WIDTH || sample_y < 0 || sample_y >= SCREEN_HEIGHT)
+    return COLOR_BG;
+  return framebuffer[sample_y * SCREEN_WIDTH + x];
+}
+
+static uint16_t item_contrast(uint16_t bg) {
+  unsigned brightness = 2 * ((bg >> 11) & 31) + 2 * ((bg >> 5) & 63) + (bg & 31);
+  return brightness >= 100 ? 0x0000 : 0xffff;
+}
+
+static void render_selection_indicator(uint16_t *framebuffer, int x, int y,
+                                       int height, const RenderItemStyle *style) {
+  if (!style->indicator_alpha)
     return;
-  uint8_t alpha = render_theme_colour_alpha(RENDER_COLOUR_SELECTION_INDICATOR);
   render_rounded_rect_alpha(framebuffer, x, y + UI_S(2), UI_S(3),
-                            height - UI_S(4), 0,
-                            theme->colours[RENDER_COLOUR_SELECTION_INDICATOR], alpha);
+                            height - UI_S(4), 0, style->indicator,
+                            style->indicator_alpha);
+}
+
+static void render_item_style(RenderItemState state, RenderItemStyle *style) {
+  if (!style)
+    return;
+  memset(style, 0, sizeof(*style));
+  if (state == RENDER_ITEM_FOCUSED) {
+    style->text = COLOR_SELECT_TEXT;
+    style->fill = COLOR_SELECT_BG;
+    style->fill_alpha = render_theme_colour_alpha(RENDER_COLOUR_SELECTION);
+    if (render_theme_current()->colour_mask &
+        (1u << RENDER_COLOUR_SELECTION_INDICATOR)) {
+      style->indicator = render_theme_current()->colours[RENDER_COLOUR_SELECTION_INDICATOR];
+      style->indicator_alpha = render_theme_colour_alpha(RENDER_COLOUR_SELECTION_INDICATOR);
+    }
+    return;
+  }
+
+  style->text = state == RENDER_ITEM_DISABLED ? COLOR_DISABLED : COLOR_TEXT;
+  style->fill = render_theme_colour(RENDER_COLOUR_LIST_BACKGROUND, COLOR_BG);
+  /* An omitted idle list background must not become an opaque panel over a
+   * wallpaper. Imported themes opt into this layer by declaring the RGB. */
+  style->fill_alpha = (render_theme_current()->colour_mask &
+                       (1u << RENDER_COLOUR_LIST_BACKGROUND))
+                    ? render_theme_colour_alpha(RENDER_COLOUR_LIST_BACKGROUND) : 0;
 }
 
 static void render_text_pillbox_alpha(uint16_t *framebuffer, int x, int y,
                                       const char *text, uint16_t bg_color,
                                       uint16_t text_color, int padding,
-                                      int is_bold, uint8_t alpha, int selection) {
+                                      int is_bold, uint8_t alpha, const RenderItemStyle *selection) {
   if (!framebuffer || !text)
     return;
 
@@ -171,8 +216,18 @@ static void render_text_pillbox_alpha(uint16_t *framebuffer, int x, int y,
 
   render_rounded_rect_alpha(framebuffer, pillbox_x, pillbox_y, pillbox_width,
                             pillbox_height, 6, bg_color, alpha);
-  if (selection)
-    render_selection_indicator(framebuffer, pillbox_x, pillbox_y, pillbox_height);
+  if (selection) {
+    uint16_t backdrop = item_backdrop(framebuffer, x, pillbox_y, pillbox_height);
+    RenderItemStyle marker = *selection;
+    if (!marker.indicator_alpha && (!alpha || backdrop == COLOR_BG) &&
+        (text_color == COLOR_TEXT || text_color == COLOR_DISABLED)) {
+      marker.indicator = item_contrast(backdrop);
+      marker.indicator_alpha = 255;
+    }
+    render_selection_indicator(framebuffer, pillbox_x, pillbox_y, pillbox_height, &marker);
+    if (text_color == backdrop)
+      text_color = item_contrast(backdrop);
+  }
   font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, x, y, text,
                  text_color, is_bold);
 }
@@ -181,14 +236,23 @@ void render_text_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
                          uint16_t bg_color, uint16_t text_color, int padding,
                          int is_bold) {
   render_text_pillbox_alpha(framebuffer, x, y, text, bg_color, text_color,
-                            padding, is_bold, 255, 0);
+                            padding, is_bold, 255, NULL);
 }
 
 void render_selection_pillbox(uint16_t *framebuffer, int x, int y,
                               const char *text, int padding, int is_bold) {
-  render_text_pillbox_alpha(framebuffer, x, y, text, COLOR_SELECT_BG,
-                            COLOR_SELECT_TEXT, padding, is_bold,
-                            render_theme_colour_alpha(RENDER_COLOUR_SELECTION), 1);
+  render_item_pillbox(framebuffer, x, y, text, padding, is_bold,
+                      RENDER_ITEM_FOCUSED);
+}
+
+void render_item_pillbox(uint16_t *framebuffer, int x, int y, const char *text,
+                         int padding, int is_bold, RenderItemState state) {
+  RenderItemStyle style;
+  render_item_style(RENDER_ITEM_FOCUSED, &style);
+  if (state == RENDER_ITEM_DISABLED)
+    style.text = COLOR_DISABLED;
+  render_text_pillbox_alpha(framebuffer, x, y, text, style.fill, style.text,
+                            padding, is_bold, style.fill_alpha, &style);
 }
 
 void render_battery_colors(uint16_t *framebuffer, int pct, uint16_t bg_color,
@@ -481,22 +545,39 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
              ? CONTENT_X + UI_S(render_theme_current()->list_padding_left)
              : PADDING;
   if (render_theme_current()->scheme_name[0]) {
+    RenderItemStyle item_style;
+    render_item_style(is_selected ? RENDER_ITEM_FOCUSED : RENDER_ITEM_NORMAL,
+                      &item_style);
     int baseline = 0, cap_h = 0;
     font_cap_metrics(&baseline, &cap_h);
     int text_y = y + ITEM_HEIGHT / 2 - baseline + cap_h / 2;
-    if (is_selected) {
-      render_rounded_rect_alpha(framebuffer, CONTENT_X, selected_pill_y, CONTENT_WIDTH,
+    /* Paint the authored list layer even when idle. This is important for
+     * MuOS themes that use a translucent list panel over a wallpaper. */
+    if (item_style.fill_alpha) {
+      int fill_y = is_selected ? selected_pill_y : y;
+      render_rounded_rect_alpha(framebuffer, CONTENT_X, fill_y, CONTENT_WIDTH,
                                 ITEM_HEIGHT, render_theme_current()->selected_radius,
-                                COLOR_SELECT_BG,
-                                render_theme_colour_alpha(RENDER_COLOUR_SELECTION));
-      render_selection_indicator(framebuffer, CONTENT_X, selected_pill_y, ITEM_HEIGHT);
+                                item_style.fill, item_style.fill_alpha);
     }
+    uint16_t backdrop = item_backdrop(framebuffer, text_x, y, ITEM_HEIGHT);
+    if (is_selected) {
+      if (!item_style.indicator_alpha &&
+          (!item_style.fill_alpha || backdrop == COLOR_BG) &&
+          item_style.text == COLOR_TEXT) {
+        item_style.indicator = item_contrast(backdrop);
+        item_style.indicator_alpha = 255;
+      }
+      render_selection_indicator(framebuffer, CONTENT_X, selected_pill_y,
+                                 ITEM_HEIGHT, &item_style);
+    }
+    if (item_style.text == backdrop)
+      item_style.text = item_contrast(backdrop);
     if (is_favorited) {
       font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, CONTENT_X, text_y, "*",
                      COLOR_HEADER, 0);
       text_x += UI_S(16);
     }
-    uint16_t icon = is_selected ? COLOR_SELECT_TEXT : is_dir ? COLOR_FOLDER : COLOR_TEXT;
+    uint16_t icon = is_selected ? item_style.text : is_dir ? COLOR_FOLDER : item_style.text;
     int icon_x = CONTENT_X + UI_S(render_theme_current()->list_glyph_padding_left);
     int icon_size = UI_S(25);
     int icon_y = y + (ITEM_HEIGHT - icon_size) / 2;
@@ -510,7 +591,7 @@ void render_menu_row(uint16_t *framebuffer, const char *name, int is_dir,
                        UI_S(9), UI_S(2), COLOR_BG);
     }
     font_draw_text(framebuffer, SCREEN_WIDTH, SCREEN_HEIGHT, text_x, text_y, name,
-                   is_selected ? COLOR_SELECT_TEXT : COLOR_TEXT, 0);
+                   item_style.text, 0);
     return;
   }
   if (is_favorited) {
@@ -1052,9 +1133,9 @@ int render_theme_canvas(uint16_t *framebuffer, const char *path) {
     }
   }
 
-  /* shortcut: accepts MuOS 640x480 canvases; add per-resolution lookup for other package sizes. */
   int sw = 0, sh = 0, channels = 0;
-  if (!stbi_info(path, &sw, &sh, &channels) || sw != 640 || sh != 480) return 0;
+  if (!stbi_info(path, &sw, &sh, &channels) || sh != 480 ||
+      (sw != 640 && (sw != 854 || SCREEN_WIDTH != 854 || SCREEN_HEIGHT != 480))) return 0;
   unsigned char *rgba = stbi_load(path, &sw, &sh, &channels, 4);
   if (!rgba) return 0;
   int dw = SCREEN_WIDTH, dh = dw * sh / sw;

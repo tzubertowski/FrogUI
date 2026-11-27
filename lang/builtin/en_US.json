@@ -104,6 +104,7 @@
   "app.videos": "Videos",
   "app.music_mp3": "Music / MP3",
   "app.rockbox": "Rockbox",
+  "app.reboot": "Reboot",
   "app.shutdown": "Shutdown",
   "pico.menu.resume": "Resume game",
   "pico.menu.save_state": "Save state",

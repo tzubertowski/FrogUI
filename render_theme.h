@@ -71,6 +71,7 @@ typedef struct {
     int list_padding_bottom;
     RenderHomeLayout home_layout;
     int home_layout_explicit;
+    int personal_appearance;
     char style_name[32];
     char scheme_name[32];
     char font_file[96];
@@ -78,10 +79,12 @@ typedef struct {
     uint16_t colours[RENDER_COLOUR_COUNT];
     uint8_t colour_alpha[RENDER_COLOUR_COUNT];
     unsigned colour_mask;
+    unsigned colour_alpha_mask;
     uint16_t grid_colours[RENDER_GRID_COLOUR_COUNT];
     unsigned grid_colour_mask;
 } RenderTheme;
 
+void render_theme_set_canvas_size(int width, int height);
 void render_theme_load(const char *style_name, const char *scheme_name);
 void render_theme_set_screen(RenderThemeScreen screen);
 const RenderTheme *render_theme_current(void);
