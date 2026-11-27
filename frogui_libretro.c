@@ -178,7 +178,8 @@ static const ConsoleMapping console_mappings[] = {
     /* MSX */
     {"msx",    CORES_PATH "/bluemsx_libretro.so"},
     /* C64 */
-    {"c64",    CORES_PATH "/vice_x64_libretro.so"},
+    {"c64",    CORES_PATH "/frodo_libretro.so"},
+    {"c64v",   CORES_PATH "/vice_x64_libretro.so"},
     {"c64sc",  CORES_PATH "/vice_x64_libretro.so"},   /* only x64 built; x64sc not compiled */
     {"c64f",   CORES_PATH "/frodo_libretro.so"},
     {"c64fc",  CORES_PATH "/frodo_libretro.so"},
@@ -322,7 +323,7 @@ static const ExtensionMapping ext_mappings[] = {
     {".int",  CORES_PATH "/freeintv_libretro.so"},
     {".bin",  CORES_PATH "/freechaf_libretro.so"},
     {".sv",   CORES_PATH "/potator_libretro.so"},
-    {".d64",  CORES_PATH "/vice_x64_libretro.so"},
+    {".d64",  CORES_PATH "/frodo_libretro.so"},
     {".tap",  CORES_PATH "/fuse_libretro.so"},
     {".tzx",  CORES_PATH "/fuse_libretro.so"},
     {".dsk",  CORES_PATH "/cap32_libretro.so"},
@@ -2246,7 +2247,8 @@ static SystemLabel system_labels[] = {
     {"scummvm", "ScummVM"},
     {"arcade", "Arcade"}, {"m2k", "Arcade - MAME 2000"}, {"cps1", "Arcade - Capcom CPS-1"},
     {"cps2", "Arcade - Capcom CPS-2"}, {"cps3", "Arcade - Capcom CPS-3"},
-    {"c64", "Commodore 64"}, {"c64sc", "Commodore 64"},
+    {"c64", "Commodore 64"}, {"c64v", "Commodore 64 - VICE"},
+    {"c64sc", "Commodore 64 - VICE"},
     {"c64f", "Commodore 64 - Frodo"}, {"c64fc", "Commodore 64 - Frodo"},
     {"amiga", "Commodore Amiga"}, {"vic20", "Commodore VIC-20"},
     {"atari-st", "Atari ST"}, {"msx", "MSX"}, {"msx2", "MSX2"},
